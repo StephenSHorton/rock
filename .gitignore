@@ -1,0 +1,85 @@
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.code-workspace
+.cursor/
+.claude/
+
+# --- Secrets / credentials ---
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.key
+*.crt
+id_rsa
+id_ed25519
+*.secret
+secrets/
+credentials.json
+service-account*.json
+
+# --- Go ---
+bin/
+pkg/
+vendor/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+go.work.sum
+coverage.out
+coverage.html
+
+# --- Rust ---
+target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# --- Node ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+dist/
+.turbo/
+.cache/
+.next/
+.nuxt/
+.output/
+*.tsbuildinfo
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# --- Local / generated ---
+*.log
+.tmp/
+tmp/
+.rock/
