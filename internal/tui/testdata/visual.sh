@@ -50,12 +50,13 @@ up() {
 	cat >"$WORK/tmux.conf" <<-'EOF'
 		set -g default-terminal "tmux-256color"
 		set -as terminal-features ",xterm*:RGB"
+		set -as terminal-overrides ",xterm*:Tc"
 		set -g status off
 		set -g escape-time 10
 		set -g mouse off
 	EOF
 	t kill-server 2>/dev/null || true
-	t new-session -d -s rock -x "$cols" -y "$rows" -c "$WORK/project"
+	env -u NO_COLOR tmux -L "$SOCK" -f "$WORK/tmux.conf" new-session -d -s rock -x "$cols" -y "$rows" -c "$WORK/project"
 	xterm -b 0 -geometry "${cols}x${rows}+16+16" -fa 'JetBrains Mono' -fs 12 \
 		-bg "$bg" -fg "$fg" -cr '#e7a15a' -T "$TITLE" -n "$TITLE" \
 		-e tmux -L "$SOCK" -f "$WORK/tmux.conf" attach -t rock >/dev/null 2>&1 &
@@ -73,10 +74,11 @@ llm() {
 }
 
 # run UNSETS ASSIGNMENTS starts rock in the pane with a fresh ROCK_HOME.
+# NO_COLOR is dropped on purpose: Rock honors it, and this is a color check.
 run() {
 	local home
 	home=$(mktemp -d /tmp/rock-home.XXXXXX)
-	t send-keys -t "$PANE" "clear; cd $WORK/project && env -u OPENAI_API_KEY -u JEV_API_KEY -u TYPESAFE_API_KEY $1 ROCK_HOME=$home COLORTERM=truecolor $2 $ROCK_BIN" Enter
+	t send-keys -t "$PANE" "clear; cd $WORK/project && env -u NO_COLOR -u OPENAI_API_KEY -u JEV_API_KEY -u TYPESAFE_API_KEY $1 ROCK_HOME=$home COLORTERM=truecolor $2 $ROCK_BIN" Enter
 }
 
 offline() {
@@ -110,7 +112,7 @@ click() {
 shot() {
 	local x y w h
 	read -r x y w h < <(geom)
-	ffmpeg -loglevel error -y -f x11grab -video_size "${w}x${h}" -i "$DISPLAY+$x,$y" -frames:v 1 "$ART/$1.png"
+	ffmpeg -loglevel error -y -f x11grab -draw_mouse 0 -video_size "${w}x${h}" -i "$DISPLAY+$x,$y" -frames:v 1 "$ART/$1.png"
 	echo "$ART/$1.png"
 }
 

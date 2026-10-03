@@ -2,11 +2,14 @@ package tui
 
 import (
 	"image/color"
+	"sync"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/table"
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/lipgloss/v2"
+	"github.com/alecthomas/chroma/v2"
+	chromastyles "github.com/alecthomas/chroma/v2/styles"
 	gansi "github.com/charmbracelet/glamour/ansi"
 )
 
@@ -176,8 +179,7 @@ func (t theme) markdown() gansi.StyleConfig {
 	off := func() *bool { v := false; return &v }
 	num := func(v uint) *uint { return &v }
 
-	ground, panel := hex(palette.Ground), hex(palette.Panel)
-	copper, hot := hex(palette.Copper), hex(palette.Hot)
+	ground, panel, copper := hex(palette.Ground), hex(palette.Panel), hex(palette.Copper)
 	text, mute := hex(palette.Text), hex(palette.Mute)
 
 	return gansi.StyleConfig{
@@ -225,35 +227,7 @@ func (t theme) markdown() gansi.StyleConfig {
 				StylePrimitive: gansi.StylePrimitive{Color: text},
 				Margin:         num(1),
 			},
-			Chroma: &gansi.Chroma{
-				Text:                gansi.StylePrimitive{Color: text},
-				Error:               gansi.StylePrimitive{Color: hot},
-				Comment:             gansi.StylePrimitive{Color: mute, Italic: on()},
-				CommentPreproc:      gansi.StylePrimitive{Color: hot},
-				Keyword:             gansi.StylePrimitive{Color: hot},
-				KeywordReserved:     gansi.StylePrimitive{Color: hot},
-				KeywordNamespace:    gansi.StylePrimitive{Color: hot},
-				KeywordType:         gansi.StylePrimitive{Color: copper},
-				Operator:            gansi.StylePrimitive{Color: mute},
-				Punctuation:         gansi.StylePrimitive{Color: mute},
-				Name:                gansi.StylePrimitive{Color: text},
-				NameBuiltin:         gansi.StylePrimitive{Color: copper},
-				NameTag:             gansi.StylePrimitive{Color: copper},
-				NameAttribute:       gansi.StylePrimitive{Color: copper},
-				NameClass:           gansi.StylePrimitive{Color: text, Bold: on()},
-				NameConstant:        gansi.StylePrimitive{Color: copper},
-				NameDecorator:       gansi.StylePrimitive{Color: hot},
-				NameFunction:        gansi.StylePrimitive{Color: copper},
-				LiteralNumber:       gansi.StylePrimitive{Color: hot},
-				LiteralString:       gansi.StylePrimitive{Color: copper},
-				LiteralStringEscape: gansi.StylePrimitive{Color: hot},
-				GenericDeleted:      gansi.StylePrimitive{Color: hot},
-				GenericEmph:         gansi.StylePrimitive{Italic: on()},
-				GenericInserted:     gansi.StylePrimitive{Color: copper},
-				GenericStrong:       gansi.StylePrimitive{Bold: on()},
-				GenericSubheading:   gansi.StylePrimitive{Color: mute},
-				Background:          gansi.StylePrimitive{BackgroundColor: panel},
-			},
+			Theme: codeTheme(t.dark),
 		},
 		Table: gansi.StyleTable{
 			StyleBlock:      gansi.StyleBlock{StylePrimitive: gansi.StylePrimitive{Color: text}},
@@ -262,5 +236,58 @@ func (t theme) markdown() gansi.StyleConfig {
 			RowSeparator:    str("─"),
 		},
 		DefinitionDescription: gansi.StylePrimitive{BlockPrefix: "\n› "},
+	}
+}
+
+var registerCodeThemes sync.Once
+
+// codeTheme names the Chroma style for code blocks. Glamour registers an
+// inline Chroma config once per process under one shared name, so a light
+// and a dark config cannot both live there. Rock registers its own pair.
+func codeTheme(dark bool) string {
+	registerCodeThemes.Do(func() {
+		for _, d := range []bool{true, false} {
+			chromastyles.Register(chroma.MustNewStyle(codeThemeName(d), codeEntries(d)))
+		}
+	})
+	return codeThemeName(dark)
+}
+
+func codeThemeName(dark bool) string {
+	if dark {
+		return "rock-dark"
+	}
+	return "rock-light"
+}
+
+func codeEntries(dark bool) chroma.StyleEntries {
+	copper, hot := palette.Copper.pick(dark), palette.Hot.pick(dark)
+	text, mute := palette.Text.pick(dark), palette.Mute.pick(dark)
+	return chroma.StyleEntries{
+		chroma.Text:                text,
+		chroma.Error:               hot,
+		chroma.Comment:             "italic " + mute,
+		chroma.CommentPreproc:      hot,
+		chroma.Keyword:             hot,
+		chroma.KeywordType:         copper,
+		chroma.Operator:            mute,
+		chroma.Punctuation:         mute,
+		chroma.Name:                text,
+		chroma.NameBuiltin:         copper,
+		chroma.NameTag:             copper,
+		chroma.NameAttribute:       copper,
+		chroma.NameClass:           "bold " + text,
+		chroma.NameConstant:        copper,
+		chroma.NameDecorator:       hot,
+		chroma.NameFunction:        copper,
+		chroma.LiteralNumber:       hot,
+		chroma.LiteralString:       copper,
+		chroma.LiteralStringEscape: hot,
+		chroma.GenericDeleted:      hot,
+		chroma.GenericEmph:         "italic",
+		chroma.GenericInserted:     copper,
+		chroma.GenericStrong:       "bold",
+		chroma.GenericSubheading:   mute,
+		chroma.Background:          text,
 	}
 }

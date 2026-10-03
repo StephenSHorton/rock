@@ -519,7 +519,11 @@ func (m *Model) statusView() string {
 		if barW > 0 {
 			meter := m.meter
 			meter.SetWidth(barW)
-			ctx += meter.ViewAs(m.meterP) + " "
+			fill := m.meterP
+			if fill > 0 && fill*float64(barW) < 1 {
+				fill = 1 / float64(barW)
+			}
+			ctx += meter.ViewAs(fill) + " "
 		}
 		ctx += pctStyle.Render(pct)
 		return " " + badges + "  " + jevSeg + "  " + model + "  " + ctx
@@ -715,7 +719,11 @@ func (m *Model) markdown(src string, width int) string {
 	r := m.md[width]
 	if r == nil {
 		var err error
-		r, err = glamour.NewTermRenderer(glamour.WithStyles(m.th.markdown()), glamour.WithWordWrap(width))
+		r, err = glamour.NewTermRenderer(
+			glamour.WithStyles(m.th.markdown()),
+			glamour.WithWordWrap(width),
+			glamour.WithChromaFormatter("terminal16m"),
+		)
 		if err != nil {
 			return m.th.plain.Render(wrapText(src, width))
 		}

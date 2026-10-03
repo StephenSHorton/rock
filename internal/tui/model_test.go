@@ -517,6 +517,20 @@ func TestAssistantMarkdownUsesTheRockPalette(t *testing.T) {
 	}
 }
 
+func TestCodeBlocksFollowTheThemeInTruecolor(t *testing.T) {
+	m := sized(t, 120, 30)
+	m.Update(eventMsg{harness.Event{Kind: harness.EvAssistant, Text: "```go\nfmt.Println(\"hi\") // say hi\n```"}})
+	dark := m.View().Content
+	if !strings.Contains(dark, "38;2;231;161;90") || strings.Contains(dark, "38;5;") {
+		t.Fatal("dark code block should be truecolor copper")
+	}
+	m.Update(tea.BackgroundColorMsg{Color: color.White})
+	light := m.View().Content
+	if !strings.Contains(light, "38;2;164;86;27") || strings.Contains(light, "38;2;231;161;") || strings.Contains(light, "38;5;") {
+		t.Fatal("light code block should switch to the light copper")
+	}
+}
+
 func TestPlaceholderListsEverySlashCommandAndTheyAllWork(t *testing.T) {
 	all := []string{"/help", "/plan", "/yolo", "/default", "/sessions", "/permissions", "/agents", "/ready", "/fork", "/quit"}
 	m := sized(t, 80, 24)
