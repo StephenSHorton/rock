@@ -61,7 +61,7 @@ The model can also call `jev_decide` itself. Same client. The loop does not trus
 
 Suzuri is the host (window, PTY, GPU chrome). Rock is a guest program inside a pane, not a second window and not a framebuffer guest.
 
-1. **OSC 7880**, the sequence Suzuri already parses for grok-fork: `ESC ] 7880 ; new=1 ; session=… ; bin=… ; prompt=… ; title=… ; brand=rock BEL`. `rock fork` prints it, including a session id. Suzuri builds argv from an allowlisted binary. The host allowlist includes `rock`. For that basename the launch env is `ROCK_SESSION_TITLE`, and Rock uses it as the session title. Grok keeps its own `GROK_*` env.
+1. **OSC 7880**, the sequence Suzuri already parses for grok-fork: `ESC ] 7880 ; new=1 ; session=… ; bin=… ; prompt=… ; title=… ; brand=rock BEL`. `rock fork` prints it, including a session id. Suzuri builds argv from an allowlisted binary. The host allowlist includes `rock`. For that basename the launch env is `ROCK_SESSION_TITLE`, and Rock uses it as the session title. Grok keeps its own `GROK_*` env. The host diff is [`contrib/suzuri-rock-osc.patch`](../../contrib/suzuri-rock-osc.patch). `cargo test --lib fork_osc` on Suzuri chrome passed with that patch (15 tests). Pushing it needs write access to `StephenSHorton/suzuri`.
 2. **MCP.** Default config can spawn `suzuri mcp` so the agent can read the live pane, notes, and workspace. The GUI has to be running; that is Suzuri’s model.
 3. **ACP and serve** stay available if a later Suzuri pane wants a side channel. The PTY path is the one that works today.
 
