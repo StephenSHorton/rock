@@ -182,6 +182,9 @@ func startTUI(app *cli.App, sess *session.Session, initial string, rules []strin
 		ReviewOnly:    app.Policy().ReviewOnly,
 		JevMode:       app.Gates.Mode(),
 		Gates:         app.Gates,
+		Provider:      app.Provider.Name(),
+		FastModel:     app.FastModel(),
+		StrongModel:   app.StrongModel(),
 		InitialPrompt: initial,
 		Run:           app.RunTurn,
 		ListSessions: func() []session.Meta {

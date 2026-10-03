@@ -4,9 +4,14 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"image/color"
 	"io"
+	"math"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -19,7 +24,6 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/harmonica"
 
@@ -30,7 +34,22 @@ import (
 	"github.com/StephenSHorton/rock/internal/session"
 )
 
-const contextLimit = 24000
+const (
+	// contextLimit is the session size at which the offline Jev policy
+	// compacts, so a full meter means compaction is next.
+	contextLimit = 24000
+	// wideAt is the width from which the plan column is always shown.
+	wideAt = 100
+	// splitMin is the narrowest width that still puts the plan beside the
+	// transcript. Narrower screens stack the plan above it in plan mode.
+	splitMin = 64
+	// gutter is the speaker column of the transcript.
+	gutter = 6
+	fps    = 30
+
+	readyText   = "Rock is ready. The transcript lives in the session store, not in this screen."
+	placeholder = "Ask Rock. /help /plan /yolo /default /sessions /permissions /agents /ready /fork /quit"
+)
 
 // RunFunc executes one turn against the session the screen is showing.
 type RunFunc func(ctx context.Context, sess *session.Session, prompt string, ask harness.AskFunc, sink func(harness.Event)) error
@@ -43,6 +62,9 @@ type Deps struct {
 	ReviewOnly    bool
 	JevMode       string
 	Gates         jev.Gates
+	Provider      string
+	FastModel     string
+	StrongModel   string
 	Run           RunFunc
 	LoadSession   func(id string) (*session.Session, error)
 	ListSessions  func() []session.Meta
@@ -55,18 +77,34 @@ type Deps struct {
 
 type line struct {
 	kind string
+	name string
 	text string
+
+	out     string
+	outW    int
+	outDark bool
 }
 
 type rowItem struct {
 	title string
 	desc  string
 	id    string
+	tag   string
 }
 
 func (r rowItem) FilterValue() string { return r.title + " " + r.desc }
 func (r rowItem) Title() string       { return r.title }
 func (r rowItem) Description() string { return r.desc }
+
+type overlay int
+
+const (
+	noOverlay overlay = iota
+	helpOverlay
+	sessionsOverlay
+	permsOverlay
+	agentsOverlay
+)
 
 type askMsg struct {
 	tool   string
@@ -75,53 +113,94 @@ type askMsg struct {
 }
 
 type eventMsg struct{ ev harness.Event }
-type turnDone struct{ err error }
+
+// turnEvent is an event from a running turn plus the session size the
+// harness had reached, read on the harness goroutine.
+type turnEvent struct {
+	ev  harness.Event
+	ctx int
+}
+
+type turnDone struct {
+	err error
+	ctx int
+}
+
 type tickMsg time.Time
 type forkNote struct{ text string }
 
 type keyMap struct {
-	submit key.Binding
-	quit   key.Binding
-	help   key.Binding
-	allow  key.Binding
-	deny   key.Binding
-	up     key.Binding
-	down   key.Binding
+	submit  key.Binding
+	newline key.Binding
+	help    key.Binding
+	quit    key.Binding
+	scroll  key.Binding
+	up      key.Binding
+	down    key.Binding
+	allow   key.Binding
+	deny    key.Binding
+	close   key.Binding
+	move    key.Binding
+	pick    key.Binding
 }
 
 func newKeys() keyMap {
 	return keyMap{
-		submit: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "send")),
-		quit:   key.NewBinding(key.WithKeys("ctrl+c", "esc"), key.WithHelp("ctrl+c", "quit")),
-		help:   key.NewBinding(key.WithKeys("ctrl+h"), key.WithHelp("ctrl+h", "help")),
-		allow:  key.NewBinding(key.WithKeys("y", "a"), key.WithHelp("y", "allow")),
-		deny:   key.NewBinding(key.WithKeys("n", "d"), key.WithHelp("n", "deny")),
-		up:     key.NewBinding(key.WithKeys("pgup", "ctrl+u"), key.WithHelp("pgup", "scroll")),
-		down:   key.NewBinding(key.WithKeys("pgdown", "ctrl+d"), key.WithHelp("pgdn", "scroll")),
+		submit:  key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "send")),
+		newline: key.NewBinding(key.WithKeys("shift+enter", "ctrl+j", "alt+enter"), key.WithHelp("ctrl+j", "new line")),
+		help:    key.NewBinding(key.WithKeys("ctrl+h"), key.WithHelp("ctrl+h", "help")),
+		quit:    key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit")),
+		scroll:  key.NewBinding(key.WithKeys("pgup", "pgdown"), key.WithHelp("pgup/pgdn", "scroll")),
+		up:      key.NewBinding(key.WithKeys("pgup", "ctrl+u"), key.WithHelp("pgup", "scroll up")),
+		down:    key.NewBinding(key.WithKeys("pgdown", "ctrl+d"), key.WithHelp("pgdn", "scroll down")),
+		allow:   key.NewBinding(key.WithKeys("y", "a"), key.WithHelp("y", "allow")),
+		deny:    key.NewBinding(key.WithKeys("n", "d"), key.WithHelp("n", "deny")),
+		close:   key.NewBinding(key.WithKeys("esc", "q"), key.WithHelp("esc", "close")),
+		move:    key.NewBinding(key.WithKeys("up", "down", "k", "j"), key.WithHelp("↑/↓", "move")),
+		pick:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "resume")),
 	}
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.submit, k.help, k.up, k.quit}
+	return []key.Binding{k.submit, k.newline, k.scroll, k.help, k.quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.submit, k.quit, k.help},
-		{k.allow, k.deny, k.up, k.down},
+		{k.submit, k.newline, k.up, k.down},
+		{k.help, k.close, k.quit},
+		{k.allow, k.deny},
 	}
+}
+
+// geometry is where each part of the screen sits for the current size and
+// state. layout computes it; View only reads it.
+type geometry struct {
+	w, h         int
+	bodyY, bodyH int
+	composerRows int
+	helpRows     int
+	transcriptW  int
+	planW        int
+	planH        int
+	askH         int
+	vpY, vpH     int
 }
 
 // Model is the Bubble Tea program.
 type Model struct {
 	deps Deps
 	keys keyMap
+	th   theme
 
 	width  int
 	height int
+	geo    geometry
 
 	lines    []line
 	vp       viewport.Model
+	planVP   viewport.Model
+	sheet    viewport.Model
 	input    textarea.Model
 	spin     spinner.Model
 	help     help.Model
@@ -131,99 +210,129 @@ type Model struct {
 	agents   table.Model
 	meter    progress.Model
 
-	showHelp     bool
-	showSessions bool
-	showPerms    bool
-	showAgents   bool
-	showPlan     bool
+	overlay  overlay
+	showPlan bool
 
-	pending *askMsg
-	busy    bool
-	status  string
-	plan    string
-	verdict string
-	follow  bool
+	pending   *askMsg
+	lastCall  harness.Event
+	busy      bool
+	status    string
+	alert     bool
+	plan      string
+	verdict   string
+	follow    bool
+	dragging  bool
+	turnModel string
 
-	spring harmonica.Spring
-	meterP float64
-	meterV float64
-	target float64
-	bytes  int
+	spring   harmonica.Spring
+	meterP   float64
+	meterV   float64
+	target   float64
+	ctxBytes int
+	ticking  bool
 
-	send   func(tea.Msg)
-	cancel context.CancelFunc
-	glam   *glamour.TermRenderer
-
-	header lipgloss.Style
-	dim    lipgloss.Style
-	user   lipgloss.Style
-	panel  lipgloss.Style
-	alert  lipgloss.Style
+	send     func(tea.Msg)
+	cancel   context.CancelFunc
+	md       map[int]*glamour.TermRenderer
+	contentW int
+	planW    int
 }
 
 func New(deps Deps) *Model {
+	if deps.Output == nil {
+		deps.Output = os.Stdout
+	}
+	m := &Model{
+		deps:   deps,
+		keys:   newKeys(),
+		follow: true,
+		status: "ready",
+		spring: harmonica.NewSpring(harmonica.FPS(fps), 7, 1),
+		md:     map[int]*glamour.TermRenderer{},
+	}
+
 	ta := textarea.New()
-	ta.Placeholder = "Ask Rock. Slash commands: /plan /yolo /sessions /permissions /agents /fork /ready /help"
+	ta.Placeholder = placeholder
 	ta.ShowLineNumbers = false
 	ta.CharLimit = 8000
+	ta.SetPromptFunc(2, func(info textarea.PromptInfo) string {
+		if info.LineNumber == 0 {
+			return "› "
+		}
+		return "  "
+	})
+	ta.KeyMap.InsertNewline = m.keys.newline
 	ta.SetHeight(3)
 	ta.SetWidth(40)
-	ta.Prompt = "› "
+	m.input = ta
 
-	spin := spinner.New(spinner.WithSpinner(spinner.Dot))
-	h := help.New()
-	h.Styles = help.DefaultDarkStyles()
+	m.vp = viewport.New(viewport.WithWidth(40), viewport.WithHeight(8))
+	m.planVP = viewport.New(viewport.WithWidth(30), viewport.WithHeight(8))
+	m.sheet = viewport.New(viewport.WithWidth(40), viewport.WithHeight(8))
+	m.spin = spinner.New(spinner.WithSpinner(spinner.MiniDot))
+	m.help = help.New()
+	m.help.ShortSeparator = " · "
 
-	vp := viewport.New(viewport.WithWidth(40), viewport.WithHeight(8))
-	meter := progress.New(progress.WithWidth(18), progress.WithoutPercentage())
-	agents := table.New(
-		table.WithColumns([]table.Column{{Title: "Kind", Width: 12}, {Title: "Status", Width: 12}, {Title: "Detail", Width: 32}}),
+	m.sessions = newList(rowDelegate{th: &m.th, rows: 2})
+	m.choices = newList(rowDelegate{th: &m.th, rows: 1})
+	m.choices.SetShowPagination(false)
+	m.perms = newList(rowDelegate{th: &m.th, rows: 1})
+	m.agents = table.New(
+		table.WithColumns(agentColumns(60)),
 		table.WithHeight(6),
+		table.WithFocused(true),
 	)
-	sessions := list.New(nil, list.NewDefaultDelegate(), 40, 10)
-	sessions.Title = "Sessions"
-	sessions.SetShowHelp(false)
-	sessions.SetFilteringEnabled(false)
-	sessions.SetShowStatusBar(false)
-	choices := list.New(nil, list.NewDefaultDelegate(), 40, 6)
-	choices.Title = "Allow this call?"
-	choices.SetShowHelp(false)
-	choices.SetFilteringEnabled(false)
-	choices.SetShowStatusBar(false)
-	permsList := list.New(nil, list.NewDefaultDelegate(), 40, 10)
-	permsList.Title = "Permissions"
-	permsList.SetShowHelp(false)
-	permsList.SetFilteringEnabled(false)
-	permsList.SetShowStatusBar(false)
+	m.meter = progress.New(progress.WithWidth(16))
 
-	m := &Model{
-		deps:     deps,
-		keys:     newKeys(),
-		vp:       vp,
-		input:    ta,
-		spin:     spin,
-		help:     h,
-		sessions: sessions,
-		choices:  choices,
-		perms:    permsList,
-		agents:   agents,
-		meter:    meter,
-		follow:   true,
-		status:   "ready",
-		spring:   harmonica.NewSpring(0.032, 7, 0.65),
-		header:   lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("111")),
-		dim:      lipgloss.NewStyle().Foreground(lipgloss.Color("245")),
-		user:     lipgloss.NewStyle().Foreground(lipgloss.Color("150")),
-		panel:    lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1),
-		alert:    lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("203")).Padding(0, 1),
-	}
-	if deps.Output == nil {
-		m.deps.Output = os.Stdout
-	}
+	m.applyTheme(true)
 	m.seedTranscript()
 	m.refreshPerms()
 	m.refreshPlan()
 	return m
+}
+
+func newList(d list.ItemDelegate) list.Model {
+	l := list.New(nil, d, 40, 10)
+	l.SetShowTitle(false)
+	l.SetShowHelp(false)
+	l.SetShowStatusBar(false)
+	l.SetFilteringEnabled(false)
+	l.DisableQuitKeybindings()
+	return l
+}
+
+func agentColumns(width int) []table.Column {
+	detail := max(12, width-10-10-6)
+	return []table.Column{{Title: "Kind", Width: 10}, {Title: "Status", Width: 10}, {Title: "Detail", Width: detail}}
+}
+
+// applyTheme rebuilds every style for a dark or light background.
+func (m *Model) applyTheme(dark bool) {
+	m.th = newTheme(dark)
+	m.input.SetStyles(m.th.composer())
+	m.help.Styles = m.th.keyHelp()
+	m.spin.Style = m.th.accent
+	m.agents.SetStyles(m.th.table())
+	for _, l := range []*list.Model{&m.sessions, &m.choices, &m.perms} {
+		l.Styles.ActivePaginationDot = m.th.accent.SetString("•")
+		l.Styles.InactivePaginationDot = m.th.faint.SetString("·")
+		l.Styles.NoItems = m.th.faint
+	}
+	hot, copper := m.th.hot, m.th.copper
+	m.meter = progress.New(
+		progress.WithWidth(m.meter.Width()),
+		progress.WithoutPercentage(),
+		progress.WithFillCharacters('━', '─'),
+		progress.WithColorFunc(func(total, _ float64) color.Color {
+			if total >= 0.8 {
+				return hot
+			}
+			return copper
+		}),
+	)
+	m.meter.EmptyColor = m.th.mute
+	m.md = map[int]*glamour.TermRenderer{}
+	m.contentW, m.planW = 0, 0
 }
 
 // Send is set by Run before the program starts so the harness can post events.
@@ -237,196 +346,235 @@ func Run(m *Model) error {
 }
 
 func (m *Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.input.Focus(), m.tick()}
-	if strings.TrimSpace(m.deps.InitialPrompt) != "" {
-		prompt := m.deps.InitialPrompt
+	cmds := []tea.Cmd{m.input.Focus(), tea.RequestBackgroundColor, m.retarget()}
+	if prompt := strings.TrimSpace(m.deps.InitialPrompt); prompt != "" {
 		m.deps.InitialPrompt = ""
+		m.lines = append(m.lines, line{kind: "user", text: prompt})
 		cmds = append(cmds, m.start(prompt))
 	}
 	return tea.Batch(cmds...)
 }
 
-func (m *Model) tick() tea.Cmd {
-	return tea.Tick(32*time.Millisecond, func(t time.Time) tea.Msg { return tickMsg(t) })
+func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	cmd := m.update(msg)
+	switch msg.(type) {
+	case tickMsg, spinner.TickMsg:
+	default:
+		m.layout()
+	}
+	return m, cmd
 }
 
-func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *Model) update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.layout()
-		m.syncView()
-		return m, nil
-	case tickMsg:
-		m.meterP, m.meterV = m.spring.Update(m.meterP, m.meterV, m.target)
-		if m.busy {
-			m.spin, _ = m.spin.Update(m.spin.Tick())
+		return nil
+	case tea.BackgroundColorMsg:
+		if msg.IsDark() != m.th.dark {
+			m.applyTheme(msg.IsDark())
 		}
-		return m, m.tick()
-	case progress.FrameMsg:
+		return nil
+	case tickMsg:
+		return m.stepMeter()
+	case spinner.TickMsg:
+		if !m.busy {
+			return nil
+		}
 		var cmd tea.Cmd
-		m.meter, cmd = m.meter.Update(msg)
-		return m, cmd
+		m.spin, cmd = m.spin.Update(msg)
+		return cmd
+	case turnEvent:
+		m.ctxBytes = msg.ctx
+		m.apply(msg.ev)
+		return m.retarget()
 	case eventMsg:
-		cmd := m.apply(msg.ev)
-		m.syncView()
-		return m, cmd
+		m.ctxBytes += eventBytes(msg.ev)
+		m.apply(msg.ev)
+		return m.retarget()
 	case turnDone:
 		m.busy = false
-		if msg.err != nil {
-			m.status = msg.err.Error()
+		m.turnModel = ""
+		if m.cancel != nil {
+			m.cancel()
+			m.cancel = nil
 		}
-		m.syncView()
-		return m, nil
+		if msg.err != nil && !errors.Is(msg.err, context.Canceled) {
+			m.setAlert(msg.err.Error())
+			m.lines = append(m.lines, line{kind: "error", text: msg.err.Error()})
+			m.syncView()
+		}
+		if msg.ctx > 0 {
+			m.ctxBytes = msg.ctx
+		}
+		return m.retarget()
 	case askMsg:
-		m.pending = &msg
-		m.choices.Title = msg.tool
-		items := []list.Item{
-			rowItem{title: "Allow", desc: clip(msg.detail, 80), id: "allow"},
-			rowItem{title: "Deny", desc: "block this call", id: "deny"},
-		}
-		cmd := m.choices.SetItems(items)
-		m.input.Blur()
-		return m, cmd
+		m.openAsk(msg)
+		return nil
 	case forkNote:
-		m.status = msg.text
-		return m, nil
+		m.status, m.alert = msg.text, false
+		return nil
+	case tea.MouseMsg:
+		m.onMouse(msg)
+		return nil
 	case tea.KeyPressMsg:
 		return m.onKey(msg)
 	}
-	if m.pending != nil {
-		var cmd tea.Cmd
-		m.choices, cmd = m.choices.Update(msg)
-		return m, cmd
-	}
-	if m.showSessions {
-		var cmd tea.Cmd
-		m.sessions, cmd = m.sessions.Update(msg)
-		return m, cmd
+	if m.pending != nil || m.overlay != noOverlay {
+		return nil
 	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
-	return m, cmd
+	return cmd
 }
 
-func (m *Model) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	if key.Matches(msg, m.keys.quit) && (msg.String() == "ctrl+c" || m.pending != nil || m.showSessions || m.showPerms || m.showAgents || m.showHelp) {
-		if msg.String() == "ctrl+c" && m.pending == nil && !m.showSessions && !m.showPerms && !m.showAgents && !m.showHelp {
-			if m.cancel != nil {
-				m.cancel()
-			}
-			return m, tea.Quit
-		}
-		if m.pending != nil && msg.String() == "esc" {
-			m.answer(perms.Deny)
-			return m, nil
-		}
-		if msg.String() == "esc" {
-			m.showSessions, m.showPerms, m.showAgents, m.showHelp = false, false, false, false
-			return m, m.input.Focus()
-		}
-		if msg.String() == "ctrl+c" {
-			if m.cancel != nil {
-				m.cancel()
-			}
-			if m.pending != nil {
-				m.answer(perms.Deny)
-			}
-			return m, tea.Quit
-		}
+func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
+	if key.Matches(msg, m.keys.quit) {
+		return m.quit()
 	}
 	if m.pending != nil {
-		if key.Matches(msg, m.keys.allow) {
-			m.answer(perms.Allow)
-			return m, nil
-		}
-		if key.Matches(msg, m.keys.deny) {
-			m.answer(perms.Deny)
-			return m, nil
-		}
-		if msg.String() == "enter" {
-			if item, ok := m.choices.SelectedItem().(rowItem); ok && item.id == "allow" {
-				m.answer(perms.Allow)
-			} else {
-				m.answer(perms.Deny)
-			}
-			return m, nil
-		}
-		var cmd tea.Cmd
-		m.choices, cmd = m.choices.Update(msg)
-		return m, cmd
+		return m.askKey(msg)
 	}
-	if m.showSessions {
-		if msg.String() == "enter" {
-			if item, ok := m.sessions.SelectedItem().(rowItem); ok && m.deps.LoadSession != nil {
-				sess, err := m.deps.LoadSession(item.id)
-				if err != nil {
-					m.status = err.Error()
-				} else {
-					m.deps.Session = sess
-					m.seedTranscript()
-					m.refreshPlan()
-					m.status = "resumed " + item.id
-				}
-			}
-			m.showSessions = false
-			m.syncView()
-			return m, m.input.Focus()
-		}
-		var cmd tea.Cmd
-		m.sessions, cmd = m.sessions.Update(msg)
-		return m, cmd
+	if m.overlay != noOverlay {
+		return m.overlayKey(msg)
 	}
-	if m.showPerms || m.showAgents {
-		if msg.String() == "enter" || msg.String() == "esc" {
-			m.showPerms, m.showAgents = false, false
-			return m, m.input.Focus()
-		}
-		if m.showPerms {
-			var cmd tea.Cmd
-			m.perms, cmd = m.perms.Update(msg)
-			return m, cmd
-		}
-		var cmd tea.Cmd
-		m.agents, cmd = m.agents.Update(msg)
-		return m, cmd
-	}
-	if key.Matches(msg, m.keys.up) || key.Matches(msg, m.keys.down) {
-		m.follow = false
-		var cmd tea.Cmd
-		m.vp, cmd = m.vp.Update(msg)
-		return m, cmd
-	}
-	if msg.String() == "ctrl+h" {
-		m.showHelp = !m.showHelp
-		return m, nil
-	}
-	if msg.String() == "enter" && !m.busy {
-		text := strings.TrimSpace(m.input.Value())
-		if text == "" {
-			return m, nil
-		}
-		m.input.Reset()
-		if strings.HasPrefix(text, "/") {
-			return m, m.slash(text)
-		}
-		m.lines = append(m.lines, line{kind: "user", text: text})
-		m.follow = true
-		m.syncView()
-		return m, m.start(text)
+	switch {
+	case key.Matches(msg, m.keys.help):
+		m.openOverlay(helpOverlay)
+		return nil
+	case key.Matches(msg, m.keys.up), key.Matches(msg, m.keys.down):
+		m.scrollKey(msg)
+		return nil
+	case key.Matches(msg, m.keys.submit):
+		return m.submit()
 	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
-	return m, cmd
+	return cmd
+}
+
+func (m *Model) scrollKey(msg tea.KeyPressMsg) {
+	switch msg.String() {
+	case "pgup":
+		m.vp.PageUp()
+	case "ctrl+u":
+		m.vp.HalfPageUp()
+	case "pgdown":
+		m.vp.PageDown()
+	case "ctrl+d":
+		m.vp.HalfPageDown()
+	}
+	m.follow = m.vp.AtBottom()
+}
+
+func (m *Model) askKey(msg tea.KeyPressMsg) tea.Cmd {
+	switch {
+	case key.Matches(msg, m.keys.allow):
+		return m.answer(perms.Allow)
+	case key.Matches(msg, m.keys.deny), msg.String() == "esc":
+		return m.answer(perms.Deny)
+	case msg.String() == "enter":
+		if item, ok := m.choices.SelectedItem().(rowItem); ok && item.id == "allow" {
+			return m.answer(perms.Allow)
+		}
+		return m.answer(perms.Deny)
+	}
+	var cmd tea.Cmd
+	m.choices, cmd = m.choices.Update(msg)
+	return cmd
+}
+
+func (m *Model) overlayKey(msg tea.KeyPressMsg) tea.Cmd {
+	if key.Matches(msg, m.keys.close) || (m.overlay == helpOverlay && key.Matches(msg, m.keys.help)) {
+		return m.closeOverlay()
+	}
+	enter := msg.String() == "enter"
+	var cmd tea.Cmd
+	switch m.overlay {
+	case sessionsOverlay:
+		if enter {
+			m.resumeSelected()
+			return m.closeOverlay()
+		}
+		m.sessions, cmd = m.sessions.Update(msg)
+	case permsOverlay:
+		if enter {
+			return m.closeOverlay()
+		}
+		m.perms, cmd = m.perms.Update(msg)
+	case agentsOverlay:
+		if enter {
+			return m.closeOverlay()
+		}
+		m.agents, cmd = m.agents.Update(msg)
+	case helpOverlay:
+		if enter {
+			return m.closeOverlay()
+		}
+		switch msg.String() {
+		case "up", "k":
+			m.sheet.ScrollUp(1)
+		case "down", "j":
+			m.sheet.ScrollDown(1)
+		case "pgup", "ctrl+u":
+			m.sheet.PageUp()
+		case "pgdown", "ctrl+d", "space":
+			m.sheet.PageDown()
+		}
+	}
+	return cmd
+}
+
+func (m *Model) openOverlay(o overlay) {
+	m.overlay = o
+	m.input.Blur()
+	if o == helpOverlay {
+		m.sheet.GotoTop()
+	}
+}
+
+func (m *Model) closeOverlay() tea.Cmd {
+	m.overlay = noOverlay
+	return m.input.Focus()
+}
+
+func (m *Model) quit() tea.Cmd {
+	if m.pending != nil {
+		m.answer(perms.Deny)
+	}
+	if m.cancel != nil {
+		m.cancel()
+	}
+	return tea.Quit
+}
+
+func (m *Model) submit() tea.Cmd {
+	text := strings.TrimSpace(m.input.Value())
+	if text == "" {
+		return nil
+	}
+	if m.busy {
+		m.status, m.alert = "a turn is running; the prompt stays in the composer", false
+		return nil
+	}
+	m.input.Reset()
+	if strings.HasPrefix(text, "/") {
+		return m.slash(text)
+	}
+	m.lines = append(m.lines, line{kind: "user", text: text})
+	m.follow = true
+	m.syncView()
+	return m.start(text)
 }
 
 func (m *Model) slash(text string) tea.Cmd {
 	fields := strings.Fields(text)
 	cmd := fields[0]
 	rest := strings.TrimSpace(strings.TrimPrefix(text, cmd))
+	m.alert = false
 	switch cmd {
 	case "/help":
-		m.showHelp = !m.showHelp
+		m.openOverlay(helpOverlay)
 	case "/plan":
 		m.setMode(perms.ModePlan)
 		m.showPlan = true
@@ -435,22 +583,21 @@ func (m *Model) slash(text string) tea.Cmd {
 	case "/yolo":
 		m.reportReady()
 		m.setMode(perms.ModeYolo)
+		m.showPlan = false
 		m.status = "yolo. Asks are skipped. The destructive gate still blocks."
 	case "/default":
 		m.reportReady()
 		m.setMode(perms.ModeDefault)
+		m.showPlan = false
 		m.status = "default mode"
 	case "/sessions":
 		m.refreshSessions()
-		m.showSessions = true
-		m.input.Blur()
+		m.openOverlay(sessionsOverlay)
 	case "/permissions":
 		m.refreshPerms()
-		m.showPerms = true
-		m.input.Blur()
+		m.openOverlay(permsOverlay)
 	case "/agents":
-		m.showAgents = true
-		m.input.Blur()
+		m.openOverlay(agentsOverlay)
 	case "/ready":
 		m.refreshPlan()
 		m.reportReady()
@@ -458,14 +605,15 @@ func (m *Model) slash(text string) tea.Cmd {
 	case "/fork":
 		return m.emitFork(rest)
 	case "/quit":
-		if m.cancel != nil {
-			m.cancel()
-		}
-		return tea.Quit
+		return m.quit()
 	default:
-		m.status = "unknown command " + cmd
+		m.setAlert("unknown command " + cmd + ". /help lists them.")
 	}
 	return nil
+}
+
+func (m *Model) setAlert(text string) {
+	m.status, m.alert = text, true
 }
 
 func (m *Model) setMode(mode perms.Mode) {
@@ -476,6 +624,7 @@ func (m *Model) setMode(mode perms.Mode) {
 	if m.deps.Session != nil {
 		m.deps.Session.Meta.Mode = string(mode)
 	}
+	m.refreshPerms()
 }
 
 func (m *Model) emitFork(prompt string) tea.Cmd {
@@ -497,20 +646,29 @@ func (m *Model) start(prompt string) tea.Cmd {
 		return nil
 	}
 	m.busy = true
-	m.status = "working"
+	m.status, m.alert = "working", false
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
-	return func() tea.Msg {
-		err := m.deps.Run(ctx, m.deps.Session, prompt, m.ask, func(ev harness.Event) {
+	sess := m.deps.Session
+	run := func() tea.Msg {
+		err := m.deps.Run(ctx, sess, prompt, m.ask, func(ev harness.Event) {
 			if m.send != nil {
-				m.send(eventMsg{ev})
+				m.send(turnEvent{ev: ev, ctx: sessionBytes(sess)})
 			}
 		})
 		if m.send != nil {
-			m.send(turnDone{err})
+			m.send(turnDone{err: err, ctx: sessionBytes(sess)})
 		}
 		return nil
 	}
+	return tea.Batch(run, m.spin.Tick)
+}
+
+func sessionBytes(s *session.Session) int {
+	if s == nil {
+		return 0
+	}
+	return s.Bytes()
 }
 
 func (m *Model) ask(ctx context.Context, tool, detail string) perms.Decision {
@@ -530,127 +688,283 @@ func (m *Model) ask(ctx context.Context, tool, detail string) perms.Decision {
 	}
 }
 
-func (m *Model) answer(d perms.Decision) {
+func (m *Model) openAsk(msg askMsg) {
+	m.pending = &msg
+	m.overlay = noOverlay
+	_ = m.choices.SetItems([]list.Item{
+		rowItem{title: "Allow", desc: "run this call once", id: "allow", tag: "choice"},
+		rowItem{title: "Deny", desc: "block it; the model is told it was denied", id: "deny", tag: "choice"},
+	})
+	m.choices.Select(0)
+	m.input.Blur()
+	m.follow = true
+	m.vp.GotoBottom()
+}
+
+func (m *Model) answer(d perms.Decision) tea.Cmd {
 	if m.pending == nil {
-		return
+		return nil
 	}
 	m.pending.reply <- d
 	m.pending = nil
-	m.status = "you answered " + string(d)
-	_ = m.input.Focus()
+	m.status, m.alert = "you answered "+string(d), false
+	return m.input.Focus()
 }
 
-func (m *Model) apply(ev harness.Event) tea.Cmd {
+func (m *Model) apply(ev harness.Event) {
 	switch ev.Kind {
 	case harness.EvAssistant:
 		m.lines = append(m.lines, line{kind: "assistant", text: ev.Text})
-		m.bytes += len(ev.Text)
 	case harness.EvToolCall:
-		m.lines = append(m.lines, line{kind: "tool", text: ev.Name + " " + clip(ev.Text, 200)})
+		m.lines = append(m.lines, line{kind: "tool", name: ev.Name, text: ev.Text})
+		m.lastCall = ev
 		if ev.Name == "spawn_subagent" {
-			m.addAgent(ev.Text, "running", "")
+			m.agentStarted(ev.Text)
 		}
 	case harness.EvToolResult:
-		m.lines = append(m.lines, line{kind: "result", text: ev.Name + " " + clip(ev.Text, 240)})
-		m.bytes += len(ev.Text)
+		m.lines = append(m.lines, line{kind: "result", name: ev.Name, text: ev.Text})
 		if ev.Name == "spawn_subagent" {
-			m.addAgent("", "done", clip(ev.Text, 40))
+			m.agentFinished(ev.Text)
 		}
 		if ev.Name == "update_plan" {
 			m.refreshPlan()
 		}
 	case harness.EvJev:
-		m.lines = append(m.lines, line{kind: "jev", text: ev.Name + " " + ev.Text})
-	case harness.EvPermission:
-		m.lines = append(m.lines, line{kind: "permission", text: ev.Name + " " + ev.Text})
-	case harness.EvStatus:
-		m.status = ev.Text
-		if strings.Contains(ev.Text, "compact") {
-			m.bytes = m.bytes / 4
+		m.lines = append(m.lines, line{kind: "jev", name: ev.Name, text: ev.Text})
+		if ev.Name == "turn" {
+			m.turnModel = ""
+			if strings.Contains(" "+ev.Text+" ", " model=strong ") && m.deps.StrongModel != "" {
+				m.turnModel = m.deps.StrongModel
+			}
 		}
+	case harness.EvPermission:
+		m.lines = append(m.lines, line{kind: "permission", name: ev.Name, text: ev.Text})
+	case harness.EvStatus:
+		m.status, m.alert = ev.Text, false
 	case harness.EvDone:
-		m.status = ev.Text
-		m.busy = false
+		m.status, m.alert = doneText(ev.Text), ev.Text != "end_turn"
 		m.refreshPlan()
 	}
-	if m.bytes < 0 {
-		m.bytes = 0
-	}
-	m.target = float64(m.bytes) / contextLimit
-	if m.target > 1 {
-		m.target = 1
-	}
-	return m.meter.SetPercent(m.target)
+	m.syncView()
 }
 
-func (m *Model) addAgent(args, status, detail string) {
-	kind := "general"
-	if strings.Contains(args, "explore") {
+func doneText(reason string) string {
+	switch reason {
+	case "end_turn", "":
+		return "ready"
+	case "max_steps":
+		return "stopped at the step limit"
+	case "stuck":
+		return "stopped: the last tool calls repeated"
+	default:
+		return reason
+	}
+}
+
+func eventBytes(ev harness.Event) int {
+	switch ev.Kind {
+	case harness.EvAssistant, harness.EvToolCall, harness.EvToolResult:
+		return len(ev.Text) + len(ev.Name)
+	}
+	return 0
+}
+
+// retarget points the context meter at the current session size and starts
+// the spring if it has somewhere to go.
+func (m *Model) retarget() tea.Cmd {
+	m.target = math.Min(1, math.Max(0, float64(m.ctxBytes)/contextLimit))
+	if m.ticking || m.settled() {
+		return nil
+	}
+	m.ticking = true
+	return m.tick()
+}
+
+func (m *Model) settled() bool {
+	return math.Abs(m.meterP-m.target) < 0.0005 && math.Abs(m.meterV) < 0.005
+}
+
+func (m *Model) tick() tea.Cmd {
+	return tea.Tick(time.Second/fps, func(t time.Time) tea.Msg { return tickMsg(t) })
+}
+
+// stepMeter advances the Harmonica spring one frame. The loop stops when the
+// meter settles so an idle screen does not redraw thirty times a second.
+func (m *Model) stepMeter() tea.Cmd {
+	m.meterP, m.meterV = m.spring.Update(m.meterP, m.meterV, m.target)
+	if m.settled() {
+		m.meterP, m.meterV = m.target, 0
+		m.ticking = false
+		return nil
+	}
+	return m.tick()
+}
+
+func (m *Model) agentStarted(args string) {
+	var a struct {
+		Kind   string `json:"kind"`
+		Prompt string `json:"prompt"`
+	}
+	_ = json.Unmarshal([]byte(args), &a)
+	kind := strings.ToLower(strings.TrimSpace(a.Kind))
+	switch {
+	case kind == "explore" || kind == "plan" || kind == "general":
+	case strings.Contains(args, "explore"):
 		kind = "explore"
-	} else if strings.Contains(args, "plan") {
+	case strings.Contains(args, "plan"):
 		kind = "plan"
+	default:
+		kind = "general"
 	}
-	rows := []table.Row{{kind, status, detail}}
-	cur := m.agents.Rows()
-	cur = append(cur, rows...)
-	if len(cur) > 8 {
-		cur = cur[len(cur)-8:]
+	m.setAgents(append(m.agents.Rows(), table.Row{kind, "running", clip(a.Prompt, 200)}))
+}
+
+func (m *Model) agentFinished(result string) {
+	status := "done"
+	if strings.HasPrefix(result, "denied") {
+		status = "denied"
 	}
-	m.agents.SetRows(cur)
+	rows := m.agents.Rows()
+	for i := len(rows) - 1; i >= 0; i-- {
+		if rows[i][1] == "running" {
+			rows[i] = table.Row{rows[i][0], status, clip(result, 200)}
+			m.setAgents(rows)
+			return
+		}
+	}
+	m.setAgents(append(rows, table.Row{"general", status, clip(result, 200)}))
+}
+
+func (m *Model) setAgents(rows []table.Row) {
+	if len(rows) > 8 {
+		rows = rows[len(rows)-8:]
+	}
+	m.agents.SetRows(rows)
+	m.agents.GotoBottom()
 }
 
 func (m *Model) seedTranscript() {
 	m.lines = nil
-	m.bytes = 0
-	if m.deps.Session == nil {
+	m.ctxBytes = 0
+	if m.deps.Session != nil {
+		for _, msg := range m.deps.Session.Messages {
+			switch msg.Role {
+			case provider.RoleUser:
+				m.lines = append(m.lines, line{kind: "user", text: msg.Content})
+			case provider.RoleAssistant:
+				if msg.Content != "" {
+					m.lines = append(m.lines, line{kind: "assistant", text: msg.Content})
+				}
+				for _, c := range msg.ToolCalls {
+					m.lines = append(m.lines, line{kind: "tool", name: c.Name, text: c.Arguments})
+				}
+			case provider.RoleTool:
+				m.lines = append(m.lines, line{kind: "result", name: msg.Name, text: msg.Content})
+			}
+		}
+		m.ctxBytes = m.deps.Session.Bytes()
+	}
+	m.target = math.Min(1, float64(m.ctxBytes)/contextLimit)
+	m.follow = true
+	m.syncView()
+}
+
+func (m *Model) resumeSelected() {
+	item, ok := m.sessions.SelectedItem().(rowItem)
+	if !ok || item.id == "" || m.deps.LoadSession == nil {
 		return
 	}
-	for _, msg := range m.deps.Session.Messages {
-		switch msg.Role {
-		case provider.RoleUser:
-			m.lines = append(m.lines, line{kind: "user", text: msg.Content})
-			m.bytes += len(msg.Content)
-		case provider.RoleAssistant:
-			if msg.Content != "" {
-				m.lines = append(m.lines, line{kind: "assistant", text: msg.Content})
-				m.bytes += len(msg.Content)
-			}
-		case provider.RoleTool:
-			m.lines = append(m.lines, line{kind: "result", text: msg.Name + " " + clip(msg.Content, 240)})
-			m.bytes += len(msg.Content)
-		}
+	sess, err := m.deps.LoadSession(item.id)
+	if err != nil {
+		m.setAlert(err.Error())
+		return
 	}
-	m.target = float64(m.bytes) / contextLimit
+	m.deps.Session = sess
+	m.seedTranscript()
+	m.refreshPlan()
+	m.status, m.alert = "resumed "+item.id, false
 }
 
 func (m *Model) refreshSessions() {
 	if m.deps.ListSessions == nil {
 		return
 	}
+	metas := m.deps.ListSessions()
+	sort.SliceStable(metas, func(i, j int) bool { return metas[i].UpdatedAt.After(metas[j].UpdatedAt) })
+	current := ""
+	if m.deps.Session != nil {
+		current = m.deps.Session.Meta.ID
+	}
 	var items []list.Item
-	for _, meta := range m.deps.ListSessions() {
+	selected := 0
+	for _, meta := range metas {
 		title := meta.Title
 		if title == "" {
 			title = meta.ID
 		}
-		items = append(items, rowItem{title: title, desc: meta.ID + "  " + meta.UpdatedAt.Format(time.RFC3339), id: meta.ID})
+		desc := meta.ID + " · " + meta.UpdatedAt.Local().Format("2006-01-02 15:04")
+		if meta.Mode != "" {
+			desc += " · " + meta.Mode
+		}
+		tag := ""
+		if meta.ID == current {
+			tag = "current"
+			selected = len(items)
+		}
+		items = append(items, rowItem{title: title, desc: desc, id: meta.ID, tag: tag})
 	}
 	if len(items) == 0 {
-		items = append(items, rowItem{title: "No sessions yet", desc: "this folder has an empty store", id: ""})
+		items = append(items, rowItem{title: "No sessions yet", desc: "this folder has an empty store"})
 	}
 	_ = m.sessions.SetItems(items)
+	m.sessions.Select(selected)
 }
 
+// refreshPerms lists the rules the process loaded. It only describes the
+// policy; deciding stays in internal/perms.
 func (m *Model) refreshPerms() {
-	var items []list.Item
+	items := []list.Item{rowItem{title: string(m.deps.Mode), desc: modeMeaning(m.deps.Mode), tag: "mode"}}
+	if m.deps.ReviewOnly {
+		items = append(items, rowItem{title: "review-only", desc: "edits and shell are denied", tag: "deny"})
+	}
 	if len(m.deps.Rules) == 0 {
-		items = append(items, rowItem{title: "defaults", desc: "reads allow, edits ask", id: ""})
+		items = append(items,
+			rowItem{title: "reads", desc: "read_file, grep, glob, web_fetch run without asking", tag: "allow"},
+			rowItem{title: "edits", desc: "edit_file, write_file, shell, spawn_subagent ask first", tag: "ask"},
+		)
 	}
 	for _, r := range m.deps.Rules {
-		items = append(items, rowItem{title: r, desc: "rule", id: r})
+		tag, rule := "allow", r
+		for _, p := range []string{"allow", "ask", "deny"} {
+			if after, ok := strings.CutPrefix(r, p+" "); ok {
+				tag, rule = p, after
+			}
+		}
+		items = append(items, rowItem{title: rule, desc: ruleMeaning(tag), id: r, tag: tag})
 	}
-	items = append(items, rowItem{title: "not a sandbox", desc: "plan mode blocks shell because redirections are not inspected", id: ""})
 	_ = m.perms.SetItems(items)
+}
+
+func modeMeaning(mode perms.Mode) string {
+	switch mode {
+	case perms.ModePlan:
+		return "edits and every shell command are blocked; update_plan still writes the plan"
+	case perms.ModeYolo:
+		return "asks are skipped; deny rules and the destructive-action gate still block"
+	default:
+		return "rules below decide; anything else that mutates asks first"
+	}
+}
+
+func ruleMeaning(tag string) string {
+	switch tag {
+	case "ask":
+		return "asks you first"
+	case "deny":
+		return "always blocked"
+	default:
+		return "runs without asking"
+	}
 }
 
 func (m *Model) refreshPlan() {
@@ -658,13 +972,14 @@ func (m *Model) refreshPlan() {
 		return
 	}
 	raw, err := os.ReadFile(m.deps.Session.PlanPath())
-	if err != nil {
+	if err != nil || strings.TrimSpace(string(raw)) == "" {
 		m.plan = "No plan yet."
 		m.verdict = "plan: empty"
-		return
+	} else {
+		m.plan = string(raw)
+		m.reportReady()
 	}
-	m.plan = string(raw)
-	m.reportReady()
+	m.planW = 0
 }
 
 func (m *Model) reportReady() {
@@ -676,140 +991,86 @@ func (m *Model) reportReady() {
 	m.verdict = fmt.Sprintf("plan %s (%.2f, %s). This does not approve the plan.", word, p, m.deps.Gates.Mode())
 }
 
-func (m *Model) layout() {
-	w, h := m.width, m.height
-	if w < 20 {
-		w = 20
-	}
-	if h < 8 {
-		h = 8
-	}
-	planW := 0
-	if m.showPlan || w >= 100 {
-		planW = 36
-		if planW > w/3 {
-			planW = w / 3
-		}
-	}
-	bodyH := h - 8
-	if bodyH < 3 {
-		bodyH = 3
-	}
-	m.vp.SetWidth(w - planW - 2)
-	m.vp.SetHeight(bodyH)
-	m.input.SetWidth(w - 2)
-	m.help.SetWidth(w)
-	m.sessions.SetSize(w-4, bodyH)
-	m.choices.SetSize(w-8, 6)
-	m.perms.SetSize(w-4, bodyH)
-	m.agents.SetWidth(w - 4)
-	m.agents.SetHeight(bodyH)
-	if m.glam == nil || m.vp.Width() > 0 {
-		wrap := m.vp.Width()
-		if wrap < 20 {
-			wrap = 20
-		}
-		r, err := glamour.NewTermRenderer(glamour.WithAutoStyle(), glamour.WithWordWrap(wrap))
-		if err == nil {
-			m.glam = r
-		}
-	}
-}
-
-func (m *Model) syncView() {
-	wasBottom := m.vp.AtBottom() || m.follow
-	m.vp.SetContent(m.renderTranscript())
-	if wasBottom {
-		m.vp.GotoBottom()
-		m.follow = true
-	}
-}
-
-func (m *Model) renderTranscript() string {
-	if len(m.lines) == 0 {
-		return m.dim.Render("Rock is ready. The transcript lives in the session store, not in this screen.")
-	}
-	var b strings.Builder
-	for _, ln := range m.lines {
-		switch ln.kind {
-		case "user":
-			b.WriteString(m.user.Render("you  " + ln.text))
-		case "assistant":
-			text := ln.text
-			if m.glam != nil {
-				if out, err := m.glam.Render(ln.text); err == nil {
-					text = strings.TrimRight(out, "\n")
-				}
+func (m *Model) onMouse(msg tea.MouseMsg) {
+	mo := msg.Mouse()
+	switch msg.(type) {
+	case tea.MouseWheelMsg:
+		up := mo.Button == tea.MouseWheelUp
+		switch m.overlay {
+		case sessionsOverlay:
+			wheelList(&m.sessions, up)
+		case permsOverlay:
+			wheelList(&m.perms, up)
+		case agentsOverlay:
+			if up {
+				m.agents.MoveUp(1)
+			} else {
+				m.agents.MoveDown(1)
 			}
-			b.WriteString(text)
+		case helpOverlay:
+			m.sheet, _ = m.sheet.Update(msg)
 		default:
-			b.WriteString(m.dim.Render(ln.kind + "  " + ln.text))
+			if m.inPlan(mo.X, mo.Y) {
+				m.planVP, _ = m.planVP.Update(msg)
+				return
+			}
+			m.vp, _ = m.vp.Update(msg)
+			m.follow = m.vp.AtBottom()
 		}
-		b.WriteByte('\n')
+	case tea.MouseClickMsg:
+		if mo.Button == tea.MouseLeft && m.overlay == noOverlay && m.onScrollbar(mo.X, mo.Y) {
+			m.dragging = true
+			m.scrollTo(mo.Y)
+		}
+	case tea.MouseMotionMsg:
+		if m.dragging {
+			m.scrollTo(mo.Y)
+		}
+	case tea.MouseReleaseMsg:
+		m.dragging = false
 	}
-	return b.String()
 }
 
-func (m *Model) View() tea.View {
-	if m.width == 0 {
-		v := tea.NewView("rock")
-		v.AltScreen = true
-		v.MouseMode = tea.MouseModeCellMotion
-		return v
-	}
-	id := ""
-	if m.deps.Session != nil {
-		id = m.deps.Session.Meta.ID
-	}
-	title := fmt.Sprintf("rock  %s  %s  jev:%s  %s", id, m.deps.Mode, m.deps.JevMode, m.deps.CWD)
-	if m.deps.ReviewOnly {
-		title += "  review"
-	}
-	header := m.header.Render(clip(title, m.width))
-	body := m.vp.View()
-	if m.showSessions {
-		body = m.panel.Width(m.width - 2).Render(m.sessions.View())
-	} else if m.showPerms {
-		body = m.panel.Width(m.width - 2).Render(m.perms.View())
-	} else if m.showAgents {
-		body = m.panel.Width(m.width - 2).Render(m.agents.View())
-	} else if m.showPlan || m.width >= 100 {
-		planBody := m.verdict + "\n\n" + m.plan
-		plan := m.panel.Width(36).Render(clip(planBody, 1200))
-		body = lipgloss.JoinHorizontal(lipgloss.Top, m.vp.View(), plan)
-	}
-	spin := " "
-	if m.busy {
-		spin = m.spin.View()
-	}
-	meter := fmt.Sprintf("context %3.0f%%  %s  %s", m.meterP*100, m.meter.ViewAs(m.meterP), m.status)
-	status := m.dim.Render(spin + " " + meter)
-	var overlay string
-	if m.pending != nil {
-		overlay = "\n" + m.alert.Render(m.choices.View())
-	}
-	helpView := m.help.View(m.keys)
-	if m.showHelp {
-		m.help.ShowAll = true
-		helpView = m.help.View(m.keys) + "\n" + m.dim.Render("/plan  /yolo  /default  /sessions  /permissions  /agents  /fork  /ready  /quit")
+func wheelList(l *list.Model, up bool) {
+	if up {
+		l.CursorUp()
 	} else {
-		m.help.ShowAll = false
+		l.CursorDown()
 	}
-	content := lipgloss.JoinVertical(lipgloss.Left, header, body, status, m.input.View(), helpView)
-	if overlay != "" {
-		content += overlay
-	}
-	v := tea.NewView(content)
-	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
-	v.WindowTitle = "rock"
-	return v
 }
 
-func clip(s string, n int) string {
-	s = strings.ReplaceAll(s, "\n", " ")
-	if len(s) <= n {
-		return s
+func (m *Model) inPlan(x, y int) bool {
+	g := m.geo
+	switch {
+	case g.planW > 0:
+		return x >= g.transcriptW && y >= g.vpY && y < g.vpY+g.vpH
+	case g.planH > 0:
+		return y >= g.bodyY && y < g.bodyY+g.planH
 	}
-	return s[:n] + "…"
+	return false
+}
+
+func (m *Model) overflowing() bool {
+	return m.vp.TotalLineCount() > m.vp.Height()
+}
+
+func (m *Model) onScrollbar(x, y int) bool {
+	g := m.geo
+	return m.overflowing() && x == g.transcriptW-1 && y >= g.vpY && y < g.vpY+g.vpH
+}
+
+// scrollTo maps a row on the scrollbar track to a transcript offset.
+func (m *Model) scrollTo(y int) {
+	g := m.geo
+	maxOff := m.vp.TotalLineCount() - m.vp.Height()
+	if maxOff <= 0 || g.vpH < 1 {
+		return
+	}
+	rel := min(max(y-g.vpY, 0), g.vpH-1)
+	off := maxOff
+	if g.vpH > 1 {
+		off = int(math.Round(float64(rel) / float64(g.vpH-1) * float64(maxOff)))
+	}
+	m.vp.SetYOffset(off)
+	m.follow = m.vp.AtBottom()
 }
