@@ -192,10 +192,15 @@ h1 span { display: block; }
 .vein-text {
   font-style: italic;
   font-weight: 560;
-  background: linear-gradient(100deg, var(--copper-soft) 0%, var(--copper) 42%, var(--copper-hot) 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--copper);
+}
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+  .vein-text {
+    background: linear-gradient(100deg, var(--copper-soft) 0%, var(--copper) 42%, var(--copper-hot) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
 }
 .lede {
   max-width: 40rem;
