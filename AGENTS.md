@@ -32,6 +32,15 @@ docs/synthesis/           steal priorities + architecture sketch
 
 When application source lands, put it elsewhere. Do not sneak crates or modules into `docs/`.
 
+## Cloud agent environment
+
+There is still no `rock` binary. The Cloud Agent environment installs `rock-docs` so this tree can be read and checked:
+
+- `rock-docs` serves the repository as HTML on port 4173. `/` is `README.md`. `/health` answers `ok`. `start` runs that process in the foreground when it is not already up.
+- `rock-docs --check` resolves every in-repo markdown link and confirms each `docs/clis/*.md` page still has the template headings. A missing link or heading exits non-zero.
+
+Go, Rust, Node, and Python from the base image stay available for when application source lands. Put that source outside `docs/`.
+
 ## How to add a CLI dissection
 
 1. Copy [`docs/_template.md`](docs/_template.md) to `docs/clis/<slug>.md`.
