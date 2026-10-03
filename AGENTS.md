@@ -2,7 +2,7 @@
 
 Living guide for humans and coding agents working on Rock.
 
-Rock is a **docs-first** design-phase repo. There is no application source yet. The binary name will be `rock`. License is MIT.
+Rock is a coding CLI. The binary name is `rock`. License is MIT. Raid notes stay in `docs/`. Application source is Go under `cmd/` and `internal/`.
 
 Read [VISION.md](VISION.md) before changing direction. Read [docs/README.md](docs/README.md) before adding or rewriting a raid page.
 
@@ -30,7 +30,14 @@ docs/clis/<tool>.md       one page per peer
 docs/synthesis/           steal priorities + architecture sketch
 ```
 
-When application source lands, put it elsewhere. Do not sneak crates or modules into `docs/`.
+Application source lives in `cmd/` and `internal/`. Do not sneak crates or modules into `docs/`.
+
+```
+cmd/rock/                 binary
+internal/                 harness, TUI, protocol, Jev, Suzuri OSC
+```
+
+Build with Go 1.27 (Charm v2). `go test ./...` is the check. `rock inspect` prints what the process actually loaded.
 
 ## How to add a CLI dissection
 

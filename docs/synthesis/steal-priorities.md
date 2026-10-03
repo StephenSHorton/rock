@@ -8,10 +8,12 @@ Rock’s license is MIT. Peer licenses stay theirs (Crush FSL-1.1-MIT — study,
 
 ## P0 — day-one contracts
 
-These are the product. If the TUI is late, these still ship.
+These are the product. If the TUI is late, these still ship. Jev and Suzuri are in this list because 1.0 depends on them. See [v1-plan.md](v1-plan.md).
 
 | Idea | Source | Why Rock |
 |---|---|---|
+| **Jev gates inside the loop** | [Jev decision API](https://jevtypesafeai.com/decide/how-to-use) | Model, skill, stuck, risk, subagent, retrieval, and compact are typed decisions. One round trip, then Go branches. Offline policy when no key is set, and `inspect` says so. |
+| **Suzuri OSC 7880 + `suzuri mcp`** | [Suzuri](https://github.com/StephenSHorton/suzuri) `fork_osc.rs`, `docs/mcp.md` | The host already splits a pane for an allowlisted agent binary. Rock speaks that sequence (`brand=rock`) and can spawn Suzuri’s stdio MCP. |
 | **Workspace server + TUI client** (socket/TCP, SSE, multi-client same cwd) | Crush `serve`, OpenCode `serve` | Charm-native multi-surface. Two views, one permission queue. |
 | **ACP stdio + optional local leader** | Grok Build; Goose as ACP *client* | Editor embed. One engine, many clients. |
 | **Permission DSL** `allow` / `ask` / `deny` + tool/bash globs + plan/build modes | OpenCode, Claude Code public docs, Crush, Codex | Safer default than Pi’s “no perms.” Same words users already know. |

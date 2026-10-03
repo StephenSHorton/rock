@@ -112,12 +112,14 @@ Claude Code leak dumps are out of scope. Public docs only.
 
 Do not price this in pre-AI years.
 
-## Open questions
+## Answers (1.0)
 
-- Go/Rust split vs one language?
-- Workspace HTTP in-process with the TUI, or always a daemon?
-- How much Grok radar vs clean-room reimplementation of ideas?
-- Review-only mode vs git auto-commit — one, both, or a flag?
-- Do we ever wrap other CLIs as ACP providers (Goose), or only *be* an ACP server?
+The build plan is [v1-plan.md](v1-plan.md). Short form:
 
-Write answers into this file when we have them. Until then, keep raiding.
+- **Go only.** Charm v2 face and harness in one module. The TUI is a client of the harness package. `rock acp` and `rock serve` speak the same loop.
+- **Clean-room.** Grok Build stays the quarry. Rock does not fork it. Crush stays FSL; we use Charm libraries.
+- **HTTP is a daemon (`rock serve`).** The TUI runs the harness in-process. Both read the session store.
+- **Git checkpoint and review-only both exist.** Checkpoint is off until config turns it on. Review-only denies mutating tools.
+- **Rock is an ACP server.** It does not wrap other CLIs in 1.0.
+- **Jev** takes the bounded decisions (model, skills, stuck, risk, subagent kind, retrieval, compact, plan readiness). No key means an offline policy, labeled as such.
+- **Suzuri** hosts the PTY. Rock emits OSC 7880 and can attach `suzuri mcp`. Claude Code leak dumps stay out.
