@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# Drive the Rock TUI on a real X display for visual checks. Rock runs in tmux
+# inside xterm and keys go in through tmux send-keys: xdotool type into a
+# fresh xterm leaks the terminal's bracketed-paste replies into the composer.
+#
+#   visual.sh up 140 36 [bg fg]   xterm + tmux at 140x36 (default: Rock ground)
+#   visual.sh llm                 build and start stubllm on 127.0.0.1:18080
+#   visual.sh offline             rock with no model key (offline provider)
+#   visual.sh stub                rock against stubllm in a fresh workspace
+#   visual.sh type "text"         type literally, then Enter
+#   visual.sh keys Escape         tmux send-keys to the rock pane
+#   visual.sh resize 80 30        resize the xterm, in cells
+#   visual.sh wheel up|down [n]   mouse wheel over the transcript
+#   visual.sh click COL ROW       left click on a cell (zero-based)
+#   visual.sh shot NAME           PNG of the xterm into $ART
+#   visual.sh text                the pane as plain text
+#
+# ROCK_BIN defaults to /tmp/rock (go build -o /tmp/rock ./cmd/rock).
+set -euo pipefail
+
+ROCK_BIN=${ROCK_BIN:-/tmp/rock}
+ART=${ART:-/opt/cursor/artifacts}
+WORK=${WORK:-/tmp/rock-visual}
+SOCK=rock-visual
+PANE=rock:0.0
+TITLE=rock-visual
+REPO=$(cd "$(dirname "$0")/../../.." && pwd)
+export DISPLAY=${DISPLAY:-:1}
+
+t() { tmux -L "$SOCK" -f "$WORK/tmux.conf" "$@"; }
+wid() { xdotool search --name "^$TITLE\$" | head -1; }
+
+geom() {
+	xwininfo -id "$(wid)" | awk '
+		/Absolute upper-left X/ {x=$4} /Absolute upper-left Y/ {y=$4}
+		/Width:/ {w=$2} /Height:/ {h=$2} END {print x, y, w, h}'
+}
+
+cell() {
+	local w h cols rows
+	read -r _ _ w h < <(geom)
+	cols=$(t display -p -t "$PANE" '#{pane_width}')
+	rows=$(t display -p -t "$PANE" '#{pane_height}')
+	echo $((w / cols)) $((h / rows))
+}
+
+up() {
+	local cols=${1:-140} rows=${2:-36} bg=${3:-#0c0b0a} fg=${4:-#f4ece3}
+	mkdir -p "$WORK/project" "$ART"
+	cat >"$WORK/tmux.conf" <<-'EOF'
+		set -g default-terminal "tmux-256color"
+		set -as terminal-features ",xterm*:RGB"
+		set -g status off
+		set -g escape-time 10
+		set -g mouse off
+	EOF
+	t kill-server 2>/dev/null || true
+	t new-session -d -s rock -x "$cols" -y "$rows" -c "$WORK/project"
+	xterm -b 0 -geometry "${cols}x${rows}+16+16" -fa 'JetBrains Mono' -fs 12 \
+		-bg "$bg" -fg "$fg" -cr '#e7a15a' -T "$TITLE" -n "$TITLE" \
+		-e tmux -L "$SOCK" -f "$WORK/tmux.conf" attach -t rock >/dev/null 2>&1 &
+	for _ in $(seq 50); do
+		[ -n "$(wid)" ] && break
+		sleep 0.1
+	done
+	wid
+}
+
+llm() {
+	(cd "$REPO" && go build -o "$WORK/stubllm" ./internal/tui/testdata/stubllm)
+	tmux -L rock-llm has-session -t llm 2>/dev/null ||
+		tmux -L rock-llm new-session -d -s llm "$WORK/stubllm -addr 127.0.0.1:18080 2>&1 | tee $WORK/stubllm.log"
+}
+
+# run UNSETS ASSIGNMENTS starts rock in the pane with a fresh ROCK_HOME.
+run() {
+	local home
+	home=$(mktemp -d /tmp/rock-home.XXXXXX)
+	t send-keys -t "$PANE" "clear; cd $WORK/project && env -u OPENAI_API_KEY -u JEV_API_KEY -u TYPESAFE_API_KEY $1 ROCK_HOME=$home COLORTERM=truecolor $2 $ROCK_BIN" Enter
+}
+
+offline() {
+	run "-u ROCK_API_KEY" "ROCK_CONFIG=$WORK/offline-none.toml"
+}
+
+stub() {
+	printf 'helo wrold\n' >"$WORK/project/greeting.txt"
+	cat >"$WORK/stub.toml" <<-'EOF'
+		base_url = "http://127.0.0.1:18080/v1"
+		model = "stub-fast"
+		fast_model = "stub-fast"
+		strong_model = "stub-strong"
+	EOF
+	run "" "ROCK_API_KEY=stub ROCK_CONFIG=$WORK/stub.toml"
+}
+
+wheel() {
+	local cw ch button=5
+	read -r cw ch < <(cell)
+	[ "$1" = up ] && button=4
+	xdotool mousemove --window "$(wid)" $((cw * 20)) $((ch * 6)) click --repeat "${2:-3}" --delay 80 "$button"
+}
+
+click() {
+	local cw ch
+	read -r cw ch < <(cell)
+	xdotool mousemove --window "$(wid)" $((cw * $1 + cw / 2)) $((ch * $2 + ch / 2)) click 1
+}
+
+shot() {
+	local x y w h
+	read -r x y w h < <(geom)
+	ffmpeg -loglevel error -y -f x11grab -video_size "${w}x${h}" -i "$DISPLAY+$x,$y" -frames:v 1 "$ART/$1.png"
+	echo "$ART/$1.png"
+}
+
+cmd=${1:-}
+shift || true
+case "$cmd" in
+up) up "$@" ;;
+llm) llm ;;
+offline) offline ;;
+stub) stub ;;
+type) t send-keys -t "$PANE" -l "$1" && t send-keys -t "$PANE" Enter ;;
+keys) t send-keys -t "$PANE" "$@" ;;
+resize) xdotool windowsize --usehints "$(wid)" "$1" "$2" ;;
+wheel) wheel "$@" ;;
+click) click "$@" ;;
+shot) shot "$1" ;;
+text) t capture-pane -p -t "$PANE" ;;
+*) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//' && exit 2 ;;
+esac
