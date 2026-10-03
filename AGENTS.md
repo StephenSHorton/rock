@@ -28,9 +28,11 @@ docs/README.md            raid process + index
 docs/_template.md         dissection skeleton
 docs/clis/<tool>.md       one page per peer
 docs/synthesis/           steal priorities + architecture sketch
+site/                     GitHub Pages, static, copper on basalt
+.github/workflows/pages.yml
 ```
 
-Application source lives in `cmd/` and `internal/`. Do not sneak crates or modules into `docs/`.
+Application source lives in `cmd/` and `internal/`. Do not sneak crates or modules into `docs/`. The public page is `site/`, not a second app.
 
 ```
 cmd/rock/                 binary

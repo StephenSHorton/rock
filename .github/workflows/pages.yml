@@ -1,0 +1,41 @@
+name: GitHub Pages
+
+# The page publishes from site/ with no build step.
+# Pushes to main (and this feature branch, so the page can go live before merge)
+# deploy when the site or this workflow changes. Manual: Actions → GitHub Pages.
+on:
+  push:
+    branches:
+      - main
+      - cursor/rock-1-0-a11b
+    paths:
+      - "site/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
