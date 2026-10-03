@@ -28,7 +28,7 @@ docs/README.md            raid process + index
 docs/_template.md         dissection skeleton
 docs/clis/<tool>.md       one page per peer
 docs/synthesis/           steal priorities + architecture sketch
-site/                     GitHub Pages, static, copper on basalt
+site/                     GitHub Pages, static, dark ground and copper type
 .github/workflows/pages.yml
 ```
 

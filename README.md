@@ -46,7 +46,15 @@ go build -o rock ./cmd/rock
 ./rock -p "Say hello in one sentence"
 ```
 
-The public page is [stephenshorton.github.io/rock](https://stephenshorton.github.io/rock/). Source for it is [`site/`](site/): basalt ground, a copper vein, Fraunces and IBM Plex Mono. Pushes that touch the site publish through GitHub Actions. The repo setting **Pages → GitHub Actions** has to be on once; the app token used from this environment cannot create the Pages site.
+The public page is [stephenshorton.github.io/rock](https://stephenshorton.github.io/rock/). Source for it is [`site/`](site/): dark ground, copper type, Fraunces and IBM Plex Mono. The page swaps one install command by operating system. macOS and Linux:
+
+```bash
+curl -fsSL https://stephenshorton.github.io/rock/install.sh | bash
+```
+
+Windows PowerShell: `irm https://stephenshorton.github.io/rock/install.ps1 | iex`
+
+Both need Go 1.27 or newer and install the current 1.0 build. Pushes that touch the site publish through GitHub Actions. The repo setting **Pages → GitHub Actions** has to be on once; the app token used from this environment cannot create the Pages site.
 
 Set `ROCK_API_KEY` (or `OPENAI_API_KEY`) and `ROCK_BASE_URL` for a real model. Set `TYPESAFE_API_KEY` or `JEV_API_KEY` for live Jev decisions. Without those keys the binary still runs: offline provider, offline gates, and `inspect` says so. Suzuri can set `ROCK_SESSION_TITLE` when it launches a pane.
 
