@@ -50,6 +50,7 @@ Per-tool pages live under [`docs/clis/`](docs/clis/). The page template is [`doc
 ```bash
 go test ./...
 go build -o rock ./cmd/rock
+./rock setup jev
 ./rock inspect
 ./rock -p "Say hello in one sentence"
 ```
@@ -64,15 +65,16 @@ go build -o rock ./cmd/rock
 | `rock --yolo` | Skip asks; the destructive Jev (or offline) gate still blocks |
 | `rock --mode plan` | Plan mode: edits and every shell command blocked |
 | `rock --verbose` | Show `◇ jev turn` / `risk` diagnostics in the TUI |
-| `rock inspect` | Config, skills, MCP, Jev live/offline, permissions. Tells the truth. |
+| `rock inspect` | Config, skills, MCP, Jev key source, permissions. Tells the truth. |
 | `rock setup` | Huh form → `~/.config/rock/config.toml`. Does not store API keys. |
+| `rock setup jev` | Validate a Jev key and save it (OS keychain, or `ROCK_HOME/jev.key` at 0600). |
 | `rock sessions` | List sessions for this folder |
 | `rock permissions` | Allow / ask / deny |
 | `rock fork` | Print Suzuri OSC 7880 (`brand=rock`) for a new host pane |
 | `rock serve` | Loopback HTTP and SSE |
 | `rock acp` | ACP v1 and v2 on stdio |
 
-In the TUI: `/plan`, `/yolo`, `/default`, `/permissions`, `/agents` (subagents this session), `/ready` (Jev or offline plan-readiness — **never approves**), `/verbose`, `/fork [prompt]`, `/sessions`, `/help`, `/quit`.
+In the TUI: `/plan`, `/yolo`, `/default`, `/permissions`, `/agents` (subagents this session), `/ready` (Jev plan-readiness — **never approves**), `/verbose`, `/fork [prompt]`, `/sessions`, `/help`, `/quit`.
 
 The public page is [stephenshorton.github.io/rock](https://stephenshorton.github.io/rock/). Source for it is [`site/`](site/), a Vite app with a Mokei clay-quarry hero and the real CLI. The page swaps one install command by operating system. macOS and Linux:
 
@@ -82,10 +84,16 @@ curl -fsSL https://stephenshorton.github.io/rock/install.sh | bash
 
 Windows PowerShell: `irm https://stephenshorton.github.io/rock/install.ps1 | iex`
 
-Both need Go 1.27 or newer and install from `main` with `go install github.com/StephenSHorton/rock/cmd/rock@main`. `site/` builds with Vite (`base: /rock/`). `.github/workflows/pages.yml` deploys `site/dist` on push to `main` once Pages is set to GitHub Actions in the repo settings. Until then the live copy stays on [StephenSHorton/StephenSHorton.github.io](https://github.com/StephenSHorton/StephenSHorton.github.io/tree/main/rock).
+Both need Go 1.27 or newer and install from `main` with `go install github.com/StephenSHorton/rock/cmd/rock@main`. A **Jev key is required**. After install:
+
+```bash
+rock setup jev
+```
+
+The TUI asks on first launch if no working key is stored. `JEV_API_KEY` and `TYPESAFE_API_KEY` still count as configured; they still have to validate. Headless `-p`, `rock serve`, and `rock acp` fail without a valid key. `site/` builds with Vite (`base: /rock/`). `.github/workflows/pages.yml` deploys `site/dist` on push to `main` once Pages is set to GitHub Actions in the repo settings. Until then the live copy stays on [StephenSHorton/StephenSHorton.github.io](https://github.com/StephenSHorton/StephenSHorton.github.io/tree/main/rock).
 
 Cloud agents can run the `rock-docs` reader on port 4173 to serve the tree as HTML and link-check the docs. Build the product binary with `go build ./cmd/rock`.
 
-Set `ROCK_API_KEY` (or `OPENAI_API_KEY`) and `ROCK_BASE_URL` for a real model. Set `TYPESAFE_API_KEY` or `JEV_API_KEY` for live Jev decisions. Without those keys the binary still runs: offline provider, offline gates, and `inspect` says so. Offline policy is not Jev. Suzuri can set `ROCK_SESSION_TITLE` when it launches a pane.
+Set `ROCK_API_KEY` (or `OPENAI_API_KEY`) and `ROCK_BASE_URL` for a real model. Store a Jev key with `rock setup jev`, or set `JEV_API_KEY` / `TYPESAFE_API_KEY`. Rock does not start an agent without one. Suzuri can set `ROCK_SESSION_TITLE` when it launches a pane.
 
-`rock setup` writes `~/.config/rock/config.toml`. It does not store API keys.
+`rock setup` writes `~/.config/rock/config.toml`. It does not store API keys. Use `rock setup jev` for the Jev key.

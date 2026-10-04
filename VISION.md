@@ -33,6 +33,8 @@ The product principles come from the reference talk **Level 10: Agentic Jev** (I
 
 The agent tool is `ask_jev`: multi-parameter queries, boolean / choice / score in the moment. Hard-coded gates still run. See [docs/synthesis/jev-audit.md](docs/synthesis/jev-audit.md) and [docs/synthesis/ask-jev-plan.md](docs/synthesis/ask-jev-plan.md).
 
+Rock does not start without a working Jev key. That is the product rule, on purpose. First launch — and any later launch without a valid key — blocks on a TUI onboarding screen. Scripts and CI run `rock setup jev`. Headless `-p`, `rock serve`, and `rock acp` fail fast and name that command. `JEV_API_KEY` and `TYPESAFE_API_KEY` still count as configured; they still have to validate. The old honest-offline user mode is gone. Mid-turn HTTP fallback and `ROCK_TEST_FAKE_JEV` (test-only, never default) are not a user feature.
+
 Do not invent Jev API verbs the public docs do not describe. Do not quote vendor speed or price numbers as Rock’s.
 
 ## What Rock is not
@@ -67,7 +69,7 @@ Rock itself is MIT. Copyright 2026 Stephen Horton. Keep the product forkable and
 
 ## Product feel
 
-- A fullscreen TUI you actually want to sit in: mouse, themes, status line (`jev:live|offline`), plan viewer, session picker.
+- A fullscreen TUI you actually want to sit in: mouse, themes, status line (`jev:live`), plan viewer, session picker. No Jev key, no agent.
 - One engine, many clients: TUI, headless/`-p`, ACP for editors, loopback HTTP.
 - Safer defaults than “run as the user with no permissions.” Allow / ask / deny with tool and bash globs. Plan mode that blocks edits until you leave it. A destructive Jev (or offline) gate that yolo does not skip.
 - Skills (`SKILL.md`). Plugins / marketplaces when we have something worth sharing.

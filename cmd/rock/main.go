@@ -13,6 +13,7 @@ import (
 
 	"github.com/StephenSHorton/rock/internal/acp"
 	"github.com/StephenSHorton/rock/internal/cli"
+	"github.com/StephenSHorton/rock/internal/config"
 	"github.com/StephenSHorton/rock/internal/perms"
 	"github.com/StephenSHorton/rock/internal/serve"
 	"github.com/StephenSHorton/rock/internal/session"
@@ -63,7 +64,11 @@ func run(args []string) error {
 			app.PrintPermissions(os.Stdout)
 			return nil
 		case "setup":
-			app, err := open(args[1:])
+			rest := args[1:]
+			if len(rest) > 0 && rest[0] == "jev" {
+				return setupJevCmd(rest[1:])
+			}
+			app, err := open(rest)
 			if err != nil {
 				return err
 			}
@@ -170,6 +175,9 @@ func root(args []string) error {
 		if prompt == "" {
 			return fmt.Errorf("headless mode needs a prompt")
 		}
+		if err := app.RequireJev(context.Background()); err != nil {
+			return err
+		}
 		return app.Headless(context.Background(), sess, prompt, format, os.Stdout, os.Stderr, askHeadless)
 	}
 	rules := append([]string{}, app.Policy().Allow...)
@@ -194,6 +202,7 @@ func envOn(key string) bool {
 }
 
 func startTUI(app *cli.App, sess *session.Session, initial string, rules []string, verbose bool) error {
+	needGate := app.RequireJev(context.Background()) != nil
 	model := tui.New(tui.Deps{
 		CWD:           app.CWD,
 		Session:       sess,
@@ -221,8 +230,11 @@ func startTUI(app *cli.App, sess *session.Session, initial string, rules []strin
 			app.Loaded.Policy.Mode = mode
 			app.Loaded.File.Mode = string(mode)
 		},
-		Output:  os.Stdout,
-		Verbose: verbose,
+		Output:   os.Stdout,
+		Verbose:  verbose,
+		JevGate:  needGate,
+		CheckJev: app.CheckJevKey,
+		SaveJev:  config.SaveJevKey,
 	})
 	return tui.Run(model)
 }
@@ -265,6 +277,9 @@ func serveCmd(args []string) error {
 		return err
 	}
 	defer app.Close()
+	if err := app.RequireJev(context.Background()); err != nil {
+		return err
+	}
 	app.ConnectMCP(context.Background())
 	fmt.Fprintf(os.Stderr, "rock serve %s\n", *addr)
 	srv := serve.New(app.Factory)
@@ -294,9 +309,25 @@ func acpCmd(args []string) error {
 		return err
 	}
 	defer app.Close()
+	if err := app.RequireJev(context.Background()); err != nil {
+		return err
+	}
 	app.ConnectMCP(context.Background())
 	agent := &acp.Agent{Factory: app.Factory, CWD: app.CWD, In: os.Stdin, Out: os.Stdout}
 	return agent.Serve(context.Background())
+}
+
+func setupJevCmd(args []string) error {
+	fs := flag.NewFlagSet("setup jev", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	key := fs.String("key", "", "Jev API key")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	return cli.SetupJev(context.Background(), *key, os.Stdin, os.Stdout)
 }
 
 func forkCmd(args []string) error {
@@ -349,6 +380,7 @@ const usage = `rock is a coding agent.
 
   rock inspect                 config, skills, MCP, Jev mode
   rock setup                   Huh form; does not write API keys
+  rock setup jev               validate and store a Jev key
   rock sessions                list sessions for this folder
   rock permissions             allow / ask / deny
   rock fork                    print a Suzuri OSC 7880 sequence
@@ -356,7 +388,11 @@ const usage = `rock is a coding agent.
   rock acp                     ACP v1 and v2 on stdio
   rock version
 
+A working Jev key is required. The TUI asks on first launch. Scripts use rock setup jev.
+Headless -p, serve, and acp fail without a valid key.
+
 Sessions live under ~/.rock (ROCK_HOME). Config is ~/.config/rock/config.toml (ROCK_CONFIG).
-Model keys: ROCK_API_KEY or OPENAI_API_KEY. Jev keys: JEV_API_KEY or TYPESAFE_API_KEY.
+Model keys: ROCK_API_KEY or OPENAI_API_KEY.
+Jev keys: JEV_API_KEY, TYPESAFE_API_KEY, the OS keychain, or ROCK_HOME/jev.key.
 ROCK_VERBOSE=1 is the same as --verbose: Jev turn/risk lines stay in the TUI transcript.
 `

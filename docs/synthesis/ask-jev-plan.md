@@ -22,6 +22,39 @@ Reference talk: IndyDevDan, [10 Levels of Jev For Agentic Engineers](https://www
 
 ---
 
+## Slice (0) — Jev required to run
+
+**Scope.** Rock is unusable without Jev, on purpose. This is an early required slice, not a later nice-to-have. The agent loop does not start until a key has been validated with a real Jev call.
+
+**Product rule.**
+
+- TUI: first launch, or any launch without a working key, is a blocking onboarding screen. One-line explanation of Jev. Masked key input. Validating / success / error + retry. Agent starts only after success.
+- Scripts / CI: `rock setup jev` reads `--key`, stdin, or `JEV_API_KEY` (then `TYPESAFE_API_KEY`), validates, saves, exits non-zero on failure.
+- Headless: `rock -p`, `rock serve`, and `rock acp` fail fast without a valid key. Stderr names `rock setup jev`.
+- `JEV_API_KEY` and `TYPESAFE_API_KEY` still count as configured. They must validate too.
+- Storage: OS keychain (`zalando/go-keyring`, service `rock`, user `jev`), falling back to `ROCK_HOME/jev.key` at `0600`. Tell the user which store won.
+- No user-facing “honest offline” mode. Mid-turn HTTP fallback in `Gates` is not a start path.
+- Test-only stub: `ROCK_TEST_FAKE_JEV` (reject with `0` / `reject` / `fail` / `invalid` / `no`). Never default-on. Optional `ROCK_TEST_FAKE_JEV_DELAY`. Skips when `Client.BaseURL` is set so `httptest` still wins. `visual.sh`, `scripts/demos`, and CI set it.
+
+This slice does **not** add `ask_jev`. Keep Jev client edits small so slice (a) rebases cleanly.
+
+**Files.**
+
+- [`internal/config/jevstore.go`](../../internal/config/jevstore.go)
+- [`internal/cli/jev.go`](../../internal/cli/jev.go)
+- [`internal/tui/onboard.go`](../../internal/tui/onboard.go)
+- [`internal/jev/fake.go`](../../internal/jev/fake.go)
+- [`cmd/rock/main.go`](../../cmd/rock/main.go)
+
+**Acceptance.**
+
+- No agent loop before validation.
+- `rock setup jev` succeeds with a valid key and fails with an invalid one.
+- Keychain failure writes a 0600 file.
+- `-p`, `serve`, and `acp` exit non-zero without a valid key and name `rock setup jev`.
+
+---
+
 ## Slice (a) — the `ask_jev` tool
 
 **Landed.** See the contract below. `jev_decide` is gone. Hard-coded `Gates` are unchanged. TUI diamonds stay slice (d); this slice emits `EvJev` name `ask`.
@@ -305,14 +338,15 @@ Mode and question on the name/body; source and value on the text. Choice shows t
 ## Order and dependencies
 
 ```
-(a) ask_jev tool
+(0) Jev required to run            (shipped; gate + setup jev + fail-fast)
+  → (a) ask_jev tool
   → (b) validation nudges          (needs the tool)
   → (c) triage / file filter       (needs the tool; paths helper optional)
   → (d) TUI ◇ jev for ask_jev      (needs events from a; ready emit can land here)
   → (e) share the primitive        (needs a’s result type; d’s emit path)
 ```
 
-(b) and (c) can start after (a) even if (d) is not merged; they just will not paint diamonds until (d). Do not merge (e) before (a). Do not sneak a new hard-coded `Decide` into (b) or (c).
+(0) does not block (a). (b) and (c) can start after (a) even if (d) is not merged; they just will not paint diamonds until (d). Do not merge (e) before (a). Do not sneak a new hard-coded `Decide` into (b) or (c).
 
 ## What 1.0 already shipped
 

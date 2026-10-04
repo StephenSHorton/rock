@@ -81,8 +81,9 @@ fast_model = "stub-fast"
 strong_model = "stub-strong"
 EOF
 	ensure_llm
-	env -u NO_COLOR -u OPENAI_API_KEY -u JEV_API_KEY -u TYPESAFE_API_KEY \
+	env -u NO_COLOR -u OPENAI_API_KEY -u TYPESAFE_API_KEY \
 		ROCK_HOME="$home" ROCK_API_KEY=stub ROCK_CONFIG="$WORK/stub.toml" \
+		ROCK_TEST_FAKE_JEV=1 JEV_API_KEY=rock-test \
 		COLORTERM=truecolor "$ROCK_BIN" --yolo --cwd "$WORK/project" \
 		-p "fix the typo in greeting.txt" >/tmp/rock-inspect-seed.txt
 	echo "$home"
@@ -185,7 +186,7 @@ drive_agents() {
 drive_inspect() {
 	local home=$1
 	sleep 0.5
-	t send-keys -t "$PANE" -l "clear; ROCK_HOME=$home ROCK_API_KEY=stub ROCK_CONFIG=$WORK/stub.toml COLORTERM=truecolor $ROCK_BIN inspect --cwd $WORK/project"
+	t send-keys -t "$PANE" -l "clear; ROCK_HOME=$home ROCK_API_KEY=stub ROCK_CONFIG=$WORK/stub.toml ROCK_TEST_FAKE_JEV=1 JEV_API_KEY=rock-test COLORTERM=truecolor $ROCK_BIN inspect --cwd $WORK/project"
 	t send-keys -t "$PANE" Enter
 	sleep 8
 }

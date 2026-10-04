@@ -82,6 +82,11 @@ type Deps struct {
 	// Verbose starts the TUI with Jev turn/risk diagnostics in the
 	// transcript. /verbose toggles it after that.
 	Verbose bool
+	// JevGate blocks the agent until CheckJev succeeds and SaveJev stores
+	// the key. Existing view tests leave this false.
+	JevGate  bool
+	CheckJev func(ctx context.Context, key string) error
+	SaveJev  func(key string) (store string, err error)
 }
 
 type line struct {
@@ -267,6 +272,7 @@ type Model struct {
 	verbose         bool
 	focusTranscript bool
 	quitArmed       time.Time
+	gate            *jevGate
 
 	palette list.Model
 
@@ -348,6 +354,9 @@ func New(deps Deps) *Model {
 	)
 	m.meter = progress.New(progress.WithWidth(16))
 
+	if deps.JevGate {
+		m.gate = newJevGate()
+	}
 	m.applyTheme(true)
 	m.seedTranscript()
 	m.refreshPerms()
@@ -398,6 +407,10 @@ func (m *Model) applyTheme(dark bool) {
 	m.md = map[int]*glamour.TermRenderer{}
 	m.contentW, m.planW = 0, 0
 	m.invalidatePaint()
+	if m.gate != nil {
+		m.gate.spin.Style = m.th.accent
+		m.gate.input.SetStyles(m.th.jevField())
+	}
 }
 
 // Send is set by Run before the program starts so the harness can post events.
@@ -411,6 +424,9 @@ func Run(m *Model) error {
 }
 
 func (m *Model) Init() tea.Cmd {
+	if m.gating() {
+		return tea.Batch(m.gate.input.Focus(), m.gate.spin.Tick, tea.RequestBackgroundColor)
+	}
 	cmds := []tea.Cmd{m.input.Focus(), tea.RequestBackgroundColor, m.retarget()}
 	if prompt := strings.TrimSpace(m.deps.InitialPrompt); prompt != "" {
 		m.deps.InitialPrompt = ""
@@ -440,9 +456,18 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 			m.applyTheme(msg.IsDark())
 		}
 		return nil
+	case jevGateDone:
+		return m.finishJevGate(msg)
+	case jevGateClear:
+		return m.clearJevGate()
 	case tickMsg:
 		return m.stepMeter()
 	case spinner.TickMsg:
+		if m.gating() {
+			var cmd tea.Cmd
+			m.gate.spin, cmd = m.gate.spin.Update(msg)
+			return cmd
+		}
 		if !m.busy {
 			return nil
 		}
@@ -486,7 +511,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	case tea.KeyPressMsg:
 		return m.onKey(msg)
 	}
-	if m.pending != nil || m.overlay != noOverlay {
+	if m.gating() || m.pending != nil || m.overlay != noOverlay {
 		return nil
 	}
 	var cmd tea.Cmd
@@ -495,6 +520,9 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 }
 
 func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
+	if m.gating() {
+		return m.gateKey(msg)
+	}
 	if key.Matches(msg, m.keys.quit) {
 		return m.quitKey()
 	}
@@ -972,7 +1000,7 @@ func (m *Model) emitFork(prompt string) tea.Cmd {
 }
 
 func (m *Model) start(prompt string) tea.Cmd {
-	if m.deps.Run == nil || m.busy {
+	if m.gating() || m.deps.Run == nil || m.busy {
 		return nil
 	}
 	m.busy = true

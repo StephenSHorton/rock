@@ -8,6 +8,10 @@
 #   FONT_SIZE / STUB_DELAY        optional env for the xterm face and stub pause
 #   visual.sh offline             rock with no model key (offline provider)
 #   visual.sh stub                rock against stubllm in a fresh workspace
+#   visual.sh onboard [env...]    first-run Jev gate (no saved key)
+#   visual.sh onboard-ok          gate + ROCK_TEST_FAKE_JEV accept
+#   visual.sh onboard-bad         gate + ROCK_TEST_FAKE_JEV reject
+#   visual.sh onboard-slow        gate + fake accept after ROCK_TEST_FAKE_JEV_DELAY
 #   visual.sh type "text"         type literally, then Enter
 #   visual.sh keys Escape         tmux send-keys to the rock pane
 #   visual.sh resize 80 30        resize the xterm, in cells
@@ -81,11 +85,11 @@ llm() {
 run() {
 	local home
 	home=$(mktemp -d /tmp/rock-home.XXXXXX)
-	t send-keys -t "$PANE" "clear; cd $WORK/project && env -u NO_COLOR -u OPENAI_API_KEY -u JEV_API_KEY -u TYPESAFE_API_KEY $1 ROCK_HOME=$home COLORTERM=truecolor $2 $ROCK_BIN" Enter
+	t send-keys -t "$PANE" "clear; cd $WORK/project && env -u NO_COLOR -u OPENAI_API_KEY -u JEV_API_KEY -u TYPESAFE_API_KEY -u ROCK_TEST_FAKE_JEV -u ROCK_TEST_FAKE_JEV_DELAY $1 ROCK_HOME=$home COLORTERM=truecolor $2 $ROCK_BIN" Enter
 }
 
 offline() {
-	run "-u ROCK_API_KEY" "ROCK_CONFIG=$WORK/offline-none.toml"
+	run "-u ROCK_API_KEY" "ROCK_TEST_FAKE_JEV=1 JEV_API_KEY=rock-test ROCK_CONFIG=$WORK/offline-none.toml"
 }
 
 stub() {
@@ -96,7 +100,13 @@ stub() {
 		fast_model = "stub-fast"
 		strong_model = "stub-strong"
 	EOF
-	run "" "ROCK_API_KEY=stub ROCK_CONFIG=$WORK/stub.toml"
+	run "" "ROCK_TEST_FAKE_JEV=1 JEV_API_KEY=rock-test ROCK_API_KEY=stub ROCK_CONFIG=$WORK/stub.toml"
+}
+
+# onboard starts Rock with no Jev key so the blocking gate is the first screen.
+# Extra env (fake accept/reject/delay) is appended after the unsets.
+onboard() {
+	run "-u ROCK_API_KEY" "$*"
 }
 
 wheel() {
@@ -126,6 +136,10 @@ up) up "$@" ;;
 llm) llm ;;
 offline) offline ;;
 stub) stub ;;
+onboard) onboard "$@" ;;
+onboard-ok) onboard "ROCK_TEST_FAKE_JEV=1" ;;
+onboard-bad) onboard "ROCK_TEST_FAKE_JEV=reject" ;;
+onboard-slow) onboard "ROCK_TEST_FAKE_JEV=1 ROCK_TEST_FAKE_JEV_DELAY=${1:-8s}" ;;
 type) t send-keys -t "$PANE" -l "$1" && t send-keys -t "$PANE" Enter ;;
 keys) t send-keys -t "$PANE" "$@" ;;
 resize) xdotool windowsize --usehints "$(wid)" "$1" "$2" ;;
@@ -133,5 +147,5 @@ wheel) wheel "$@" ;;
 click) click "$@" ;;
 shot) shot "$1" ;;
 text) t capture-pane -p -t "$PANE" ;;
-*) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//' && exit 2 ;;
+*) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//' && exit 2 ;;
 esac
