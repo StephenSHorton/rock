@@ -7,20 +7,20 @@ export function Hero() {
     <section id="top" className="relative isolate min-h-[100svh] w-full overflow-hidden">
       <YardStage />
       <div className="relative z-10 mx-auto max-w-6xl px-4 sm:px-6 lg:grid lg:min-h-[100svh] lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)] lg:items-center lg:gap-5 xl:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
-        <div className="flex min-h-[100svh] items-center py-24 lg:min-h-0 lg:py-0">
-          <div className="glass-panel w-full rounded-2xl p-5 sm:p-6">
+        <div className="flex min-h-[100svh] items-end pb-4 pt-[42svh] lg:min-h-0 lg:items-center lg:py-0">
+          <div className="glass-panel w-full rounded-2xl p-3 sm:p-4 lg:p-6">
             <p className="mono text-[0.72rem] tracking-[0.16em] uppercase text-[var(--muted)]">
               <span className="text-[var(--primary)]">rock</span> 1.0 · MIT · Go
             </p>
-            <h1 className="mt-3 text-4xl leading-[1.05] tracking-tight sm:text-5xl">
+            <h1 className="mt-2 text-3xl leading-[1.05] tracking-tight lg:mt-3 lg:text-5xl">
               An AI coding CLI in Go.
             </h1>
-            <p className="mt-4 text-lg text-[var(--ink-2)]">
+            <p className="mt-2 text-base text-[var(--ink-2)] lg:mt-4 lg:text-lg">
               A fullscreen Charm TUI, <code>rock -p</code>, <code>rock acp</code>, and{' '}
               <code>rock serve</code> share the same harness.
             </p>
             <InstallLine />
-            <div className="mt-5 flex flex-wrap gap-3">
+            <div className="mt-3 flex flex-wrap gap-2 lg:mt-5 lg:gap-3">
               <a className="rounded-full bg-[var(--primary)] px-4 py-2.5 mono text-[0.78rem] text-[var(--primary-foreground)] no-underline" href="#install">
                 Install
               </a>
