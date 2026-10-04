@@ -213,7 +213,8 @@ func (m *Model) bodyView() string {
 }
 
 // transcriptView is the viewport with one column of air on the left and the
-// scrollbar on the right.
+// scrollbar on the right. The last user prompt pins at the top when the
+// viewport has scrolled past it.
 func (m *Model) transcriptView(w, h int) string {
 	lines := strings.Split(m.vp.View(), "\n")
 	bar := m.scrollbar(h)
@@ -224,6 +225,15 @@ func (m *Model) transcriptView(w, h int) string {
 			l = lines[i]
 		}
 		out[i] = " " + padRight(l, w-2) + bar[i]
+	}
+	if stickyH, from := m.stickyUser(); stickyH > 0 && from >= 0 && m.contentW > 0 {
+		pin := m.renderUser(clip(sanitize(m.lines[from].text), max(1, m.contentW-2)), m.contentW, m.selected == from, false)
+		for i, row := range strings.Split(pin, "\n") {
+			if i >= h {
+				break
+			}
+			out[i] = " " + padRight(row, w-2) + bar[i]
+		}
 	}
 	return strings.Join(out, "\n")
 }
@@ -354,7 +364,7 @@ func (m *Model) helpText(w int) string {
 		{"pgup/pgdn", "scroll the transcript"},
 		{"ctrl+u/d", "half a page"},
 		{"wheel", "scroll under the pointer"},
-		{"click", "jump on the scrollbar"},
+		{"click", "select a block or jump the scrollbar"},
 		{"ctrl+h", "this help"},
 		{"esc", "close; deny a pending call"},
 		{"ctrl+c", "quit"},
@@ -649,77 +659,276 @@ func (m *Model) syncView() {
 }
 
 func (m *Model) renderTranscript(width int) string {
+	m.spans = nil
 	if len(m.lines) == 0 {
 		return m.th.faint.Render(wrapText(readyText, width))
 	}
 	var b strings.Builder
-	for i := range m.lines {
+	y := 0
+	write := func(s string) (y0, y1 int) {
+		if s == "" {
+			return y, y
+		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+			y++
+		}
+		y0 = y
+		b.WriteString(s)
+		y += strings.Count(s, "\n")
+		return y0, y
+	}
+	gap := func() {
+		if b.Len() == 0 {
+			return
+		}
+		b.WriteByte('\n')
+		y++
+	}
+	i := 0
+	for i < len(m.lines) {
+		end, kind, n := verbRun(m.lines, i)
+		if n > 1 {
+			if i > 0 {
+				gap()
+			}
+			folded := m.isFolded(i)
+			sel := m.selected >= i && m.selected < end
+			y0, y1 := write(m.renderGroup(kind, n, m.lines[i:end], width, sel, folded))
+			m.spans = append(m.spans, entrySpan{from: i, to: end - 1, y0: y0, y1: y1, group: true})
+			i = end
+			continue
+		}
 		ln := &m.lines[i]
 		if i > 0 && (ln.kind == "user" || ln.kind == "assistant" || ln.kind == "error") {
-			b.WriteByte('\n')
+			gap()
 		}
+		sel := m.selected == i
+		folded := m.isFolded(i)
 		if ln.out == "" || ln.outW != width || ln.outDark != m.th.dark {
-			ln.out, ln.outW, ln.outDark = m.renderLine(*ln, width), width, m.th.dark
+			ln.out, ln.outW, ln.outDark = m.renderLine(*ln, width, false, false), width, m.th.dark
 		}
-		b.WriteString(ln.out)
-		b.WriteByte('\n')
+		painted := ln.out
+		if sel || folded || lineFoldable(*ln, width) {
+			painted = m.renderLine(*ln, width, sel, folded)
+		}
+		y0, y1 := write(painted)
+		m.spans = append(m.spans, entrySpan{from: i, to: i, y0: y0, y1: y1, group: false})
+		i++
 	}
-	return strings.TrimRight(b.String(), "\n")
+	return b.String()
 }
 
-func (m *Model) renderLine(ln line, width int) string {
+func (m *Model) renderLine(ln line, width int, selected, folded bool) string {
 	t := m.th
-	bodyW := max(8, width-gutter)
 	text := sanitize(ln.text)
 	switch ln.kind {
 	case "user":
-		return speak(t.you.Render(padRight("you", gutter)), t.plain.Render(wrapText(text, bodyW)))
+		return m.renderUser(text, width, selected, folded)
 	case "assistant":
-		return speak(t.rock.Render(padRight("rock", gutter)), m.markdown(text, bodyW))
+		return m.renderAssistant(text, width, selected, folded)
 	case "error":
-		return speak(t.dangerBold.Render(padRight("error", gutter)), t.danger.Render(wrapText(text, bodyW)))
+		bodyW := max(8, width-blockPad)
+		body := t.danger.Render(wrapText(text, bodyW))
+		if folded && lineFoldable(ln, width) {
+			body = t.danger.Render(clip(text, bodyW))
+		}
+		return m.markBlock(body, width, selected, folded)
 	case "tool":
-		return eventRow(t.chrome.Render("▸ ")+t.strong.Render(ln.name), toolSummary(ln.name, ln.text), t.faint, bodyW)
+		return m.eventRow(t.chrome.Render("▸ ")+t.strong.Render(ln.name), toolSummary(ln.name, ln.text), t.faint, width, selected)
 	case "result":
 		mark, st := t.chrome.Render("✓ "), t.faint
 		if strings.HasPrefix(text, "denied") {
 			mark, st = t.danger.Render("✗ "), t.danger
 		}
-		return eventRow(mark+t.plain.Render(ln.name), resultSummary(text), st, bodyW)
+		return m.eventRow(mark+t.plain.Render(ln.name), resultSummary(text), st, width, selected)
 	case "permission":
 		decision, why, _ := strings.Cut(text, ":")
 		st := t.chrome
 		if decision == string(perms.Deny) {
 			st = t.danger
 		}
-		return eventRow(st.Render("⚑ ")+t.plain.Render(ln.name)+"  "+st.Render(decision), strings.TrimSpace(why), t.faint, bodyW)
+		return m.eventRow(st.Render("⚑ ")+t.plain.Render(ln.name)+"  "+st.Render(decision), strings.TrimSpace(why), t.faint, width, selected)
 	case "jev":
-		return eventRow(t.faint.Render("◇ jev "+ln.name), text, t.faint, bodyW)
+		return m.eventRow(t.faint.Render("◇ jev "+ln.name), text, t.faint, width, selected)
 	default:
-		return strings.Repeat(" ", gutter) + t.faint.Render(clip(ln.kind+"  "+text, bodyW))
+		return m.eventRow(t.faint.Render(ln.kind), text, t.faint, width, selected)
 	}
 }
 
-// eventRow is one tool, permission, or Jev row under the speaker column.
-func eventRow(head, detail string, st lipgloss.Style, w int) string {
-	row := ansi.Truncate(head, w, "…")
-	if room := w - ansi.StringWidth(row) - 2; room > 0 && detail != "" {
-		row += "  " + st.Render(clip(detail, room))
+func (m *Model) renderUser(text string, width int, selected, folded bool) string {
+	t := m.th
+	prefix := "❯ "
+	if folded {
+		prefix = "› "
 	}
-	return strings.Repeat(" ", gutter) + row
-}
-
-func speak(label, body string) string {
-	lines := strings.Split(body, "\n")
-	pad := strings.Repeat(" ", gutter)
-	for i := range lines {
-		if i == 0 {
-			lines[i] = label + lines[i]
-		} else {
-			lines[i] = pad + lines[i]
+	bodyW := max(8, width-2)
+	rows := strings.Split(wrapText(text, bodyW), "\n")
+	if folded && len(rows) > 3 {
+		rows = append(rows[:2], clip(rows[2], max(1, bodyW-2))+" …")
+	}
+	caret, body := t.accentBold, t.plain
+	if selected {
+		body = t.strong
+	}
+	band := t.bar
+	out := make([]string, len(rows))
+	for i, row := range rows {
+		p := prefix
+		if i > 0 {
+			p = "  "
 		}
+		out[i] = band.Render(caret.Render(p) + body.Render(padRight(row, bodyW)))
+	}
+	return strings.Join(out, "\n")
+}
+
+func (m *Model) renderAssistant(text string, width int, selected, folded bool) string {
+	bodyW := max(8, width-blockPad)
+	body := m.markdown(text, bodyW)
+	if folded && visualRows(body) > 6 {
+		rows := strings.Split(body, "\n")
+		body = strings.Join(rows[:5], "\n") + "\n" + m.th.faint.Render("› …")
+	}
+	return m.markBlock(body, width, selected, folded)
+}
+
+func (m *Model) renderGroup(kind string, n int, members []line, width int, selected, folded bool) string {
+	t := m.th
+	mark := ""
+	if folded && !selected {
+		mark = t.faint.Render("› ")
+	}
+	head := m.eventRow(mark+t.strong.Render(verbLabel(kind, n)), "", t.faint, width, selected)
+	if folded {
+		return head
+	}
+	var rows []string
+	rows = append(rows, head)
+	for _, ln := range members {
+		if ln.kind == "result" {
+			rows = append(rows, m.renderLine(ln, width, false, false))
+			continue
+		}
+		rows = append(rows, m.renderLine(ln, width, false, false))
+	}
+	return strings.Join(rows, "\n")
+}
+
+func (m *Model) markBlock(body string, width int, selected, folded bool) string {
+	t := m.th
+	lead := strings.Repeat(" ", blockPad)
+	if selected {
+		lead = t.accent.Render("▎") + strings.Repeat(" ", max(0, blockPad-1))
+	} else if folded {
+		lead = t.faint.Render("›") + strings.Repeat(" ", max(0, blockPad-1))
+	}
+	lines := strings.Split(body, "\n")
+	for i := range lines {
+		p := lead
+		if i > 0 {
+			p = strings.Repeat(" ", blockPad)
+			if selected {
+				p = t.accent.Render("▎") + strings.Repeat(" ", max(0, blockPad-1))
+			}
+		}
+		lines[i] = p + lines[i]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// eventRow is one tool, permission, or Jev row, inset by blockPad.
+func (m *Model) eventRow(head, detail string, st lipgloss.Style, width int, selected bool) string {
+	t := m.th
+	inner := max(8, width-blockPad)
+	row := ansi.Truncate(head, inner, "…")
+	if room := inner - ansi.StringWidth(row) - 2; room > 0 && detail != "" {
+		row += "  " + st.Render(clip(detail, room))
+	}
+	lead := strings.Repeat(" ", blockPad)
+	if selected {
+		lead = t.accent.Render("▎") + strings.Repeat(" ", max(0, blockPad-1))
+	}
+	return lead + row
+}
+
+func groupKind(ln line) (string, bool) {
+	if ln.kind != "tool" {
+		return "", false
+	}
+	switch ln.name {
+	case "read_file":
+		return "file", true
+	case "grep", "glob":
+		return "search", true
+	case "web_fetch":
+		return "fetch", true
+	}
+	return "", false
+}
+
+// verbRun is a run of consecutive read/search/fetch tool rows, swallowing
+// their matching results so interleaved ✓ rows do not split the group.
+func verbRun(lines []line, i int) (end int, kind string, n int) {
+	if i < 0 || i >= len(lines) {
+		return i + 1, "", 1
+	}
+	kind, ok := groupKind(lines[i])
+	if !ok {
+		return i + 1, "", 1
+	}
+	n = 1
+	j := i + 1
+	for j < len(lines) {
+		if lines[j].kind == "result" {
+			if _, ok := groupKind(line{kind: "tool", name: lines[j].name}); ok {
+				j++
+				continue
+			}
+			break
+		}
+		k, ok := groupKind(lines[j])
+		if !ok || k != kind {
+			break
+		}
+		n++
+		j++
+	}
+	return j, kind, n
+}
+
+func verbLabel(kind string, n int) string {
+	noun := func(one, many string) string {
+		if n == 1 {
+			return one
+		}
+		return many
+	}
+	switch kind {
+	case "search":
+		return fmt.Sprintf("Searched %d %s", n, noun("pattern", "patterns"))
+	case "fetch":
+		return fmt.Sprintf("Fetched %d %s", n, noun("website", "websites"))
+	default:
+		return fmt.Sprintf("Read %d %s", n, noun("file", "files"))
+	}
+}
+
+func lineFoldable(ln line, width int) bool {
+	switch ln.kind {
+	case "user":
+		return visualRows(wrapText(sanitize(ln.text), max(8, width-2))) > 3
+	case "assistant", "error":
+		return visualRows(wrapText(sanitize(ln.text), max(8, width-blockPad))) > 6
+	}
+	return false
+}
+
+func visualRows(s string) int {
+	if s == "" {
+		return 0
+	}
+	return strings.Count(s, "\n") + 1
 }
 
 func toolSummary(name, args string) string {
