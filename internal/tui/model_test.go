@@ -725,7 +725,7 @@ func TestDecisionFromTheDialogLandsInTheTranscript(t *testing.T) {
 			t.Fatal("edit_file should ask in default mode")
 		}
 		text := transcriptText(m)
-		for _, want := range []string{"fix the greeting typo", "edit_file greeting.txt", "edit_file " + string(tc.decision) + " you answered " + string(tc.decision), tc.reply} {
+		for _, want := range []string{"fix the greeting typo", "greeting.txt", "edit_file " + string(tc.decision) + " you answered " + string(tc.decision), tc.reply} {
 			if !strings.Contains(text, want) {
 				t.Fatalf("%s: transcript lacks %q:\n%s", tc.decision, want, strings.Join(screen(m), "\n"))
 			}
@@ -836,4 +836,76 @@ func TestStickyLastUserPrompt(t *testing.T) {
 	if h, from := m.stickyUser(); h == 0 || from < 0 {
 		t.Fatal("stickyUser should report the pinned prompt")
 	}
+}
+
+func TestToolCallMergesResultIntoOneBlock(t *testing.T) {
+	m := sized(t, 100, 24)
+	m.Update(eventMsg{harness.Event{Kind: harness.EvToolCall, Name: "edit_file", Text: `{"path":"greeting.txt","old":"helo wrold","new":"hello world"}`}})
+	m.Update(eventMsg{harness.Event{Kind: harness.EvToolResult, Name: "edit_file", Text: "wrote 1 line"}})
+	text := transcriptText(m)
+	if !strings.Contains(text, "Edit") || !strings.Contains(text, "greeting.txt") {
+		t.Fatalf("edit header: %q", text)
+	}
+	if strings.Contains(text, "▸") || strings.Contains(text, "✓ edit_file") {
+		t.Fatalf("call and result should be one ◆ block: %q", text)
+	}
+	if !strings.Contains(text, "- helo wrold") || !strings.Contains(text, "+ hello world") || !strings.Contains(text, "…") {
+		t.Fatalf("expanded edit should show the hunk: %q", text)
+	}
+	if n := countTools(m); n != 1 {
+		t.Fatalf("want 1 tool line, got %d", n)
+	}
+}
+
+func TestReadFoldsByDefaultAndShellShowsTruncatedOutput(t *testing.T) {
+	m := sized(t, 100, 24)
+	m.Update(eventMsg{harness.Event{Kind: harness.EvToolCall, Name: "read_file", Text: `{"path":"solo.go"}`}})
+	m.Update(eventMsg{harness.Event{Kind: harness.EvToolResult, Name: "read_file", Text: "package main\n"}})
+	if got := transcriptText(m); !strings.Contains(got, "Read") || !strings.Contains(got, "solo.go") || strings.Contains(got, "package main") {
+		t.Fatalf("read should fold to the header: %q", got)
+	}
+
+	m = sized(t, 100, 30)
+	var out strings.Builder
+	for i := 1; i <= 8; i++ {
+		fmt.Fprintf(&out, "line-%d\n", i)
+	}
+	m.Update(eventMsg{harness.Event{Kind: harness.EvToolCall, Name: "shell", Text: `{"command":"seq 8"}`}})
+	m.Update(eventMsg{harness.Event{Kind: harness.EvToolResult, Name: "shell", Text: out.String()}})
+	got := transcriptText(m)
+	if !strings.Contains(got, "$ seq 8") {
+		t.Fatalf("shell header: %q", got)
+	}
+	if !strings.Contains(got, "line-1") || !strings.Contains(got, "line-2") || !strings.Contains(got, "line-8") {
+		t.Fatalf("shell should keep first 2 and last 3: %q", got)
+	}
+	if strings.Contains(got, "line-3") || strings.Contains(got, "line-4") || strings.Contains(got, "line-5") {
+		t.Fatalf("middle shell lines should collapse: %q", got)
+	}
+}
+
+func TestRunningToolPaintsAnAttentionBar(t *testing.T) {
+	m := sized(t, 100, 24)
+	m.busy = true
+	m.Update(eventMsg{harness.Event{Kind: harness.EvToolCall, Name: "shell", Text: `{"command":"sleep 1"}`}})
+	if !m.toolRunning(0) && !m.toolRunning(len(m.lines)-1) {
+		t.Fatal("open shell while busy should count as running")
+	}
+	raw := m.View().Content
+	if !strings.Contains(raw, "38;2;242;183;5") && !strings.Contains(ansi.Strip(raw), "▎") {
+		t.Fatalf("running tool should use the attention accent:\n%s", ansi.Strip(raw))
+	}
+	if !strings.Contains(transcriptText(m), "sleep 1") {
+		t.Fatal(transcriptText(m))
+	}
+}
+
+func countTools(m *Model) int {
+	n := 0
+	for _, ln := range m.lines {
+		if ln.kind == "tool" {
+			n++
+		}
+	}
+	return n
 }
