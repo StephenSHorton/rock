@@ -6,9 +6,9 @@ export function Hero() {
   return (
     <section id="top" className="relative isolate min-h-[100svh] w-full overflow-hidden">
       <YardStage />
-      <div className="relative z-10 mx-auto flex min-h-[100svh] max-w-6xl flex-col justify-center px-4 py-24 sm:px-6">
-        <div className="grid items-center gap-5 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)] xl:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
-          <div className="glass-panel rounded-2xl p-5 sm:p-6">
+      <div className="relative z-10 mx-auto max-w-6xl px-4 sm:px-6 lg:grid lg:min-h-[100svh] lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)] lg:items-center lg:gap-5 xl:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
+        <div className="flex min-h-[100svh] items-center py-24 lg:min-h-0 lg:py-0">
+          <div className="glass-panel w-full rounded-2xl p-5 sm:p-6">
             <p className="mono text-[0.72rem] tracking-[0.16em] uppercase text-[var(--muted)]">
               <span className="text-[var(--primary)]">rock</span> 1.0 · MIT · Go
             </p>
@@ -32,9 +32,9 @@ export function Hero() {
               </a>
             </div>
           </div>
-          <div className="min-w-0">
-            <TuiFrame />
-          </div>
+        </div>
+        <div className="min-w-0 pb-10 lg:pb-0">
+          <TuiFrame />
         </div>
       </div>
     </section>
