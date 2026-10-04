@@ -83,8 +83,9 @@ export function CliSection() {
         <article className="glass-panel rounded-2xl p-5">
           <h3 className="text-2xl tracking-tight">Inside the TUI</h3>
           <p className="mt-2 text-[var(--ink-2)]">
-            Composer placeholder: <code>Ask Rock</code>. Hint: <code>/ for commands</code>. Type{' '}
-            <code>/</code> to open the menu.
+            Framed composer, <code>❯</code> prompt. Placeholder: <code>Ask Rock</code>. Hint:{' '}
+            <code>/ for commands</code>. Type <code>/</code> for the slash pop-up; the model and
+            mode chips on the frame open the same picker.
           </p>
           <ul className="mt-4 space-y-2">
             {slash.map((row) => (
@@ -153,6 +154,6 @@ function caption(id: Sample) {
     case 'perms':
       return 'Default policy from config.Default().'
     default:
-      return 'Reconstructed from internal/tui: header, status badges, speaker column width 6, ready copy, and the offline print of the same prompt.'
+      return 'Reconstructed from internal/tui: framed composer with a ❯ prompt, status badges, speaker column width 6, ready copy, and the offline print of the same prompt.'
   }
 }
