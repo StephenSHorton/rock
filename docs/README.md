@@ -26,6 +26,7 @@ Crush is FSL-1.1-MIT. Study freely. Do not wholesale-copy while FSL applies.
 | [steal-priorities.md](synthesis/steal-priorities.md) | Ranked ideas to take into Rock |
 | [architecture-sketch.md](synthesis/architecture-sketch.md) | Negotiable shape: TUI ↔ protocol ↔ harness |
 | [v1-plan.md](synthesis/v1-plan.md) | 1.0 decisions: Go, Jev gates, Suzuri |
+| [tui-parity.md](synthesis/tui-parity.md) | Charm TUI vs Grok Build: intended diffs + visual backlog |
 
 ### CLI dissections
 
