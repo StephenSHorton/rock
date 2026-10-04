@@ -1,26 +1,45 @@
 import type { LookPatch } from 'mokei/clay'
 
-/** Clay look for the quarry. Sandstone, slate, hard-hat orange, teal. */
+/**
+ * Site-local color roles. Mokei will grow the same names
+ * (base, accent1–3, detail). Switch the kit theme later by
+ * rewriting this file only.
+ */
+export const roles = {
+  base: '#F7F5F0',
+  accent1: '#2B59E8',
+  accent2: '#F2B705',
+  accent3: '#3B4552',
+  detail: '#1C1F24',
+  ground: '#E8E2D4',
+  rock: '#D2C6B2',
+} as const
+
+export type Role = keyof typeof roles
+
+const lamp = '#FFF8EC'
+
+/** Clay look mapped from the roles. Sandstone stays on the ground. */
 export const quarryLook = {
-  ground: '#e6d5b8',
-  road: '#c4a574',
-  grass: '#c9d4b0',
-  wall: '#f3eadc',
-  roof: '#5c6670',
-  accent: '#e85d04',
-  yellow: '#f07a2a',
-  cardboard: '#c4a07a',
-  tree: '#2a9d8f',
-  tire: '#2a241f',
-  aoColor: '#4a3728',
-  skyColor: '#d8e4ea',
-  groundBounce: '#d4c0a0',
-  sunColor: '#fff4e4',
+  ground: roles.ground,
+  road: '#DDD6C8',
+  grass: '#E4DED2',
+  wall: roles.base,
+  roof: roles.accent1,
+  accent: roles.accent1,
+  yellow: roles.accent2,
+  cardboard: roles.base,
+  tree: roles.rock,
+  tire: roles.detail,
+  aoColor: '#C8BDAA',
+  skyColor: '#EEF1F4',
+  groundBounce: roles.ground,
+  sunColor: '#FFFAF4',
   sunAzimuth: -32,
   sunElevation: 48,
   sunIntensity: 0.3,
-  skyIntensity: 0.74,
-  aoIntensity: 2.8,
+  skyIntensity: 0.78,
+  aoIntensity: 2.4,
   aoRadius: 2.1,
   cameraZoom: 52,
   cameraAzimuth: 32,
@@ -28,19 +47,60 @@ export const quarryLook = {
 } satisfies LookPatch
 
 export const clay = {
-  sand: '#e6d5b8',
-  sandDeep: '#c4a574',
-  sandHot: '#d8b48a',
-  slate: '#5c6670',
-  slateDeep: '#3d4650',
-  slatePale: '#8b949c',
-  orange: '#f07a2a',
-  orangeHot: '#e85d04',
-  teal: '#2a9d8f',
-  tealDeep: '#1d7a70',
-  crate: '#c4a07a',
-  crateDeep: '#a9845c',
-  cream: '#f3eadc',
-  sage: '#c9d4b0',
-  tire: '#2a241f',
+  ...roles,
+  lamp,
+}
+
+/** Push the same roles into page / HUD tokens after applyTheme('quarry'). */
+export function applyPagePalette() {
+  const root = document.documentElement
+  const set = (name: string, value: string) => root.style.setProperty(name, value)
+
+  set('--background', roles.ground)
+  set('--foreground', roles.detail)
+  set('--ink', roles.detail)
+  set('--ink-2', roles.accent3)
+  set('--muted', roles.accent3)
+  set('--muted-2', '#6B7380')
+  set('--hair', 'rgba(59, 69, 82, 0.22)')
+  set('--blue', roles.accent1)
+  set('--blue-deep', '#1F46C7')
+
+  set('--glass-bg', 'rgba(247, 245, 240, 0.9)')
+  set('--glass-border', 'rgba(255, 255, 255, 0.94)')
+  set('--glass-shadow', '0 1px 2px rgba(28, 31, 36, 0.04), 0 10px 28px rgba(28, 31, 36, 0.08)')
+  set('--topbar-bg', 'rgba(247, 245, 240, 0.82)')
+  set('--topbar-border', 'rgba(59, 69, 82, 0.14)')
+  set('--topbar-shadow', '0 6px 20px rgba(28, 31, 36, 0.04)')
+
+  set('--card', 'rgba(247, 245, 240, 0.94)')
+  set('--card-foreground', roles.detail)
+  set('--primary', roles.accent1)
+  set('--primary-foreground', '#FFFFFF')
+  set('--secondary', roles.base)
+  set('--secondary-foreground', roles.accent3)
+  set('--muted-surface', '#EDE8DE')
+  set('--muted-foreground', roles.accent3)
+  set('--accent', '#E4EAFB')
+  set('--accent-foreground', roles.accent1)
+  set('--border', 'rgba(59, 69, 82, 0.2)')
+  set('--input', '#E4DED2')
+  set('--ring', roles.accent1)
+
+  set('--success', roles.accent1)
+  set('--warning', roles.accent2)
+  set('--info', roles.accent1)
+
+  set('--clay-ground', roles.ground)
+  set('--clay-road', '#DDD6C8')
+  set('--clay-grass', '#E4DED2')
+  set('--clay-wall', roles.base)
+  set('--clay-roof', roles.accent1)
+  set('--clay-accent', roles.accent1)
+  set('--clay-yellow', roles.accent2)
+  set('--clay-cardboard', roles.base)
+  set('--clay-tree', roles.rock)
+  set('--clay-tire', roles.detail)
+  set('--clay-ao', '#C8BDAA')
+  set('--clay-sky', quarryLook.skyColor)
 }
