@@ -26,7 +26,7 @@ Lessons from that project's slices. Not Rock's design.
 
 - Scrub JEV_API_KEY and TYPESAFE_API_KEY from subprocess envs.
 
-**Rock status.** `config.ChildEnv` / `ScrubCmdEnv` strip both from the shell tool, MCP servers, git children, and the SIWC browser open. Covered by `TestShellDoesNotInheritJevKeys`.
+**Rock status.** `config.ChildEnv` / `ScrubCmdEnv` strip both from the shell tool, MCP servers, git children, the SIWC browser open, and the grok-cli ACP child. Covered by `TestShellDoesNotInheritJevKeys` and `TestStartExecScrubsJevKeys`.
 
 - Keep a no-key snapshot: the default serialized config and tool list stay unchanged, so skip serializing an empty [jev] block. This one is grok-build specific, because Jev is optional there.
 

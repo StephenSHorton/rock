@@ -81,6 +81,7 @@ type Deps struct {
 	SetAuth       func(class string) (provider, auth string, err error)
 	HasAPIKey     bool
 	HasSIWC       bool
+	HasGrokCLI    bool
 	InitialPrompt string
 	Output        io.Writer
 	// Verbose starts the TUI with Jev turn/risk diagnostics in the
@@ -762,7 +763,7 @@ func (m *Model) refreshPalette() {
 		rowItem{title: "/ready", desc: "is the plan ready? never approves", id: "cmd:/ready"},
 		rowItem{title: "/verbose", desc: "show or hide Jev turn/risk diagnostics", id: "cmd:/verbose"},
 		rowItem{title: "/fork", desc: "new Rock pane in Suzuri (OSC 7880)", id: "cmd:/fork"},
-		rowItem{title: "/provider", desc: "ChatGPT (SIWC), API key, or offline model", id: "cmd:/provider"},
+		rowItem{title: "/provider", desc: "ChatGPT, SuperGrok, API key, or offline model", id: "cmd:/provider"},
 		rowItem{title: "/quit", desc: "quit", id: "cmd:/quit"},
 		rowItem{title: "tab", desc: "focus composer ↔ transcript", id: "key:focus"},
 		rowItem{title: "shift+tab", desc: "cycle default / plan / yolo", id: "key:cycle"},
@@ -1312,6 +1313,12 @@ func (m *Model) refreshProviders() {
 			tag:   providerTag("siwc", current, m.deps.HasSIWC),
 		},
 		rowItem{
+			title: "SuperGrok",
+			desc:  providerDesc("grok-cli", m.deps.HasGrokCLI, "Official grok binary over ACP. Run grok login yourself. Rock still runs tools and Jev."),
+			id:    "grok-cli",
+			tag:   providerTag("grok-cli", current, m.deps.HasGrokCLI),
+		},
+		rowItem{
 			title: "API key",
 			desc:  providerDesc("api_key", m.deps.HasAPIKey, "ROCK_API_KEY or OPENAI_API_KEY. The fallback when ChatGPT is not signed in."),
 			id:    "api_key",
@@ -1341,6 +1348,8 @@ func providerDesc(id string, ready bool, readyText string) string {
 	switch id {
 	case "siwc":
 		return "not signed in. rock login chatgpt. API keys stay the fallback."
+	case "grok-cli":
+		return "grok is not on PATH. Install from https://x.ai/cli then run grok login. Rock does not sign you in."
 	case "api_key":
 		return "no ROCK_API_KEY / OPENAI_API_KEY. Offline model is the fallback."
 	}
@@ -1366,6 +1375,10 @@ func (m *Model) pickProvider() tea.Cmd {
 		m.setAlert("ChatGPT: run rock login chatgpt first. API keys stay the fallback.")
 		return m.closeOverlay()
 	}
+	if item.id == "grok-cli" && !m.deps.HasGrokCLI {
+		m.setAlert("grok is not on PATH. Install from https://x.ai/cli then run grok login. Rock does not sign you in.")
+		return m.closeOverlay()
+	}
 	if item.id == "api_key" && !m.deps.HasAPIKey {
 		m.setAlert("no ROCK_API_KEY / OPENAI_API_KEY; offline model is the fallback")
 		return m.closeOverlay()
@@ -1383,6 +1396,8 @@ func (m *Model) pickProvider() tea.Cmd {
 		switch item.id {
 		case "siwc":
 			m.deps.Provider = "chatgpt"
+		case "grok-cli":
+			m.deps.Provider = "grok-cli"
 		case "api_key":
 			m.deps.Provider = "openai"
 		default:

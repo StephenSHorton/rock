@@ -12,7 +12,7 @@ Fetched for this plan: Charm v2 module docs (2026-10-03), [Jev decision API](htt
 | Clone target | Grok Build is the product we reimplement. We do not fork the Rust tree. Crush is Charm study only. We do not copy Crush source while FSL applies. Jev is the edge, not a peer we blend in. |
 | Process split | The TUI calls the harness in-process. `rock serve` and `rock acp` are the same harness behind HTTP and stdio. Session state lives in the store, not in the TUI. |
 | Git | Both. `git.checkpoint` commits after a successful mutating turn (off by default). `review_only` denies mutating tools. |
-| Other CLIs | Rock is an ACP server. It does not wrap other CLIs as providers in 1.0. |
+| Other CLIs | Rock is an ACP server. SuperGrok is the one sanctioned wrap: official `grok` as a model-only ACP child (`auth = "grok-cli"`). |
 | Claude | Permission vocabulary, plan-before-edit, and “project allow rules wait on trust” come from public docs already raided. Nothing else. |
 
 ## What 1.0 is
@@ -31,7 +31,7 @@ One `rock` binary:
 - Repo map: ranked files plus a light symbol skim, injected into the system prompt.
 - `rock inspect` tells the truth about config, skills, MCP, Jev mode, permissions.
 - `rock setup` is a Huh form that writes config and never writes the API key.
-- BYOK OpenAI-compatible chat completions. Sign in with ChatGPT (`rock login chatgpt`) is the first SANCTIONED in-process **model** subscription; it speaks the Responses API with `store: false` and `stream: true`. No model key and no ChatGPT session: an offline **model** provider so a turn can still complete. That is not Jev. The Jev key is separate and required — Rock will not run the agent without it (`rock setup jev`, TUI gate, headless fail-fast). See [subscription-auth.md](subscription-auth.md).
+- BYOK OpenAI-compatible chat completions. Sign in with ChatGPT (`rock login chatgpt`) is the first SANCTIONED in-process **model** subscription. SuperGrok is the sanctioned **child** route (`auth = "grok-cli"` / official `grok agent stdio`); Rock never touches Grok OAuth. No model key and no subscription session: an offline **model** provider so a turn can still complete. That is not Jev. The Jev key is separate and required — Rock will not run the agent without it (`rock setup jev`, TUI gate, headless fail-fast). See [subscription-auth.md](subscription-auth.md).
 
 ## Jev
 
@@ -105,4 +105,4 @@ internal/config/     TOML
 
 ## Out of 1.0
 
-OS sandbox profiles, OTEL, plugin marketplace UI, memory/dream, ACP-as-provider, cloud handoff, LSP. Official `grok` / `claude` children. Sign in with ChatGPT is in-process (`rock login chatgpt`); API keys stay the fallback. The sanctioned map is [subscription-auth.md](subscription-auth.md). Jev is a separate required key, not a model provider. Permissions are not a sandbox. `inspect` says that in a sentence.
+OS sandbox profiles, OTEL, plugin marketplace UI, memory/dream, cloud handoff, LSP. Official `grok` is a model-only ACP child (`auth = "grok-cli"`). Unmodified `claude` is still later. Sign in with ChatGPT is in-process (`rock login chatgpt`); API keys stay the fallback. The sanctioned map is [subscription-auth.md](subscription-auth.md). Jev is a separate required key, not a model provider. Permissions are not a sandbox. `inspect` says that in a sentence.

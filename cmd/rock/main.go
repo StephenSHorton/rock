@@ -14,6 +14,7 @@ import (
 	"github.com/StephenSHorton/rock/internal/acp"
 	"github.com/StephenSHorton/rock/internal/cli"
 	"github.com/StephenSHorton/rock/internal/config"
+	"github.com/StephenSHorton/rock/internal/grokcli"
 	"github.com/StephenSHorton/rock/internal/perms"
 	"github.com/StephenSHorton/rock/internal/serve"
 	"github.com/StephenSHorton/rock/internal/session"
@@ -242,13 +243,14 @@ func startTUI(app *cli.App, sess *session.Session, initial string, rules []strin
 			}
 			return app.Provider.Name(), app.Auth, nil
 		},
-		HasAPIKey: config.APIKey() != "",
-		HasSIWC:   siwc.LoggedIn(),
-		Output:    os.Stdout,
-		Verbose:   verbose,
-		JevGate:   needGate,
-		CheckJev:  app.CheckJevKey,
-		SaveJev:   config.SaveJevKey,
+		HasAPIKey:  config.APIKey() != "",
+		HasSIWC:    siwc.LoggedIn(),
+		HasGrokCLI: grokcli.Look(app.Loaded.File.GrokBin).Found,
+		Output:     os.Stdout,
+		Verbose:    verbose,
+		JevGate:    needGate,
+		CheckJev:   app.CheckJevKey,
+		SaveJev:    config.SaveJevKey,
 	})
 	return tui.Run(model)
 }
@@ -473,6 +475,7 @@ before Jev setup and never start the agent.
 
 Sessions live under ~/.rock (ROCK_HOME). Config is ~/.config/rock/config.toml (ROCK_CONFIG).
 Model keys: ROCK_API_KEY or OPENAI_API_KEY. ChatGPT plan: rock login chatgpt.
+SuperGrok: official grok on PATH, then grok login. Config: auth = "grok-cli" (or provider = "grok-cli").
 Jev keys: JEV_API_KEY, TYPESAFE_API_KEY, the OS keychain, or ROCK_HOME/jev.key.
 ROCK_VERBOSE=1 is the same as --verbose: Jev turn/risk lines stay in the TUI transcript.
 `

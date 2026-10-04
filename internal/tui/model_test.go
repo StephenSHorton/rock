@@ -477,7 +477,7 @@ func TestOverlaysOpenReadableAndCloseBackToTheTranscript(t *testing.T) {
 		want       []string
 	}{
 		{"/help", "Help", []string{"Slash commands", "/default", "/quit", "/permissions", "/provider"}},
-		{"/provider", "Provider", []string{"ChatGPT", "API key", "Offline model"}},
+		{"/provider", "Provider", []string{"ChatGPT", "SuperGrok", "API key", "Offline model"}},
 		{"/sessions", "Sessions", []string{"demo", "this session"}},
 		{"/permissions", "Permissions", []string{"Permissions are not a sandbox.", "read_file", "shell", "default"}},
 		{"/agents", "Subagents", []string{"No subagents yet."}},
@@ -748,7 +748,7 @@ func TestProviderPickerKeepsAPIKeyFallback(t *testing.T) {
 		t.Fatal(m.overlay)
 	}
 	view := strings.Join(screen(m), "\n")
-	for _, want := range []string{"ChatGPT", "API key", "Offline model", "Jev still runs", "not a Jev bypass"} {
+	for _, want := range []string{"ChatGPT", "SuperGrok", "API key", "Offline model", "Jev still runs", "not a Jev bypass"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q\n%s", want, view)
 		}
@@ -770,10 +770,20 @@ func TestProviderPickerKeepsAPIKeyFallback(t *testing.T) {
 		return "openai", class, nil
 	}
 	submit(m, "/provider")
-	m.providers.Select(1)
+	m.providers.Select(2)
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
 	if picked != "api_key" || m.deps.Auth != "api_key" || m.deps.Provider != "openai" {
 		t.Fatalf("picked %q auth %q provider %q", picked, m.deps.Auth, m.deps.Provider)
+	}
+}
+
+func TestProviderPickerGrokNeedsOfficialBinary(t *testing.T) {
+	m := sized(t, 100, 24)
+	submit(m, "/provider")
+	m.providers.Select(1)
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+	if !m.alert || !strings.Contains(m.status, "https://x.ai/cli") || !strings.Contains(m.status, "grok login") {
+		t.Fatal(m.status)
 	}
 }
 
