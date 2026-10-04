@@ -12,14 +12,44 @@ import (
 )
 
 const (
-	keyringService = "rock"
-	keyringUser    = "jev"
+	keyringService     = "rock"
+	keyringUser        = "jev"
+	KeyringUserChatGPT = "chatgpt"
 )
 
 var (
-	keyringSet = keyring.Set
-	keyringGet = keyring.Get
+	keyringSet    = keyring.Set
+	keyringGet    = keyring.Get
+	keyringDelete = keyring.Delete
 )
+
+// Secrets is the shared OS keychain helper (service "rock"). Jev uses user
+// "jev"; Sign in with ChatGPT uses user "chatgpt". Get returns
+// os.ErrNotExist when the item is missing so callers can fall back to a file.
+type Secrets struct{}
+
+func (Secrets) Get(name string) ([]byte, error) {
+	v, err := keyringGet(keyringService, name)
+	if err != nil {
+		return nil, os.ErrNotExist
+	}
+	if strings.TrimSpace(v) == "" {
+		return nil, os.ErrNotExist
+	}
+	return []byte(v), nil
+}
+
+func (Secrets) Set(name string, value []byte) error {
+	return keyringSet(keyringService, name, string(value))
+}
+
+func (Secrets) Delete(name string) error {
+	err := keyringDelete(keyringService, name)
+	if err == nil || errors.Is(err, keyring.ErrNotFound) {
+		return nil
+	}
+	return err
+}
 
 // SwapKeyring replaces the OS keychain hooks. Tests use it to force the
 // file fallback or a fake keychain. The previous pair is returned.
