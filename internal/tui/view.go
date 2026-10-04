@@ -600,6 +600,15 @@ func (m *Model) statusView() string {
 		return join(parts)
 	}
 
+	status := sanitize(m.status)
+	if (status == "" || status == "ready") && m.avail.Newer && m.overlay != updateOverlay {
+		status = m.avail.Line()
+	}
+	reserve := 0
+	if status != "" && status != "ready" {
+		reserve = min(ansi.StringWidth(status)+3, max(20, w/2))
+	}
+
 	bar := m.meter.Width()
 	left := build(bar, true, true, true, true, 0)
 	for _, try := range []struct {
@@ -615,21 +624,19 @@ func (m *Model) statusView() string {
 		{0, true, false, false, false, 0},
 		{0, false, false, false, false, 0},
 	} {
-		if ansi.StringWidth(left) <= w {
+		if ansi.StringWidth(left) <= w-reserve {
 			break
 		}
 		left = build(try.bar, try.note, try.title, try.timer, try.withCwd, try.cwdW)
 	}
-	left = ansi.Truncate(left, w, "…")
+	left = ansi.Truncate(left, max(1, w-reserve), "…")
 
-	status := sanitize(m.status)
-	if (status == "" || status == "ready") && m.avail.Newer && m.overlay != updateOverlay {
-		status = m.avail.Line()
-	}
 	statusStyle := t.faint
 	if m.alert {
 		statusStyle = t.danger
 	} else if m.busy {
+		statusStyle = t.alarm
+	} else if m.avail.Newer && status == m.avail.Line() {
 		statusStyle = t.alarm
 	}
 	right := ""
