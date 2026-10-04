@@ -31,6 +31,8 @@ type ToolSpec struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
 	Parameters  map[string]any `json:"parameters"`
+	ReadOnly    bool           `json:"-"`
+	Title       string         `json:"-"`
 }
 
 type Provider interface {

@@ -43,6 +43,9 @@ func (p Policy) Decide(tool, detail string) (Decision, string) {
 	if matchAny(p.Deny, tool, detail) {
 		return Deny, "matched a deny rule"
 	}
+	if tool == "ask_jev" {
+		return Allow, "ask_jev is read-only"
+	}
 	if matchAny(p.Allow, tool, detail) {
 		return Allow, "matched an allow rule"
 	}

@@ -21,18 +21,31 @@ func fakeAsk(fn func(state any, qs []jev.Query) jev.Result) AskFunc {
 func TestAskJevReplacesDecideInSpecs(t *testing.T) {
 	set := New(Env{Root: t.TempDir()})
 	var names []string
+	found := false
 	for _, spec := range set.Specs() {
 		names = append(names, spec.Name)
-		if spec.Name == "ask_jev" && spec.Description == "" {
-			t.Fatal("empty description")
+		if spec.Name == "ask_jev" {
+			found = true
+			if spec.Description == "" {
+				t.Fatal("empty description")
+			}
+			if !spec.ReadOnly {
+				t.Fatal("ask_jev must be read-only on the spec")
+			}
+			if spec.Title != "Ask Jev" {
+				t.Fatalf("title %q", spec.Title)
+			}
 		}
 	}
 	joined := strings.Join(names, ",")
-	if !strings.Contains(joined, "ask_jev") {
+	if !found {
 		t.Fatal(joined)
 	}
 	if strings.Contains(joined, "jev_decide") {
 		t.Fatal("jev_decide should be gone")
+	}
+	if Title("ask_jev") != "Ask Jev" {
+		t.Fatal(Title("ask_jev"))
 	}
 }
 
@@ -171,6 +184,38 @@ func TestAskJevToolResultKeepsRawBooleanFloat(t *testing.T) {
 	}
 	if strings.Contains(out.Output, "yes") || strings.Contains(out.Output, "no 0") {
 		t.Fatalf("yes/no display must not leak into the tool JSON:\n%s", out.Output)
+	}
+}
+
+func TestAskJevDecideFailureIsNotToolError(t *testing.T) {
+	set := New(Env{Root: t.TempDir()})
+	out, err := set.Run(context.Background(), "ask_jev", `{"state":"log","question":"fixed?","mode":"boolean"}`)
+	if err != nil {
+		t.Fatalf("missing client must not be a tool error: %v", err)
+	}
+	if out.Mutates {
+		t.Fatal("ask_jev is read-only")
+	}
+	var res jev.Result
+	if err := json.Unmarshal([]byte(out.Output), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Error == "" || res.Answers["q"].Value != nil || res.Answers["q"].Detail != jev.FailedDetail {
+		t.Fatalf("%#v", res)
+	}
+
+	set = New(Env{Root: t.TempDir(), Ask: func(context.Context, any, []jev.Query) (jev.Result, error) {
+		return jev.Result{}, fmt.Errorf("jev http 502: nope")
+	}})
+	out, err = set.Run(context.Background(), "ask_jev", `{"state":"log","question":"fixed?","mode":"boolean"}`)
+	if err != nil {
+		t.Fatalf("HTTP failure must not be a tool error: %v", err)
+	}
+	if err := json.Unmarshal([]byte(out.Output), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Error == "" || !strings.Contains(res.Error, "502") || res.Answers["q"].Value != nil {
+		t.Fatalf("%#v", res)
 	}
 }
 
@@ -333,6 +378,18 @@ func TestGrepFilterStatsAreMeasured(t *testing.T) {
 	}
 	if out.Filter.BytesBefore <= out.Filter.BytesAfter {
 		t.Fatalf("bytes should shrink %#v", out.Filter)
+	}
+}
+
+func TestAskDetailNormalizesVariants(t *testing.T) {
+	if got := AskDetail(map[string]any{"mode": "boolean", "question": "ok?"}); got != "boolean  ok?" {
+		t.Fatal(got)
+	}
+	if got := AskDetail(map[string]any{"paths": []any{"a.go"}}); got != "paths" {
+		t.Fatal(got)
+	}
+	if got := AskDetail(nil); got != "ask" {
+		t.Fatal(got)
 	}
 }
 

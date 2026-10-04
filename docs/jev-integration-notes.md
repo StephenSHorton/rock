@@ -39,3 +39,31 @@ Lessons from that project's slices. Not Rock's design.
 - The client isn't wired into any runtime path until the tool slice, which proves 'off by default'. Also grok-build specific.
 
 **Rock status.** grok-build specific. Rock wires the client at `Open` and requires a working key before start.
+
+## From grok-build slice (c) ask_jev (PR #8)
+
+Lessons from that project's tool slice. Not Rock's design.
+
+- ask_jev is read-only everywhere.
+
+**Rock status.** `ToolSpec.ReadOnly`, `perms.Mutates` false, default allow list, and plan mode all treat `ask_jev` as read-only. Default and plan mode never prompt for it, even if it is on the Ask list. Covered by `TestAskJevNeverPrompts`.
+
+- Keep catalog registration separate from session injection.
+
+**Rock status.** grok-build specific. Rock always registers `ask_jev` on the tool set because Jev is required.
+
+- The builder doesn't read env; the caller resolves env and file into explicit settings.
+
+**Rock status.** `cli.Open` resolves the key (env, then keychain, then 0600 file) and hands an explicit `jev.Client` to `Gates`. The tool set does not read env.
+
+- A failed Decide isn't a tool error.
+
+**Rock status.** HTTP error, timeout, and a missing client return the normal result JSON with `error` and `FailedDetail`. Only validation failures are tool errors. Covered by `TestAskJevDecideFailureIsNotToolError`.
+
+- No default-off prompt sentence, which matters there because Jev is optional.
+
+**Rock status.** grok-build specific. Rock's system prompt always names `ask_jev`.
+
+- A new tool input variant needs a permission mapping, normalization and a title.
+
+**Rock status.** `ask_jev` has an explicit permission mapping (`Decide` never falls through to the mutating default), `AskDetail` normalizes single / batch / paths-only arguments, and the display title is `Ask Jev`. Covered by `TestAskDetailNormalizesVariants` and `TestToolHeadingAskJev`.

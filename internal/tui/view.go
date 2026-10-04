@@ -1223,6 +1223,11 @@ func toolHeading(name, args string, running bool) (verb, detail string) {
 		return "Write", detail
 	case "update_plan":
 		return "Update plan", ""
+	case "ask_jev":
+		if running {
+			return "Asking Jev", detail
+		}
+		return "Ask Jev", detail
 	case "spawn_subagent":
 		return "Ran", detail
 	default:
