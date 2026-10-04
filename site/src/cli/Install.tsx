@@ -82,6 +82,26 @@ export function Install() {
         A Jev key is required. <code>rock setup jev</code> validates and stores it. In the TUI, Rock
         asks for the key on first run.
       </p>
+      <h3 className="mt-10 text-2xl tracking-tight">Bring your subscription</h3>
+      <ul className="mt-4 space-y-3 text-[var(--ink-2)]">
+        <li>
+          <strong>ChatGPT Plus / Pro.</strong> <code>rock login chatgpt</code> is OpenAI’s sign-in for
+          open-source tools. It stores a model session. It is not Jev and does not start the agent.
+        </li>
+        <li>
+          <strong>SuperGrok.</strong> Install the official <code>grok</code> CLI and run{' '}
+          <code>grok login</code>. Rock talks to that binary. Rock still runs the tools and the Risk
+          check.
+        </li>
+        <li>
+          <strong>Claude and Gemini.</strong> API key only. Their terms do not allow a third-party CLI
+          to reuse the chat subscription.
+        </li>
+        <li>
+          <strong>API keys</strong> work for every model provider. The Jev key is separate and always
+          required.
+        </li>
+      </ul>
       <p className="mt-2 text-[var(--muted)]">
         Needs <a className="text-[var(--primary)] underline-offset-2 hover:underline" href="https://go.dev/dl/">Go 1.27</a> or
         newer. The command installs the current 1.0 build of <code>rock</code> with{' '}

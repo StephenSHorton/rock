@@ -85,6 +85,7 @@ export const commands = [
   { cmd: 'rock inspect', detail: 'Config, skills, MCP, Jev key source, permissions.' },
   { cmd: 'rock setup', detail: 'Huh form. Writes ~/.config/rock/config.toml. Does not store API keys.' },
   { cmd: 'rock setup jev', detail: 'Validate a Jev key and save it. Required before the agent starts.' },
+  { cmd: 'rock login chatgpt', detail: 'Sign in with ChatGPT (OSS SIWC). Model credentials only. Not Jev.' },
   { cmd: 'rock fork', detail: 'Prints OSC 7880 so Suzuri can split a pane.' },
   { cmd: 'rock version', detail: 'Prints 1.0.0.' },
   { cmd: 'rock sessions', detail: 'List sessions for this folder.' },
