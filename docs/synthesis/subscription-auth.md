@@ -1,12 +1,12 @@
 # Subscription auth
 
-Research and a plan only. No auth code in this change.
+Jev is why Rock exists. This page is **not** about Jev. The Jev key (`TYPESAFE_API_KEY` / `JEV_API_KEY`, OS keychain, or `ROCK_HOME/jev.key`) is a separate, **required** credential. Rock will not start an agent without it (`rock setup jev`, TUI gate, headless fail-fast). Do not treat a missing model key, a missing ChatGPT login, or an offline **model** provider as a substitute for Jev.
 
-Jev is why Rock exists. This page is **not** about Jev. The Jev key (`TYPESAFE_API_KEY` / `JEV_API_KEY`) is a separate, **required** credential. Rock will not run without it. A parallel PR adds a blocking onboarding gate (`rock setup jev`, TUI, headless fail-fast). Do not treat a missing model key, a missing ChatGPT login, or an offline **model** provider as a substitute for Jev. Offline policy on Jev gates is also not Jev — and the onboarding gate will refuse to start before those gates matter.
+`rock login chatgpt` and `rock logout chatgpt` store **model** credentials only. They work before Jev setup — same class as `rock setup jev` and `rock inspect`. They never start the agent and never skip `RequireJev` on `-p`, `serve`, `acp`, or a TUI turn.
 
 This page asks a narrower question: can a user point Rock at a **model** they already pay for as Grok / SuperGrok, Claude Pro / Max, ChatGPT Plus / Pro, Gemini, or a similar consumer plan, without minting a provider API key? If yes, which routes are documented for third-party tools, and which would put the user's account at risk?
 
-Where older notes said “offline provider,” they meant the **model** client only: no `ROCK_API_KEY` / `OPENAI_API_KEY` / subscription token, so completions come from a local stub. That is not an offline Jev, and it does not let Rock start once the Jev gate lands.
+Where older notes said “offline provider,” they meant the **model** client only: no `ROCK_API_KEY` / `OPENAI_API_KEY` / subscription token, so completions come from a local stub. That is not an offline Jev, and it does not let Rock start an agent.
 
 Fetched 2026-10-04 from official docs, official ToS / usage pages, and public CLI source. Claude Code: public Anthropic docs only. No leak dumps, no decompile, no invented endpoints. Identity is Grok Build clone + Jev ([VISION.md](../../VISION.md)); raid pages are study.
 
@@ -18,7 +18,7 @@ Fetched 2026-10-04 from official docs, official ToS / usage pages, and public CL
 | **GREY** | Technically possible. Undocumented for third parties, or it reuses another app's client id / tokens. | Never ship as a default. Do not offer it in `rock setup`. |
 | **PROHIBITED** | The provider's current public terms or legal page forbids it. | Never ship. |
 
-Model API keys stay the fallback for every model provider. A missing ChatGPT / Grok / Claude / Gemini subscription login is not a broken install. A missing Jev key is: the process should refuse to start (parallel onboarding-gate PR).
+Model API keys stay the fallback for every model provider. A missing ChatGPT / Grok / Claude / Gemini subscription login is not a broken install. A missing Jev key is: the process refuses to start an agent.
 
 A ChatGPT, xAI, Anthropic, or Google account may bill a SANCTIONED **model** route. It is not Rock's identity. Jev is the edge. Vendor chat accounts are not.
 
@@ -273,9 +273,9 @@ Build the clean SANCTIONED **model** path first. Never enable GREY or PROHIBITED
 
 ### 2. First in-process subscription: OpenAI SIWC
 
-This is the only documented third-party subscription OAuth that Rock can implement in its own process.
+This is the only documented third-party subscription OAuth that Rock implements in its own process (`rock login chatgpt` / `rock logout chatgpt`).
 
-- Public OSS client. `agent_name_hint` is the product name. Own `ext_agent_host_id`. Own `~/.config/rock/` credential file, `0600`.
+- Public OSS client. `agent_name_hint` is the product name. Own `ext_agent_host_id`. Credentials go in the OS keychain (same helper as the Jev key, user `chatgpt`) and fall back to a `0600` file under `~/.config/rock/`.
 - Authorize and token URLs from the SIWC docs above. Do **not** use Codex's `app_EMoamEEZ73f0CkXaXp7hrann` or `{issuer}/oauth/authorize`.
 - Responses API only, with the preview constraints. If Rock's harness still speaks chat-completions, add a Responses adapter for this route or do not offer SIWC until that adapter exists.
 - Refresh as documented (rotating 30-day refresh token).

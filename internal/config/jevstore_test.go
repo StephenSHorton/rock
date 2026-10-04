@@ -68,3 +68,36 @@ func TestSaveJevKeyUsesKeychainWhenItWorks(t *testing.T) {
 		t.Fatalf("got %q %q", k, src)
 	}
 }
+
+func TestSecretsChatGPTUserIsNotJev(t *testing.T) {
+	mem := map[string]string{}
+	origSet, origGet := SwapKeyring(
+		func(_, user, pass string) error { mem[user] = pass; return nil },
+		func(_, user string) (string, error) {
+			if v, ok := mem[user]; ok {
+				return v, nil
+			}
+			return "", errors.New("empty")
+		},
+	)
+	origDel := keyringDelete
+	keyringDelete = func(_, user string) error { delete(mem, user); return nil }
+	t.Cleanup(func() {
+		SwapKeyring(origSet, origGet)
+		keyringDelete = origDel
+	})
+	s := Secrets{}
+	if err := s.Set(KeyringUserChatGPT, []byte(`{"client_id":"oaiapp_x"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := mem[keyringUser]; ok {
+		t.Fatal("ChatGPT write must not use the Jev keyring user")
+	}
+	raw, err := s.Get(KeyringUserChatGPT)
+	if err != nil || string(raw) != `{"client_id":"oaiapp_x"}` {
+		t.Fatalf("%q %v", raw, err)
+	}
+	if err := s.Delete(KeyringUserChatGPT); err != nil {
+		t.Fatal(err)
+	}
+}

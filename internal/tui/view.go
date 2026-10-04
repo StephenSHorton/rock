@@ -110,6 +110,7 @@ func (m *Model) layout() {
 	listH := max(1, innerH-2)
 	m.sessions.SetSize(innerW, listH)
 	m.palette.SetSize(innerW, listH)
+	m.providers.SetSize(innerW, listH)
 	m.perms.SetSize(innerW, max(1, listH-lipgloss.Height(wrapText(sandboxNote, innerW))-1))
 	m.agents.SetColumns(agentColumns(innerW))
 	m.agents.SetWidth(innerW)
@@ -341,6 +342,9 @@ func (m *Model) overlayView(w, h int) string {
 	case sessionsOverlay:
 		title, sub = "Sessions", "this folder, newest first"
 		body = m.sessions.View()
+	case providerOverlay:
+		title, sub = "Provider", "Model client only. Offline is the stub, not a Jev bypass."
+		body = m.providers.View()
 	case permsOverlay:
 		title, sub = "Permissions", "what this process loaded; mode first"
 		body = m.perms.View()
@@ -388,6 +392,7 @@ func (m *Model) helpText(w int) string {
 		{"/ready", "is the plan ready? never approves"},
 		{"/verbose", "show or hide Jev turn/risk diagnostics"},
 		{"/fork", "new Rock pane in Suzuri (OSC 7880)"},
+		{"/provider", "ChatGPT (SIWC), API key, or offline model"},
 		{"/quit", "quit"},
 	}
 	section := func(title string, rows [][2]string, width int) string {
@@ -524,7 +529,10 @@ func (m *Model) statusView() string {
 		name = "no model"
 	}
 	note := ""
-	if m.deps.Provider == "offline" {
+	switch {
+	case m.deps.Auth == "siwc" || m.deps.Provider == "chatgpt":
+		note = " (siwc)"
+	case m.deps.Provider == "offline":
 		note = " (offline)"
 	}
 	pct := fmt.Sprintf("%.0f%%", m.meterP*100)
@@ -686,7 +694,7 @@ func (m *Model) helpLineView() string {
 		}
 	case m.overlay == paletteOverlay:
 		bindings = []key.Binding{k.pick, key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "close"))}
-	case m.overlay == sessionsOverlay:
+	case m.overlay == sessionsOverlay, m.overlay == providerOverlay:
 		bindings = []key.Binding{k.move, k.pick, k.close}
 	case m.overlay == helpOverlay:
 		bindings = []key.Binding{key.NewBinding(key.WithKeys("pgdown"), key.WithHelp("↑/↓ pgup pgdn", "scroll")), k.close}

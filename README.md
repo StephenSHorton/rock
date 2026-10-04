@@ -65,7 +65,9 @@ go build -o rock ./cmd/rock
 | `rock --yolo` | Skip asks; the destructive Jev (or offline) gate still blocks |
 | `rock --mode plan` | Plan mode: edits and every shell command blocked |
 | `rock --verbose` | Show `◇ jev turn` / `risk` diagnostics in the TUI |
-| `rock inspect` | Config, skills, MCP, Jev key source, permissions. Tells the truth. |
+| `rock inspect` | Config, skills, MCP, Jev key source, model auth class (`api_key` / `siwc` / `offline_model`). Tells the truth. |
+| `rock login chatgpt` | Sign in with ChatGPT (OSS SIWC). Not Jev. Works before Jev setup; does not start the agent. |
+| `rock logout chatgpt` | Revoke and clear the ChatGPT session. Same: not the agent, not a Jev bypass. |
 | `rock setup` | Huh form → `~/.config/rock/config.toml`. Does not store API keys. |
 | `rock setup jev` | Validate a Jev key and save it (OS keychain, or `ROCK_HOME/jev.key` at 0600). |
 | `rock sessions` | List sessions for this folder |
@@ -74,7 +76,7 @@ go build -o rock ./cmd/rock
 | `rock serve` | Loopback HTTP and SSE |
 | `rock acp` | ACP v1 and v2 on stdio |
 
-In the TUI: `/plan`, `/yolo`, `/default`, `/permissions`, `/agents` (subagents this session), `/ready` (Jev plan-readiness — **never approves**), `/verbose`, `/fork [prompt]`, `/sessions`, `/help`, `/quit`.
+In the TUI: `/plan`, `/yolo`, `/default`, `/permissions`, `/agents` (subagents this session), `/ready` (Jev plan-readiness — **never approves**), `/verbose`, `/fork [prompt]`, `/sessions`, `/provider` (ChatGPT / API key / offline model), `/help`, `/quit`. The TUI still asks for a Jev key before any turn.
 
 The public page is [stephenshorton.github.io/rock](https://stephenshorton.github.io/rock/). Source for it is [`site/`](site/), a Vite app with a Mokei clay-quarry hero and the real CLI. The page swaps one install command by operating system. macOS and Linux:
 

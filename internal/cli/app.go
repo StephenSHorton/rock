@@ -22,6 +22,7 @@ import (
 	"github.com/StephenSHorton/rock/internal/perms"
 	"github.com/StephenSHorton/rock/internal/provider"
 	"github.com/StephenSHorton/rock/internal/session"
+	"github.com/StephenSHorton/rock/internal/siwc"
 	"github.com/StephenSHorton/rock/internal/skills"
 	"github.com/StephenSHorton/rock/internal/suzuri"
 	"github.com/StephenSHorton/rock/internal/tools"
@@ -35,6 +36,7 @@ type App struct {
 	Skills     []skills.Skill
 	Gates      jev.Gates
 	Provider   provider.Provider
+	Auth       string
 	Extras     []tools.Extra
 	Clients    []*mcp.Client
 	MCPNotes   []string
@@ -56,6 +58,7 @@ func Open(cwd string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	siwc.Keyring = config.Secrets{}
 	key, _ := config.JevKey()
 	client := &jev.Client{
 		APIKey:  key,
@@ -68,24 +71,48 @@ func Open(cwd string) (*App, error) {
 		RiskBlock:        loaded.File.Jev.RiskBlock,
 		AllowDestructive: loaded.File.Jev.AllowDestructive,
 	}
-	var model provider.Provider
-	if k := config.APIKey(); k != "" {
-		model = &provider.OpenAI{APIKey: k, BaseURL: loaded.File.BaseURL}
-	} else {
-		model = &provider.Script{}
-	}
 	lg := openLog()
 	app := &App{
 		CWD:        abs,
 		Loaded:     loaded,
 		Skills:     sk,
 		Gates:      gates,
-		Provider:   model,
 		Log:        lg,
 		Checkpoint: loaded.File.Git.Checkpoint,
 	}
-	lg.Info("open", "cwd", abs, "provider", model.Name(), "jev", gates.Mode(), "skills", len(sk))
+	app.applyProvider()
+	lg.Info("open", "cwd", abs, "provider", app.Provider.Name(), "auth", app.Auth, "jev", gates.Mode(), "skills", len(sk))
 	return app, nil
+}
+
+// applyProvider swaps only the model client. It never touches Jev gates or keys.
+func (a *App) applyProvider() {
+	class := siwc.Resolve(a.Loaded.File.Auth, config.APIKey())
+	a.Auth = class
+	switch class {
+	case siwc.AuthSIWC:
+		store := siwc.OpenStore()
+		ep := siwc.FromEnv()
+		base := ep.APIBase()
+		a.Provider = &provider.Responses{
+			BaseURL: base,
+			Token:   store.Access,
+		}
+	case siwc.AuthAPIKey:
+		a.Provider = &provider.OpenAI{APIKey: config.APIKey(), BaseURL: a.Loaded.File.BaseURL}
+	default:
+		a.Provider = &provider.Script{}
+	}
+}
+
+// SetAuth writes the model auth pick and swaps the live provider.
+func (a *App) SetAuth(class string) error {
+	a.Loaded.File.Auth = class
+	if err := config.Write(config.ConfigPath(), a.Loaded.File); err != nil {
+		return err
+	}
+	a.applyProvider()
+	return nil
 }
 
 // ConnectMCP starts enabled stdio servers once. Later harnesses reuse the tools.
@@ -175,12 +202,18 @@ func (a *App) Inspect(w io.Writer) {
 		fmt.Fprintf(w, "ignored project allow rules (folder is not trusted): %s\n", strings.Join(a.Loaded.Ignored, ", "))
 	}
 	fmt.Fprintf(w, "provider: %s\n", a.Provider.Name())
-	if a.Provider.Name() == "offline" {
-		fmt.Fprintf(w, "model key: unset (ROCK_API_KEY or OPENAI_API_KEY). Replies come from the offline provider.\n")
-	} else {
+	fmt.Fprintf(w, "auth: %s\n", a.Auth)
+	switch a.Auth {
+	case siwc.AuthSIWC:
+		fmt.Fprintf(w, "model auth: Sign in with ChatGPT (siwc). Jev is a separate required key.\n")
+		fmt.Fprintf(w, "fast model: %s\n", a.FastModel())
+		fmt.Fprintf(w, "strong model: %s\n", a.StrongModel())
+	case siwc.AuthAPIKey:
 		fmt.Fprintf(w, "base_url: %s\n", a.Loaded.File.BaseURL)
 		fmt.Fprintf(w, "fast model: %s\n", a.FastModel())
 		fmt.Fprintf(w, "strong model: %s\n", a.StrongModel())
+	default:
+		fmt.Fprintf(w, "model key: unset (ROCK_API_KEY or OPENAI_API_KEY). Replies come from the offline model provider. That stub is not Jev and does not skip the Jev key.\n")
 	}
 	fmt.Fprintf(w, "jev: %s\n", a.Gates.Mode())
 	if a.Gates.Mode() == "offline" {
@@ -372,8 +405,30 @@ func (a *App) Setup(stdin io.Reader, stdout io.Writer) error {
 	if err := config.Write(path, file); err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "wrote %s\nModel keys stay in the environment (ROCK_API_KEY, OPENAI_API_KEY). Store a Jev key with rock setup jev.\n", path)
+	fmt.Fprintf(stdout, "wrote %s\nModel keys stay in the environment (ROCK_API_KEY, OPENAI_API_KEY). Store a Jev key with rock setup jev.\nChatGPT sign-in is rock login chatgpt; it is not Jev and does not start the agent.\n", path)
 	return nil
+}
+
+// LoginChatGPT runs Sign in with ChatGPT and prefers that route afterwards.
+func (a *App) LoginChatGPT(ctx context.Context, stdout io.Writer) error {
+	opts := siwc.LoginOpts{Out: stdout, EP: siwc.FromEnv()}
+	if err := siwc.Login(ctx, opts); err != nil {
+		return err
+	}
+	return a.SetAuth(siwc.AuthSIWC)
+}
+
+// LogoutChatGPT revokes and clears ChatGPT tokens. API keys stay the fallback.
+func (a *App) LogoutChatGPT(ctx context.Context, stdout io.Writer) error {
+	opts := siwc.LoginOpts{Out: stdout, EP: siwc.FromEnv()}
+	if err := siwc.Logout(ctx, opts); err != nil {
+		return err
+	}
+	next := siwc.AuthAPIKey
+	if config.APIKey() == "" {
+		next = ""
+	}
+	return a.SetAuth(next)
 }
 
 func (a *App) attachMCP(ctx context.Context) {
