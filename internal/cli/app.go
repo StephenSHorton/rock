@@ -17,6 +17,7 @@ import (
 	"charm.land/log/v2"
 
 	"github.com/StephenSHorton/rock/internal/config"
+	"github.com/StephenSHorton/rock/internal/grokcli"
 	"github.com/StephenSHorton/rock/internal/jev"
 	"github.com/StephenSHorton/rock/internal/mcp"
 	"github.com/StephenSHorton/rock/internal/perms"
@@ -87,7 +88,19 @@ func Open(cwd string) (*App, error) {
 
 // applyProvider swaps only the model client. It never touches Jev gates or keys.
 func (a *App) applyProvider() {
-	class := siwc.Resolve(a.Loaded.File.Auth, config.APIKey())
+	prefer := strings.TrimSpace(a.Loaded.File.Auth)
+	if prefer == "" {
+		prefer = strings.TrimSpace(a.Loaded.File.Provider)
+	}
+	if prefer == grokcli.AuthClass {
+		if p, ok := a.Provider.(*grokcli.Provider); ok {
+			p.Close()
+		}
+		a.Auth = grokcli.AuthClass
+		a.Provider = &grokcli.Provider{Bin: a.Loaded.File.GrokBin, CWD: a.CWD}
+		return
+	}
+	class := siwc.Resolve(prefer, config.APIKey())
 	a.Auth = class
 	switch class {
 	case siwc.AuthSIWC:
@@ -126,6 +139,9 @@ func (a *App) ConnectMCP(ctx context.Context) {
 }
 
 func (a *App) Close() {
+	if p, ok := a.Provider.(*grokcli.Provider); ok {
+		p.Close()
+	}
 	for _, c := range a.Clients {
 		_ = c.Close()
 	}
@@ -202,8 +218,19 @@ func (a *App) Inspect(w io.Writer) {
 		fmt.Fprintf(w, "ignored project allow rules (folder is not trusted): %s\n", strings.Join(a.Loaded.Ignored, ", "))
 	}
 	fmt.Fprintf(w, "provider: %s\n", a.Provider.Name())
-	fmt.Fprintf(w, "auth: %s\n", a.Auth)
+	if a.Auth == grokcli.AuthClass {
+		fmt.Fprintf(w, "auth: grok-cli (subscription via official binary)\n")
+	} else {
+		fmt.Fprintf(w, "auth: %s\n", a.Auth)
+	}
 	switch a.Auth {
+	case grokcli.AuthClass:
+		st := grokcli.Look(a.Loaded.File.GrokBin)
+		if st.Found {
+			st = grokcli.ProbeSignedIn(context.Background(), a.Loaded.File.GrokBin, a.CWD, nil)
+		}
+		fmt.Fprintf(w, "grok: %s\n", st.Detail)
+		fmt.Fprintf(w, "model auth: official grok agent stdio. Rock runs tools and Jev. The child does not.\n")
 	case siwc.AuthSIWC:
 		fmt.Fprintf(w, "model auth: Sign in with ChatGPT (siwc). Jev is a separate required key.\n")
 		fmt.Fprintf(w, "fast model: %s\n", a.FastModel())

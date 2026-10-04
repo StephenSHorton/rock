@@ -111,6 +111,6 @@ The build plan is [v1-plan.md](v1-plan.md). Short form:
 - **Clean-room.** Grok Build is the clone target. Rock does not fork the Rust tree. Crush stays FSL; we use Charm libraries. Jev is the edge.
 - **HTTP is a daemon (`rock serve`).** The TUI runs the harness in-process. Both read the session store.
 - **Git checkpoint and review-only both exist.** Checkpoint is off until config turns it on. Review-only denies mutating tools.
-- **Rock is an ACP server.** It does not wrap other CLIs in 1.0.
+- **Rock is an ACP server.** SuperGrok is a model-only ACP **client** to the official `grok` binary (`grok-cli`). The child does not run tools.
 - **Jev** is the edge. 1.0 shipped hard-wired gates (model, skills, stuck, risk, subagent kind, retrieval, compact, plan readiness). The destination is agentic `ask_jev` — [jev-audit.md](jev-audit.md), [ask-jev-plan.md](ask-jev-plan.md). No key means an offline policy, labeled as such. Offline is not Jev. Jev is not a substitute for the LLM.
 - **Suzuri** hosts the PTY. Rock emits OSC 7880 and can attach `suzuri mcp`. Claude Code leak dumps stay out.

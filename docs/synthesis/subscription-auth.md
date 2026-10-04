@@ -32,7 +32,7 @@ A ChatGPT, xAI, Anthropic, or Google account may bill a SANCTIONED **model** rou
 | OpenAI: spawn official `codex` or Codex app-server with a SIWC token | **SANCTIONED** | Same as using Codex. Apache-2.0; SIWC docs show the app-server wiring. | Child process + stdio. Later than in-process SIWC. |
 | xAI: `XAI_API_KEY` | **SANCTIONED** | Ordinary API-key hygiene. | Already the BYOK fallback. |
 | xAI: reuse Grok Build client `b1a00492-073a-47ea-816f-4c329264a828` inside Rock | **GREY** | Impersonates `grok`. xAI AUP bars *unauthorized* automation and credential sharing. No published third-party client program. | Do not implement. |
-| xAI: spawn official `grok` (`grok agent stdio` / `-p`) | **SANCTIONED** | Same as using Grok Build. User signs into `grok`. | Child ACP/stdio. Does not mint xAI tokens. |
+| xAI: spawn official `grok` (`grok agent stdio` / `-p`) | **SANCTIONED** | Same as using Grok Build. User signs into `grok`. | Shipped: `auth = "grok-cli"` / `/provider` SuperGrok. Child ACP/stdio. Does not mint xAI tokens. |
 | Anthropic: Console / Bedrock / Vertex / Foundry API key | **SANCTIONED** | Ordinary API-key hygiene. Required for third-party products. | BYOK. |
 | Anthropic: Claude subscription OAuth inside Rock | **PROHIBITED** | Legal page: OAuth is for native Anthropic apps; third parties may not offer claude.ai login or route Pro/Max credentials. Enforcement without notice. | Do not implement. |
 | Anthropic: unmodified official `claude` binary, user signs in | **SANCTIONED** | Same as using Claude Code. Hosting docs require the binary stay unmodified and the end user authenticate themselves. | Child process. Do not read Claude tokens. |
@@ -282,14 +282,26 @@ This is the only documented third-party subscription OAuth that Rock implements 
 - UI: "Continue with ChatGPT" per OpenAI's SIWC branding rules. User can decline and paste an API key.
 - Read the Sign in with ChatGPT Terms before shipping (Service Terms §15). Paid hosting or a hosted Rock service would need the waitlist, not this OSS flow.
 
-### 3. SuperGrok: official `grok`, not Grok Build's client id
+### 3. SuperGrok: official `grok`, not Grok Build's client id (shipped)
 
-The owner-expected Grok-first path is real **as a wrap**, not as in-process OAuth.
+`auth = "grok-cli"` (alias `provider = "grok-cli"`) and the TUI `/provider` SuperGrok row spawn the user's unmodified `grok` as `grok agent --no-auto-update --no-leader stdio`. The user runs `grok login` themselves. Rock never copies `b1a00492-073a-47ea-816f-4c329264a828`, never runs `grok login`, and never reads `~/.grok` token files. Missing binary or a child that offers no `cached_token` is a plain error pointing at https://x.ai/cli.
 
-- Document `grok login` / `grok agent stdio` / `grok -p` as the SuperGrok subscription bridge.
-- Rock does not copy `b1a00492-073a-47ea-816f-4c329264a828` into `internal/`.
-- [v1-plan.md](v1-plan.md) currently says Rock does not wrap other CLIs in 1.0. Keep that for 1.0. Schedule the wrap as the sanctioned SuperGrok add-on after ACP-as-a-client exists ([steal-priorities](steal-priorities.md) P3 today). Shipping SIWC first does not require that wrap.
-- In parallel: ask xAI whether they will register a Rock client or publish third-party SuperGrok OAuth. Until they do, do not guess an endpoint or reuse `grok`'s.
+**Who runs what**
+
+| Side | Owns |
+|---|---|
+| **Rock** | Agent loop, Rock tools (`shell`, `edit_file`, `ask_jev`, …), permissions, **Jev `ask_jev` and the Risk gate**. |
+| **`grok` child** | SuperGrok subscription inference only (the model tokens stay inside the official binary). |
+
+ACP would otherwise let the child execute tools after `session/request_permission` (or immediately under `--always-approve` / `--yolo`). That **would bypass Risk**. The safe option we ship:
+
+- Never pass `--always-approve`, `--yolo`, `--reauth`, or `--permission-mode bypassPermissions`.
+- Advertise no fs/terminal client capabilities.
+- Deny every `session/request_permission` (`reject-once` / cancel).
+- Error every `fs/*` and `terminal/*` request.
+- Treat child `tool_call` updates as **proposals**. Rock maps the name and runs the tool itself, after Policy + Risk.
+
+If a future `grok` executes tools without asking, stop using this route. Do not add yolo to "make it work." API keys stay the fallback. Claude child wrap is still later.
 
 ### 4. Claude: keys, or unmodified `claude`
 
@@ -306,14 +318,14 @@ The owner-expected Grok-first path is real **as a wrap**, not as in-process OAut
 ### 6. Defaults and disclosure
 
 - `rock setup` lists API key for every provider. Subscription buttons appear only for SANCTIONED rows that we have implemented.
-- `rock inspect` says which **model** auth class is active: `api_key`, `siwc`, `child:grok`, `child:claude`, `offline_model`. Jev mode (`live` / `offline`) is a separate field and a separate key. Never a silent token scrape from `~/.grok` / `~/.codex` / `~/.claude` / Gemini's store.
+- `rock inspect` says which **model** auth class is active: `api_key`, `siwc`, `grok-cli (subscription via official binary)`, `offline_model`. Jev mode (`live` / `offline`) is a separate field and a separate key. Never a silent token scrape from `~/.grok` / `~/.codex` / `~/.claude` / Gemini's store.
 - If a future xAI or Anthropic program lands, re-tier this page before writing code.
 
 ### Suggested implementation order (technical, not a calendar)
 
 1. Keep the OpenAI-compatible API-key client honest (1.0).
 2. SIWC public client + Responses adapter + inspect label.
-3. Optional `grok agent stdio` child (SuperGrok) once Rock is willing to be an ACP client.
+3. Official `grok agent stdio` child (SuperGrok) — shipped as `grok-cli`. Rock stays the ACP **client**; the child is the model only.
 4. Optional unmodified `claude` child.
 5. Catalog rows for DeepSeek / Groq / Mistral / Vertex as keys.
 

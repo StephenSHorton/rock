@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/StephenSHorton/rock/internal/grokcli"
 	"github.com/StephenSHorton/rock/internal/perms"
 	"github.com/StephenSHorton/rock/internal/provider"
 	"github.com/StephenSHorton/rock/internal/siwc"
@@ -120,6 +121,42 @@ func TestOfflineModelAuthDoesNotTouchJev(t *testing.T) {
 	}
 	if strings.Contains(buf.String(), "jev key: unset") {
 		t.Fatal("offline model must not clear the Jev key")
+	}
+}
+
+func TestInspectGrokCLIAuthClass(t *testing.T) {
+	t.Setenv("ROCK_HOME", t.TempDir())
+	t.Setenv("ROCK_CONFIG", t.TempDir()+"/config.toml")
+	t.Setenv("ROCK_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("JEV_API_KEY", "jv_live_test")
+	t.Setenv("TYPESAFE_API_KEY", "")
+	t.Setenv("ROCK_GROK_BIN", "")
+	t.Setenv("PATH", t.TempDir())
+	app, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	if err := app.SetAuth(grokcli.AuthClass); err != nil {
+		t.Fatal(err)
+	}
+	if app.Gates.Mode() != "live" {
+		t.Fatal("grok-cli must not force Jev offline")
+	}
+	var buf bytes.Buffer
+	app.Inspect(&buf)
+	text := buf.String()
+	for _, want := range []string{
+		"auth: grok-cli (subscription via official binary)",
+		"https://x.ai/cli",
+		"grok login",
+		"jev: live",
+		"Rock runs tools and Jev",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q\n%s", want, text)
+		}
 	}
 }
 

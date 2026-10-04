@@ -54,7 +54,7 @@ These were treated as the product during the mash-up pass. 1.0 did ship several 
 | Idea | Source | Why Rock |
 |---|---|---|
 | **Memory / dream / flush** | Grok | Cross-session memory after the loop is solid. |
-| **ACP-as-provider** (wrap other CLIs) | Goose; [subscription-auth.md](subscription-auth.md) | Sanctioned SuperGrok / Claude bridge: spawn official `grok` or unmodified `claude`. Not Rock's identity. Not 1.0. |
+| **ACP-as-provider** (wrap other CLIs) | Goose; [subscription-auth.md](subscription-auth.md) | SuperGrok shipped as `grok-cli` (official `grok agent stdio`, model only). Unmodified `claude` still later. Not Rock's identity. |
 | **Compat skill paths** (`.agents`, `.claude`, `.cursor`) | Grok, Crush | Portable projects. |
 | **Session branch** | Pi | Alternate-universe chats. |
 | **Multi-surface handoff** | Claude Code public docs | After ACP + HTTP. |
