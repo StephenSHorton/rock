@@ -67,6 +67,8 @@ open_tui() {
 	vs stub
 	wait_text 'Ask Rock' 50
 	wait_text 'jev:live' 20
+	wait_text '╭' 20
+	wait_text '❯' 20
 	if vs text | grep -q 'jev:offline'; then
 		echo "refusing still: jev:offline on screen" >&2
 		vs text >&2
@@ -77,7 +79,36 @@ open_tui() {
 		vs text >&2
 		return 1
 	fi
+	if ! vs text | grep -q '╭' || ! vs text | grep -q '╰'; then
+		echo "refusing still: framed composer missing" >&2
+		vs text >&2
+		return 1
+	fi
 	sleep 0.4
+}
+
+# Click the model or mode chip on the composer frame (tmux cell coords).
+# Column must be a display cell, not a UTF-8 byte index — ╰ / ─ are 3 bytes.
+click_chip() {
+	local needle=$1
+	local dump pos row col
+	dump=$(vs text)
+	pos=$(NEEDLE="$needle" python3 -c '
+import os, sys
+needle = os.environ["NEEDLE"]
+for i, line in enumerate(sys.stdin.read().splitlines()):
+    if "╰" in line and needle in line:
+        print(f"{i} {line.index(needle)}")
+        break
+' <<<"$dump")
+	if [ -z "${pos:-}" ]; then
+		echo "chip $needle not found" >&2
+		printf '%s\n' "$dump" >&2
+		return 1
+	fi
+	read -r row col <<<"$pos"
+	echo "click $needle col=$col row=$row" >&2
+	vs click "$col" "$row"
 }
 
 type_enter() {
@@ -89,7 +120,7 @@ dump() {
 	local stem=$1
 	vs text >"$ART/text/${stem}.txt"
 	echo "--- $stem ---"
-	grep -E 'jev:|Ask Rock|/ for commands|◇ jev|/help|/plan /yolo' "$ART/text/${stem}.txt" || true
+	grep -E 'jev:|Ask Rock|/ for commands|◇ jev|╭|❯|Model|ChatGPT|/help|/plan /yolo' "$ART/text/${stem}.txt" || true
 }
 
 shot() {
@@ -118,6 +149,14 @@ capture_theme() {
 	wait_text '/help' 20
 	sleep 0.3
 	shot "slash-${theme}"
+
+	echo "== model $theme =="
+	open_tui "$bg" "$fg"
+	click_chip "stub-fast"
+	wait_text 'Model' 20
+	wait_text 'ChatGPT' 20
+	sleep 0.3
+	shot "model-${theme}"
 
 	echo "== permission $theme =="
 	open_tui "$bg" "$fg"

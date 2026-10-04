@@ -29,7 +29,7 @@ DISPLAY=:1 ART=/opt/cursor/artifacts/tui ./scripts/demos/stills.sh
 ```
 
 Demo exports land in `$ART` as `<feature>-<dark|light>.{mp4,gif,png}`. Stills
-are `idle|slash|permission|tools|plan|askjev-<dark|light>.png` at 1400×792.
+are `idle|slash|model|permission|tools|plan|askjev-<dark|light>.png` at 1400×792.
 The scripts do not commit those binaries. Demo geometry aims at about 1100×620
 terminal pixels, 6–12 s, H.264 yuv420p +faststart. Both paths set
 `ROCK_TEST_FAKE_JEV=1` and `JEV_API_KEY=rock-test` so the status line is

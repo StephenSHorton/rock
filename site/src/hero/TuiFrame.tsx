@@ -10,7 +10,7 @@ const STATES: { id: string; pair: ShotPair }[] = [
       dark: 'idle-dark.png',
       light: 'idle-light.png',
       label: 'Idle',
-      alt: 'Rock TUI idle: Ask Rock composer, / for commands hint, and jev:live status',
+      alt: 'Rock TUI idle: framed Ask Rock composer with a ❯ prompt, model and mode chips, and jev:live',
     },
   },
   {
@@ -19,7 +19,16 @@ const STATES: { id: string; pair: ShotPair }[] = [
       dark: 'slash-dark.png',
       light: 'slash-light.png',
       label: 'Slash',
-      alt: 'Rock TUI slash-command menu after typing / in the composer',
+      alt: 'Rock TUI slash-command pop-up above the framed composer after typing /',
+    },
+  },
+  {
+    id: 'model',
+    pair: {
+      dark: 'model-dark.png',
+      light: 'model-light.png',
+      label: 'Model',
+      alt: 'Rock TUI model picker pop-up opened from the composer frame chip',
     },
   },
   {
