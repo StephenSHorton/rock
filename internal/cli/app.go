@@ -184,7 +184,7 @@ func (a *App) Inspect(w io.Writer) {
 	}
 	fmt.Fprintf(w, "jev: %s\n", a.Gates.Mode())
 	if a.Gates.Mode() == "offline" {
-		fmt.Fprintf(w, "jev key: unset (JEV_API_KEY or TYPESAFE_API_KEY). Gates run a local policy. That policy is not Jev.\n")
+		fmt.Fprintf(w, "jev key: unset. Rock will not start an agent until you run rock setup jev.\n")
 	} else {
 		_, src := config.JevKey()
 		fmt.Fprintf(w, "jev key: %s\n", src)
@@ -372,7 +372,7 @@ func (a *App) Setup(stdin io.Reader, stdout io.Writer) error {
 	if err := config.Write(path, file); err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "wrote %s\nAPI keys stay in the environment (ROCK_API_KEY, JEV_API_KEY, TYPESAFE_API_KEY).\n", path)
+	fmt.Fprintf(stdout, "wrote %s\nModel keys stay in the environment (ROCK_API_KEY, OPENAI_API_KEY). Store a Jev key with rock setup jev.\n", path)
 	return nil
 }
 

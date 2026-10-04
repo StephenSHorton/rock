@@ -14,6 +14,8 @@ Read [VISION.md](VISION.md) before changing direction. Read [docs/synthesis/jev-
 - Language is Go only. See [docs/synthesis/v1-plan.md](docs/synthesis/v1-plan.md). Protocol and features stay negotiable.
 - Rock is a **Grok Build clone** (public [xai-org/grok-build](https://github.com/xai-org/grok-build), reimplemented in Go) **packed with Jev**. It is not a mash-up of Crush, OpenCode, Aider, Goose, Pi, and Codex. Raid pages are study.
 - Jev is not an LLM. It is a System One primitive (typed `choice` / `score` / `noul`). Do not invent API verbs. Do not quote vendor benchmarks as Rock’s. The target primitive is `ask_jev`; today most calls are hard-coded — see the audit.
+- Rock is unusable without Jev, on purpose. A working key is required before the agent loop starts. Users run `rock setup jev` (or paste a key into the TUI gate). `JEV_API_KEY` and `TYPESAFE_API_KEY` still count, and they must validate. Do not bring back a user-facing offline-Jev mode.
+- `ROCK_TEST_FAKE_JEV` is a test-only stub for CI, `visual.sh`, and `scripts/demos`. It is never on by default and is not a user feature. Name it so that stays obvious.
 - Crush is FSL-1.1-MIT. Study freely. Do not wholesale-copy Crush while FSL applies. Prefer Charm libraries.
 - Do not fork the Grok Build Rust tree “for now.” Clone the product here.
 - Claude Code: **public Anthropic docs only**. Proprietary. Never invent leak or source-level details. If unofficial dumps exist, skip them.
@@ -79,3 +81,4 @@ Slug style: lowercase, hyphenated, matches the binary or well-known name (`grok-
 - Don’t turn raid pages into comparison-matrix dumps. One tool, one page, useful steal ideas.
 - Don’t add meme lore, roadmap theater, or calendar estimates in years.
 - Don’t substitute Jev for the LLM.
+- Don’t ship a user-facing “honest offline” Jev mode. Rock does not run an agent without a working key. `ROCK_TEST_FAKE_JEV` is the only stub, and only for tests.

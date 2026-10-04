@@ -153,6 +153,9 @@ func (m *Model) View() tea.View {
 		v.MouseMode = tea.MouseModeCellMotion
 		return v
 	}
+	if m.gating() {
+		return m.onboardView()
+	}
 	g := m.geo
 	var parts []string
 	if g.padT > 0 {

@@ -7,6 +7,7 @@ import (
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/table"
 	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
 	"github.com/alecthomas/chroma/v2"
 	chromastyles "github.com/alecthomas/chroma/v2/styles"
@@ -164,6 +165,22 @@ func (t theme) composer() textarea.Styles {
 		Prompt:      t.accentBold,
 		CursorLine:  lipgloss.NewStyle(),
 		EndOfBuffer: t.faint,
+	}
+	blurred := focused
+	blurred.Text = t.faint
+	blurred.Prompt = t.faint
+	s.Focused, s.Blurred = focused, blurred
+	s.Cursor.Color = t.brand
+	return s
+}
+
+func (t theme) jevField() textinput.Styles {
+	s := textinput.DefaultStyles(t.dark)
+	focused := textinput.StyleState{
+		Text:        t.plain,
+		Placeholder: t.faint,
+		Suggestion:  t.faint,
+		Prompt:      t.accentBold,
 	}
 	blurred := focused
 	blurred.Text = t.faint

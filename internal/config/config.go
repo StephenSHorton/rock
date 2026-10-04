@@ -1,5 +1,7 @@
-// Package config loads TOML. API keys stay in the environment. Project allow
-// rules apply only after the folder is trusted. Deny rules always apply.
+// Package config loads TOML. Model keys stay in the environment. Jev keys
+// come from the environment, the OS keychain, or ROCK_HOME/jev.key.
+// Project allow rules apply only after the folder is trusted. Deny rules
+// always apply.
 package config
 
 import (
@@ -274,14 +276,4 @@ func APIKey() string {
 		}
 	}
 	return ""
-}
-
-func JevKey() (key, source string) {
-	if v := strings.TrimSpace(os.Getenv("JEV_API_KEY")); v != "" {
-		return v, "JEV_API_KEY"
-	}
-	if v := strings.TrimSpace(os.Getenv("TYPESAFE_API_KEY")); v != "" {
-		return v, "TYPESAFE_API_KEY"
-	}
-	return "", ""
 }

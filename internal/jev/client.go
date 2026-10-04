@@ -1,6 +1,6 @@
 // Package jev calls the Jev decision API. choice, score, and noul come back
 // typed. Official keys go to api.typesafe.ai. Hosted jv_live keys go to
-// jevtypesafeai.com. No key means the caller uses the offline policy.
+// jevtypesafeai.com. Rock does not start without a working key.
 package jev
 
 import (
@@ -65,6 +65,9 @@ func EndpointFor(key string) string {
 func (c *Client) Decide(ctx context.Context, state any, questions map[string]Question) (Response, error) {
 	if !c.Live() {
 		return Response{}, fmt.Errorf("jev key is not set")
+	}
+	if out, err, ok := fakeDecide(c, questions); ok {
+		return out, err
 	}
 	if c.HTTP == nil {
 		c.HTTP = &http.Client{Timeout: 30 * time.Second}

@@ -82,17 +82,21 @@ Project `.rock/config.toml` cannot supply a Jev key or `jev.base_url`. Keys are 
 
 Slice (b) added `jev.nudge` and `jev.nudge_every`. Slice (c) added `jev.triage`, `jev.filter`, and `jev.clip_bytes`. Slice (e) shares the Ask encoder across gates. See [ask-jev-plan.md](ask-jev-plan.md).
 
-Keys ([`JevKey`](../../internal/config/config.go) lines 214–221):
+Keys ([`JevKey`](../../internal/config/jevstore.go)):
 
 1. `JEV_API_KEY`
 2. else `TYPESAFE_API_KEY`
-3. else empty → offline
+3. else OS keychain (service `rock`, user `jev`)
+4. else `ROCK_HOME/jev.key` (0600)
+5. else empty — Rock will not start an agent (`rock setup jev` / TUI gate)
 
-API keys are never written by `rock setup`. Setup only reminds you they stay in the environment ([`internal/cli/app.go`](../../internal/cli/app.go) line 365).
+`ROCK_TEST_FAKE_JEV` is a test-only Decide stub. It is never on by default.
+
+Model keys stay in the environment. Jev keys are written by `rock setup jev` to the OS keychain or `ROCK_HOME/jev.key`. The Huh `rock setup` form still does not store keys.
 
 Process wiring ([`cli.Open`](../../internal/cli/app.go) lines 59–70): build a `jev.Client` from the key plus optional `jev.base_url` / `jev.model`, wrap it in `jev.Gates` with the confidence and risk thresholds. That `Gates` value is what the TUI, headless path, ACP factory, and HTTP factory all share ([`internal/cli/harness.go`](../../internal/cli/harness.go) lines 15–27).
 
-`rock inspect` ([`App.Inspect`](../../internal/cli/app.go) lines 185–191): prints `jev: live` or `jev: offline`. Offline adds: *“Gates run a local policy. That policy is not Jev.”* Live prints which env var supplied the key, not the key.
+`rock inspect` ([`App.Inspect`](../../internal/cli/app.go)): prints `jev: live` or `jev: offline`. Offline adds: *Rock will not start an agent until you run rock setup jev.* Live prints the key source (env, keychain, or file), not the key.
 
 ## Offline policy
 
