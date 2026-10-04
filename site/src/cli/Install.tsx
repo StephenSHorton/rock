@@ -6,6 +6,8 @@ const commands = {
   windows: 'irm https://stephenshorton.github.io/rock/install.ps1 | iex',
 } as const
 
+const SETUP = 'rock setup jev'
+
 type OS = keyof typeof commands
 
 function detectOS(): OS {
@@ -25,7 +27,7 @@ export function Install() {
     setOS(detectOS())
   }, [])
 
-  const text = commands[os]
+  const text = `${commands[os]}\n${SETUP}`
 
   async function copy() {
     try {
@@ -45,7 +47,7 @@ export function Install() {
   return (
     <section id="install" className="mx-auto max-w-5xl px-4 py-16 sm:px-6">
       <p className="mono text-[0.72rem] tracking-[0.16em] uppercase text-[var(--muted)]">
-        <span className="text-[var(--primary)]">install</span> one command
+        <span className="text-[var(--primary)]">install</span> then jev
       </p>
       <h2 className="mt-2 max-w-[16ch] text-4xl tracking-tight sm:text-5xl">Try it in your terminal.</h2>
       <div className="mt-5 flex flex-wrap gap-2" role="tablist" aria-label="Operating system">
@@ -76,7 +78,11 @@ export function Install() {
           {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
-      <p className="mt-3 text-[var(--muted)]">
+      <p className="mt-3 text-[var(--ink-2)]">
+        A Jev key is required. <code>rock setup jev</code> validates and stores it. In the TUI, Rock
+        asks for the key on first run.
+      </p>
+      <p className="mt-2 text-[var(--muted)]">
         Needs <a className="text-[var(--primary)] underline-offset-2 hover:underline" href="https://go.dev/dl/">Go 1.27</a> or
         newer. The command installs the current 1.0 build of <code>rock</code> with{' '}
         <code>go install github.com/StephenSHorton/rock/cmd/rock@main</code>.

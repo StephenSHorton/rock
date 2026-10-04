@@ -8,11 +8,11 @@ const POINTS = [
   },
   {
     title: 'Faster, safer, cheaper per task',
-    body: 'The agent is meant to call ask_jev on its own to classify, filter, and verify. That tool is in progress. The turn and risk gates already run.',
+    body: 'The agent calls ask_jev on its own to classify, filter, and verify. Built-in checks share that path. The Risk gate stays mandatory.',
   },
   {
-    title: 'Honest when offline',
-    body: 'No model key, no Jev key: the binary still runs, the same gates still run, and inspect says they are offline.',
+    title: 'A Jev key is required',
+    body: 'Rock will not start an agent without one. rock setup jev validates and stores it. The TUI asks on first run.',
   },
 ] as const
 

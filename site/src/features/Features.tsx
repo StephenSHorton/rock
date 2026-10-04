@@ -56,7 +56,7 @@ const ITEMS: {
     body: (
       <>
         <code>rock inspect</code> prints what is actually configured and running: config, models, Jev,
-        and the session store. It says when they are offline. No guessing what the harness is doing.
+        and the session store. No guessing what the harness is doing.
       </>
     ),
   },

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 const UNIX = 'curl -fsSL https://stephenshorton.github.io/rock/install.sh | bash'
 const WINDOWS = 'irm https://stephenshorton.github.io/rock/install.ps1 | iex'
+const SETUP = 'rock setup jev'
 
 function isWindows() {
   if (typeof navigator === 'undefined') return false
@@ -9,12 +10,14 @@ function isWindows() {
 }
 
 export function InstallLine() {
-  const [text, setText] = useState(UNIX)
+  const [install, setInstall] = useState(UNIX)
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
-    if (isWindows()) setText(WINDOWS)
+    if (isWindows()) setInstall(WINDOWS)
   }, [])
+
+  const text = `${install}\n${SETUP}`
 
   async function copy() {
     try {
@@ -32,13 +35,18 @@ export function InstallLine() {
   }
 
   return (
-    <div className="glass-hud mt-6 flex flex-col gap-3 rounded-2xl p-3 sm:flex-row sm:items-center">
-      <pre className="m-0 flex-1 overflow-x-auto whitespace-pre-wrap break-all text-[0.8rem] leading-6">
-        <code>{text}</code>
-      </pre>
-      <button type="button" className="hud-btn bg-[var(--primary)] text-[var(--primary-foreground)]" onClick={copy}>
-        {copied ? 'Copied' : 'Copy'}
-      </button>
+    <div className="mt-6">
+      <div className="glass-hud flex flex-col gap-3 rounded-2xl p-3 sm:flex-row sm:items-center">
+        <pre className="m-0 flex-1 overflow-x-auto whitespace-pre-wrap break-all text-[0.8rem] leading-6">
+          <code>{text}</code>
+        </pre>
+        <button type="button" className="hud-btn bg-[var(--primary)] text-[var(--primary-foreground)]" onClick={copy}>
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      <p className="mt-2 text-sm text-[var(--muted)]">
+        A Jev key is required. The TUI asks for it on first run if none is stored.
+      </p>
     </div>
   )
 }
