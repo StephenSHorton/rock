@@ -1,39 +1,45 @@
 # Rock
 
-Rock is Stephen Horton’s AI coding CLI — a synthesis, not a soft-fork of any one product.
+Jev is the reason Rock exists.
+
+Rock is a Grok Build-class coding CLI — a clone of public [xai-org/grok-build](https://github.com/xai-org/grok-build), written in Go, Charm TUI — packed full of Jev. It is not a mash-up of several harnesses.
 
 The binary name is **`rock`**.
 
-The raid notes are still the evidence for why the harness looks like this. The program itself lives in `cmd/rock` and `internal/`.
+Jev is not an LLM. It is a fast System One primitive for safety, speed, and token efficiency: typed questions, typed answers. The LLM reasons and edits. Jev checks, filters, and validates. See [VISION.md](VISION.md).
+
+The program lives in `cmd/rock` and `internal/`. Raid notes under `docs/` are study, not the identity.
 
 ## What this is
 
-A coding agent with a Charm TUI, a headless print mode, ACP on stdio, and a loopback HTTP API. The same harness sits behind all of them.
+A coding agent with a Charm TUI, a headless print mode, ACP on stdio, and a loopback HTTP API. The same harness sits behind all of them. The Grok-shaped surface is familiar on purpose. The Jev marks are the difference.
 
-- **Vision** — ambitions and the negotiable direction of travel.
-- **Raid notes** — per-tool dissections of peers (Grok Build, Crush, OpenCode, Aider, Goose, Pi, Codex CLI, Claude Code public docs).
-- **Synthesis** — steal priorities and an architecture sketch.
+- **Vision** — Grok Build clone + Jev; what we refuse.
+- **Jev audit** — how the Go actually calls Jev today (mostly hard-coded gates).
+- **ask_jev plan** — the slices to make Jev agent-driven.
+- **Raid notes** — per-tool dissections. Useful. Not a recipe to blend five products.
 
-Language is Go only. See [docs/synthesis/v1-plan.md](docs/synthesis/v1-plan.md). Protocol surface, quarry, and features stay negotiable. Do not price the work in pre-AI years.
+Language is Go only. See [docs/synthesis/v1-plan.md](docs/synthesis/v1-plan.md). Do not price the work in pre-AI years.
 
 ## Navigate
 
 | Start here | Why |
 |---|---|
-| [VISION.md](VISION.md) | Goals, constraints, and what Rock is *not*. |
+| [VISION.md](VISION.md) | Identity: Jev, the Grok Build clone, constraints. |
 | [AGENTS.md](AGENTS.md) | Conventions for humans and coding agents working in this repo. |
-| [docs/README.md](docs/README.md) | Raid process, index of CLI notes, how to add a new dissection. |
-| [docs/synthesis/steal-priorities.md](docs/synthesis/steal-priorities.md) | Ranked ideas to take into Rock. |
-| [docs/synthesis/architecture-sketch.md](docs/synthesis/architecture-sketch.md) | Negotiable shape: Charm TUI ↔ protocol ↔ harness. |
-| [docs/synthesis/v1-plan.md](docs/synthesis/v1-plan.md) | 1.0 decisions: Go only, Jev gates, Suzuri. |
+| [docs/synthesis/jev-audit.md](docs/synthesis/jev-audit.md) | Every current Jev call site, keys, offline, tests. |
+| [docs/synthesis/ask-jev-plan.md](docs/synthesis/ask-jev-plan.md) | Engineer-sized PRs for `ask_jev`. |
+| [docs/README.md](docs/README.md) | Raid process and index. |
+| [docs/synthesis/v1-plan.md](docs/synthesis/v1-plan.md) | 1.0 decisions: Go, shipped Jev gates, Suzuri. |
+| [docs/synthesis/tui-parity.md](docs/synthesis/tui-parity.md) | Charm TUI vs Grok Build: intended diffs + visual backlog. |
 
-Per-tool pages live under [`docs/clis/`](docs/clis/). The page template is [`docs/_template.md`](docs/_template.md).
+Per-tool pages live under [`docs/clis/`](docs/clis/). The page template is [`docs/_template.md`](docs/_template.md). Older synthesis pages that framed Rock as a mash-up are marked superseded and kept as history.
 
 ## Direction (short)
 
-- **TUI / face:** Charm libraries, Crush-class feel — *our own* UI, not a Crush fork. Crush is FSL-1.1-MIT; study freely, do not wholesale-copy while FSL applies.
-- **Harness / brain:** Prefer [Grok Build](https://github.com/xai-org/grok-build) as quarry plus continuous upstream radar. Preferred, not destiny.
-- **Peers:** OpenCode, Aider, Goose, Pi, Codex CLI, Crush, Claude Code (public Anthropic docs only).
+- **Product:** Grok Build-class CLI (public tree, reimplemented in Go). Edge is Jev.
+- **Jev:** System One. `ask_jev` is the target primitive. Today the loop still uses hard-wired gates plus `jev_decide` — the audit tells the truth.
+- **TUI:** Charm v2. Crush is FSL-1.1-MIT; study freely, do not wholesale-copy while FSL applies.
 - **License:** MIT. See [LICENSE](LICENSE).
 
 ## Status
@@ -47,6 +53,26 @@ go build -o rock ./cmd/rock
 ./rock -p "Say hello in one sentence"
 ```
 
+### Commands that stay true
+
+| Command | What it does |
+|---|---|
+| `rock` | Fullscreen Charm TUI |
+| `rock -p "…"` | One headless turn; `--output streaming-json` for scripts |
+| `rock --resume ID` | Open a session in the TUI |
+| `rock --yolo` | Skip asks; the destructive Jev (or offline) gate still blocks |
+| `rock --mode plan` | Plan mode: edits and every shell command blocked |
+| `rock --verbose` | Show `◇ jev turn` / `risk` diagnostics in the TUI |
+| `rock inspect` | Config, skills, MCP, Jev live/offline, permissions. Tells the truth. |
+| `rock setup` | Huh form → `~/.config/rock/config.toml`. Does not store API keys. |
+| `rock sessions` | List sessions for this folder |
+| `rock permissions` | Allow / ask / deny |
+| `rock fork` | Print Suzuri OSC 7880 (`brand=rock`) for a new host pane |
+| `rock serve` | Loopback HTTP and SSE |
+| `rock acp` | ACP v1 and v2 on stdio |
+
+In the TUI: `/plan`, `/yolo`, `/default`, `/permissions`, `/agents` (subagents this session), `/ready` (Jev or offline plan-readiness — **never approves**), `/verbose`, `/fork [prompt]`, `/sessions`, `/help`, `/quit`.
+
 The public page is [stephenshorton.github.io/rock](https://stephenshorton.github.io/rock/). Source for it is [`site/`](site/), a Vite app with a Mokei clay-quarry hero and the real CLI. The page swaps one install command by operating system. macOS and Linux:
 
 ```bash
@@ -59,6 +85,6 @@ Both need Go 1.27 or newer and install from `main` with `go install github.com/S
 
 Cloud agents can run the `rock-docs` reader on port 4173 to serve the tree as HTML and link-check the docs. Build the product binary with `go build ./cmd/rock`.
 
-Set `ROCK_API_KEY` (or `OPENAI_API_KEY`) and `ROCK_BASE_URL` for a real model. Set `TYPESAFE_API_KEY` or `JEV_API_KEY` for live Jev decisions. Without those keys the binary still runs: offline provider, offline gates, and `inspect` says so. Suzuri can set `ROCK_SESSION_TITLE` when it launches a pane.
+Set `ROCK_API_KEY` (or `OPENAI_API_KEY`) and `ROCK_BASE_URL` for a real model. Set `TYPESAFE_API_KEY` or `JEV_API_KEY` for live Jev decisions. Without those keys the binary still runs: offline provider, offline gates, and `inspect` says so. Offline policy is not Jev. Suzuri can set `ROCK_SESSION_TITLE` when it launches a pane.
 
 `rock setup` writes `~/.config/rock/config.toml`. It does not store API keys.

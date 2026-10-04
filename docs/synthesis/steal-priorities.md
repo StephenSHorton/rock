@@ -1,14 +1,16 @@
 # Steal priorities
 
-Ranked ideas for Rock. Sources are the raid pages under [`docs/clis/`](../clis/). This is not a feature matrix of peers — it is what we intend to *take*.
+> **Superseded identity (kept for history).** This page ranked steal ideas as if Rock were a mash-up of Crush, Grok Build, OpenCode, Aider, and Pi. That framing is retired. Rock is a Grok Build-class CLI whose reason to exist is Jev. See [VISION.md](../../VISION.md), [jev-audit.md](jev-audit.md), and [ask-jev-plan.md](ask-jev-plan.md). The raid table below stays as evidence of what we studied; it is not the product definition. New load-bearing Jev work goes on the ask-jev plan, not into a five-way ranking.
 
-Priorities move when a raid changes the facts. Promote new ideas here; demote anything we decide is someone else’s product.
+Ranked ideas collected during the raid pass. Sources are the pages under [`docs/clis/`](../clis/).
+
+Priorities on this page do not override the Grok-clone + Jev identity. Promote new Jev work to [ask-jev-plan.md](ask-jev-plan.md).
 
 Rock’s license is MIT. Peer licenses stay theirs (Crush FSL-1.1-MIT — study, don’t wholesale-copy; Claude Code proprietary — public docs only).
 
 ## P0 — day-one contracts
 
-These are the product. If the TUI is late, these still ship. Jev and Suzuri are in this list because 1.0 depends on them. See [v1-plan.md](v1-plan.md).
+These were treated as the product during the mash-up pass. 1.0 did ship several of them (Jev *gates*, Suzuri, permissions, inspect). The *identity* is now Grok Build + Jev, and the Jev direction is agentic `ask_jev`, not only hard-wired gates. See [v1-plan.md](v1-plan.md) and [ask-jev-plan.md](ask-jev-plan.md).
 
 | Idea | Source | Why Rock |
 |---|---|---|
@@ -63,13 +65,13 @@ These are the product. If the TUI is late, these still ship. Jev and Suzuri are 
 |---|---|
 | Claude Code leak dumps / reconstructed source / guessed system prompts | Proprietary. Legal and ethical. Public docs only. |
 | Wholesale Crush copy while FSL applies | FSL-1.1-MIT. Build with Charm libs; Rock stays MIT. |
-| Soft-fork forever of Grok Build or Crush | Rock is a synthesis. Preferred quarry ≠ destiny. |
+| Fork the Grok Build Rust tree, or wholesale-copy Crush | Clone the Grok *product* in Go. Crush stays FSL study. Jev is the edge, not a fifth blended harness. |
 | Pi’s “no built-in tool permissions” as default | Honesty is good; the default must still be allow/ask/deny. |
 | ChatGPT/xAI/Anthropic account as identity | BYOK-first. |
 | Pre-AI year estimates as scope control | Do not price the work in human-only calendars. |
 
-## Suggested shape (negotiable)
+## Suggested shape (superseded)
 
-See [architecture-sketch.md](architecture-sketch.md).
+The line below is the old mash-up sentence. Do not use it as identity. Current shape: **Grok Build clone in Go (Charm TUI) packed with Jev**. License: **MIT**. See [architecture-sketch.md](architecture-sketch.md) and [VISION.md](../../VISION.md).
 
-Short form: **our own Crush-class Charm TUI** + **Grok-class agent platform** (skills / plugins / hooks / MCP / plan / subagents / sandbox) + **OpenCode-class permissions and HTTP** + **optional Aider repo map** + **Pi RPC/SDK escape hatch**. License: **MIT**.
+~~Short form: our own Crush-class Charm TUI + Grok-class agent platform + OpenCode-class permissions and HTTP + optional Aider repo map + Pi RPC/SDK escape hatch.~~

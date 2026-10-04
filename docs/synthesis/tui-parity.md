@@ -2,7 +2,7 @@
 
 Visual map of Rock’s Charm TUI against xAI’s Grok Build pager. This is not a feature matrix of the two harnesses. Capability and workflow gaps that Rock *means* to keep live in [Intended differences](#intended-differences). Everything that is only looks — chrome, blocks, bars, keys as they appear — is a [parity gap](#visual-parity-backlog). Follow-up PRs should take one backlog area at a time.
 
-Rock is a synthesis. Prefer Grok Build as quarry, not as a tree to fork. The face stays Charm. See [VISION.md](../../VISION.md) and [architecture-sketch.md](architecture-sketch.md).
+Rock is a Grok Build-class CLI whose edge is Jev. We clone the public Grok Build product in Go; we do not fork the Rust tree. The face stays Charm. See [VISION.md](../../VISION.md) and [architecture-sketch.md](architecture-sketch.md).
 
 ## Sources
 

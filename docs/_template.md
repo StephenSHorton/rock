@@ -34,7 +34,7 @@ Specific ideas, not a dump:
 
 - **Idea** — why it matters here, and a sketch of how Rock would take it without forking.
 
-Mark each idea with a suggested priority (`P0`/`P1`/`P2`/`P3`) if it belongs in [synthesis/steal-priorities.md](synthesis/steal-priorities.md).
+If an idea is load-bearing for the Grok clone or for Jev, point at [synthesis/ask-jev-plan.md](synthesis/ask-jev-plan.md) or [synthesis/v1-plan.md](synthesis/v1-plan.md). [synthesis/steal-priorities.md](synthesis/steal-priorities.md) is a superseded mash-up ranking, kept as history.
 
 ## Sources
 

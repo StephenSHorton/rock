@@ -1,12 +1,12 @@
 # `grok` — Grok Build
 
-SpaceXAI’s terminal coding agent: fullscreen TUI, headless scripting, and ACP embed. Preferred quarry for Rock’s harness — not destiny.
+SpaceXAI’s terminal coding agent: fullscreen TUI, headless scripting, and ACP embed. The public tree Rock clones. Grok has no Jev; that is Rock’s edge.
 
 ## Overview
 
 Grok Build (`grok`) is an Apache-2.0 Rust agent that edits files, runs shell, searches the web, and manages long-running work. Official installs ship the binary as `grok`; the crate artifact is `xai-grok-pager`. First launch opens a browser for xAI auth, or `XAI_API_KEY` for headless environments.
 
-Rock reads this tree as the strongest *open full-product harness* in the raid set: skills, plugins, hooks, MCP, plan mode, subagents/worktrees, sandbox, memory, BYOK. External contributions are not accepted upstream. That is exactly why we quarry it instead of waiting on a PR.
+Rock reads this tree as the product to reimplement in Go: skills, plugins, hooks, MCP, plan mode, subagents/worktrees, sandbox, memory, BYOK. External contributions are not accepted upstream. That is why we clone the product here instead of waiting on a PR. Jev is not in this tree.
 
 ```bash
 curl -fsSL https://x.ai/cli/install.sh | bash
