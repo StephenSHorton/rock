@@ -106,8 +106,7 @@ func TestNudgeConfigMerge(t *testing.T) {
 }
 
 func TestProjectCannotInjectJevEndpoint(t *testing.T) {
-	t.Setenv("JEV_API_KEY", "")
-	t.Setenv("TYPESAFE_API_KEY", "")
+	clearJevEnv(t)
 
 	userCfg := filepath.Join(t.TempDir(), "config.toml")
 	t.Setenv("ROCK_CONFIG", userCfg)

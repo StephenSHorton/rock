@@ -71,6 +71,9 @@ func JevKeyFile() string {
 
 // JevKey returns the first configured key and where it came from.
 // Order: JEV_API_KEY, TYPESAFE_API_KEY, OS keychain, ROCK_HOME/jev.key.
+// Env is read on every call. Empty and whitespace-only values count as
+// unset. Tests that mutate those vars must clear both and must not use
+// t.Parallel.
 func JevKey() (key, source string) {
 	if v := strings.TrimSpace(os.Getenv("JEV_API_KEY")); v != "" {
 		return v, "JEV_API_KEY"

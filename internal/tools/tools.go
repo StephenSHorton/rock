@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/StephenSHorton/rock/internal/config"
 	"github.com/StephenSHorton/rock/internal/jev"
 	"github.com/StephenSHorton/rock/internal/provider"
 )
@@ -422,6 +423,7 @@ func (s *Set) shell(ctx context.Context, command string) (string, error) {
 	defer cancel()
 	cmd := exec.CommandContext(cctx, "bash", "-lc", command)
 	cmd.Dir = s.Env.Root
+	config.ScrubCmdEnv(cmd)
 	out, err := cmd.CombinedOutput()
 	text := string(out)
 	if len(text) > 32_000 {

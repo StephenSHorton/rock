@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/StephenSHorton/rock/internal/config"
 	"github.com/StephenSHorton/rock/internal/jev"
 	"github.com/StephenSHorton/rock/internal/perms"
 	"github.com/StephenSHorton/rock/internal/provider"
@@ -314,12 +315,14 @@ func (h *Harness) maybeCheckpoint(ctx context.Context, cwd string, sink func(Eve
 	}
 	add := exec.CommandContext(ctx, "git", "add", "-A")
 	add.Dir = cwd
+	config.ScrubCmdEnv(add)
 	if err := add.Run(); err != nil {
 		sink(Event{Kind: EvStatus, Text: "checkpoint add: " + err.Error()})
 		return
 	}
 	commit := exec.CommandContext(ctx, "git", "commit", "-m", "rock checkpoint")
 	commit.Dir = cwd
+	config.ScrubCmdEnv(commit)
 	out, err := commit.CombinedOutput()
 	if err != nil {
 		sink(Event{Kind: EvStatus, Text: "checkpoint: " + strings.TrimSpace(string(out))})
@@ -419,6 +422,7 @@ func addWorktree(ctx context.Context, root string) (string, error) {
 	}
 	cmd := exec.CommandContext(ctx, "git", "worktree", "add", "-b", "rock/"+id, dest, "HEAD")
 	cmd.Dir = root
+	config.ScrubCmdEnv(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("worktree: %s", strings.TrimSpace(string(out)))
@@ -429,5 +433,6 @@ func addWorktree(ctx context.Context, root string) (string, error) {
 func removeWorktree(ctx context.Context, root, dest string) error {
 	cmd := exec.CommandContext(ctx, "git", "worktree", "remove", "--force", dest)
 	cmd.Dir = root
+	config.ScrubCmdEnv(cmd)
 	return cmd.Run()
 }

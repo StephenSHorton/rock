@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/StephenSHorton/rock/internal/config"
 )
 
 type Server struct {
@@ -51,6 +53,7 @@ type rpc struct {
 
 func Start(ctx context.Context, spec Server) (*Client, error) {
 	cmd := exec.Command(spec.Command, spec.Args...)
+	config.ScrubCmdEnv(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err

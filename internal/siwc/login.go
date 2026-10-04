@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/StephenSHorton/rock/internal/config"
 )
 
 // LoginOpts is the interactive SIWC flow. Tests inject a fake OpenURL and
@@ -266,5 +268,6 @@ func openBrowser(u string) error {
 	default:
 		cmd = exec.Command("xdg-open", u)
 	}
+	config.ScrubCmdEnv(cmd)
 	return cmd.Start()
 }

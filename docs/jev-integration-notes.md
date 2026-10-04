@@ -11,3 +11,31 @@ Lessons from Grok Build | Project Lead adding optional Jev to [StephenSHorton/gr
 4. Config overlays must not be able to inject a Jev key.
 
 **Rock status.** A project or repo `.rock/config.toml` cannot supply a Jev key or `jev.base_url`. Key lookup is env (`JEV_API_KEY`, then `TYPESAFE_API_KEY`), then the OS keychain (service `rock`, user `jev`), then a `0600` file in `ROCK_HOME`. There is no TOML key field. `Load` clears project `jev.base_url` before merge. Covered by `TestProjectCannotInjectJevEndpoint`.
+
+## From grok-build slices (a) config and (b) client (PRs #6, #7)
+
+Lessons from that project's slices. Not Rock's design.
+
+- Read the key from env at check time; empty or whitespace counts as unset; tests clear both vars and are serialized.
+
+**Rock status.** `JevKey` reads `os.Getenv` on every call and treats whitespace as unset. Env-mutating tests clear both vars and do not use `t.Parallel`. Covered by `TestJevKeyWhitespaceIsUnset`.
+
+- If overlays may set [jev] fields like base_url or flags, keep api_key off that list, or an overlay can quietly turn Jev on.
+
+**Rock status.** There is no TOML `api_key` field. Project overlays cannot inject a key or `jev.base_url`. Covered by `TestProjectCannotInjectJevEndpoint`.
+
+- Scrub JEV_API_KEY and TYPESAFE_API_KEY from subprocess envs.
+
+**Rock status.** `config.ChildEnv` / `ScrubCmdEnv` strip both from the shell tool, MCP servers, git children, and the SIWC browser open. Covered by `TestShellDoesNotInheritJevKeys`.
+
+- Keep a no-key snapshot: the default serialized config and tool list stay unchanged, so skip serializing an empty [jev] block. This one is grok-build specific, because Jev is optional there.
+
+**Rock status.** grok-build specific. Rock requires Jev; the default config still serializes a `[jev]` block with thresholds.
+
+- Usage belongs on the wire Response type, not the ask layer.
+
+**Rock status.** `Response.Usage` is already on the wire type in `internal/jev/client.go`. Ask copies it onto `Result` when present.
+
+- The client isn't wired into any runtime path until the tool slice, which proves 'off by default'. Also grok-build specific.
+
+**Rock status.** grok-build specific. Rock wires the client at `Open` and requires a working key before start.
