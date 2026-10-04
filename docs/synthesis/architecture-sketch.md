@@ -37,6 +37,7 @@ Protocol, quarry, and features stay negotiable. A Rust split is not the 1.0 plan
 - **Our own** Crush-class TUI on Charm libraries (Bubble Tea v2, Bubbles, Lip Gloss, Glamour).
 - Study Crush. Do not wholesale-copy while FSL-1.1-MIT applies.
 - Day-one TUI features worth designing toward: fullscreen + mouse, theme preview, status line, session picker, plan viewer (comment / approve), permission prompts, tasks pane for subagents.
+- Visual parity against Grok Build — intended workflow diffs vs look gaps — is [tui-parity.md](tui-parity.md).
 - The TUI is a **client**. It must not own the only copy of session state.
 
 ## Protocol (implement before polish)
