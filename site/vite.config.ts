@@ -47,7 +47,7 @@ export default defineConfig({
   build: {
     modulePreload: {
       resolveDependencies(_filename, deps) {
-        return deps.filter((dep) => !dep.includes('clay-') && !dep.includes('QuarryCanvas'))
+        return deps.filter((dep) => !dep.includes('clay-') && !dep.includes('YardCanvas'))
       },
     },
     rollupOptions: {

@@ -1,18 +1,6 @@
 @import "tailwindcss";
 @import "mokei/theme/preset.css";
-@import "mokei/themes/quarry.css";
-
-/* Site-only dark terminal mock. Kit quarry tokens stay on the page. */
-html[data-theme='quarry'] {
-  --term-bg: #1e2228;
-  --term-bar: #181c22;
-  --term-fg: #eceae4;
-  --term-brand: #7a9bff;
-  --term-trim: #9aa4b2;
-  --term-attention: var(--mokei-accent-2);
-  --term-error: #c0362c;
-  --term-ok: #2e7d4f;
-}
+@import "mokei/themes/yardline.css";
 
 html {
   font-family: "SF Pro Text", "SF Pro Display", Inter, ui-sans-serif, system-ui, sans-serif;
@@ -21,17 +9,10 @@ html {
   color: var(--foreground);
 }
 
-html.is-apple {
-  --fs: 1;
-  --track: -0.003em;
-}
-
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(1200px 600px at 80% -10%, rgba(43, 89, 232, 0.08), transparent 60%),
-    var(--background);
+  background: var(--background);
   color: var(--foreground);
   text-rendering: optimizeLegibility;
 }
@@ -92,6 +73,14 @@ a {
 }
 
 .term {
+  --term-bg: #1e2228;
+  --term-bar: #181c22;
+  --term-fg: #eceae4;
+  --term-brand: #7a9bff;
+  --term-trim: #9aa4b2;
+  --term-attention: #f2c14e;
+  --term-error: #c0362c;
+  --term-ok: #2e7d4f;
   background: var(--term-bg);
   color: var(--term-fg);
   border: 1px solid var(--term-trim);
@@ -270,41 +259,6 @@ a {
 .demo-play:focus-visible {
   border-color: var(--primary);
   color: var(--primary);
-}
-
-.session-line {
-  display: flex;
-  gap: 0.65rem;
-  width: 100%;
-  margin: 0;
-  padding: 0.35rem 0.45rem;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--term-trim);
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 0.78rem;
-  line-height: 1.45;
-  text-align: left;
-}
-
-.session-line .who {
-  flex: 0 0 2.4rem;
-  color: var(--term-brand);
-}
-
-.session-line.is-done {
-  color: var(--term-fg);
-}
-
-.session-line.is-on {
-  background: rgba(43, 89, 232, 0.22);
-  color: var(--term-fg);
-  outline: 1px solid var(--term-brand);
-}
-
-.session-line.is-on .who {
-  color: var(--term-attention);
 }
 
 @media (prefers-reduced-motion: reduce) {

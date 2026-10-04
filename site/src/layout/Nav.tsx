@@ -2,7 +2,7 @@ import { useState } from 'react'
 
 const links = [
   { href: '#install', label: 'Install' },
-  { href: '#how', label: 'How' },
+  { href: '#jev', label: 'Jev' },
   { href: '#features', label: 'Features' },
   { href: '#cli', label: 'CLI' },
   { href: '#docs', label: 'Docs' },
@@ -17,8 +17,7 @@ export function Nav() {
         <a href="#top" className="flex items-center gap-2 no-underline" aria-label="Rock, top">
           <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true">
             <rect width="32" height="32" rx="7" fill="var(--mokei-base)" />
-            <path d="M5 23c3-6 5-7 8-12 2 4 4 5 7 2 2-2 3-1 5 3" fill="none" stroke="var(--mokei-accent-3)" strokeWidth="2.1" strokeLinecap="round" />
-            <path d="M7 25.2h18" stroke="var(--mokei-accent-1)" strokeWidth="1.6" strokeLinecap="round" />
+            <rect x="7" y="14" width="18" height="4" rx="2" fill="var(--mokei-accent-1)" />
           </svg>
           <span className="mono tracking-[0.14em] lowercase">rock</span>
         </a>

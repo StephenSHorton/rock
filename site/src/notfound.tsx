@@ -1,27 +1,13 @@
-import 'mokei/theme/quarry'
-import { applyTheme, setDefaultThemeId } from 'mokei/theme'
-import { registerScene, setDefaultSceneId } from 'mokei/scene'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { quarryScene } from './quarry/scene'
-import { StaticQuarry } from './quarry/StaticQuarry'
+import './boot'
 import './styles.css'
-
-if (typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)) {
-  document.documentElement.classList.add('is-apple')
-}
-
-setDefaultSceneId('quarry')
-setDefaultThemeId('quarry')
-registerScene(quarryScene)
-applyTheme('quarry')
+import { YardBand } from './yard/YardBand'
 
 function NotFound() {
   return (
     <main className="min-h-screen">
-      <div className="h-56 overflow-hidden bg-[var(--clay-sky)]">
-        <StaticQuarry />
-      </div>
+      <YardBand tall />
       <section className="mx-auto max-w-xl px-6 py-14">
         <p className="mono text-[0.72rem] tracking-[0.16em] uppercase text-[var(--muted)]">
           <span className="text-[var(--primary)]">404</span> checked

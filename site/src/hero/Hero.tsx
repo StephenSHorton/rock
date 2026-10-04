@@ -3,12 +3,12 @@ import { TuiFrame } from './TuiFrame'
 
 const POINTS = [
   {
-    title: 'One harness, many clients',
-    body: 'The Charm TUI, headless print, ACP on stdio, and loopback HTTP share one session store. The face is a client, not a second product.',
+    title: 'Jev is why Rock exists',
+    body: 'A Grok Build-class coding CLI, packed with a System One. The LLM reasons. Jev answers the cheap, typed questions.',
   },
   {
-    title: 'Safer defaults than run-as-the-user',
-    body: 'Allow / ask / deny, plus bash globs. Plan mode blocks edits and every shell command. Yolo skips asks; it does not skip the destructive gate.',
+    title: 'Faster, safer, cheaper per task',
+    body: 'The agent is meant to call ask_jev on its own to classify, filter, and verify. That tool is in progress. The turn and risk gates already run.',
   },
   {
     title: 'Honest when offline',
@@ -22,15 +22,16 @@ export function Hero() {
       <div className="grid items-start gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
         <div>
           <p className="mono text-[0.72rem] tracking-[0.16em] uppercase text-[var(--muted)]">
-            <span className="text-[var(--primary)]">rock</span> 1.0 · MIT
+            <span className="text-[var(--primary)]">rock</span> 1.0 · MIT · Jev
           </p>
           <h1 className="mt-3 text-4xl leading-[1.05] tracking-tight sm:text-5xl">
-            A Go AI coding CLI.
-            <span className="mt-2 block italic text-[var(--primary)]">Charm TUI. One session. Real gates.</span>
+            The coding CLI with a System One.
+            <span className="mt-2 block italic text-[var(--primary)]">Jev is why Rock exists.</span>
           </h1>
           <p className="mt-5 max-w-xl text-lg text-[var(--ink-2)]">
-            Ask it of the repo. A fullscreen Charm TUI, <code>rock -p</code>, <code>rock acp</code>, and{' '}
-            <code>rock serve</code> share the same harness.
+            Jev is a fast, programmable System One primitive. It is not an LLM. A fullscreen Charm TUI,{' '}
+            <code>rock -p</code>, <code>rock acp</code>, and <code>rock serve</code> share the same
+            harness.
           </p>
           <ol className="mt-6 space-y-4 p-0">
             {POINTS.map((point, i) => (
