@@ -2,6 +2,7 @@ package harness
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,13 +27,13 @@ func TestTurnEditsFile(t *testing.T) {
 	}}
 	set := tools.New(tools.Env{Root: dir, PlanPath: filepath.Join(dir, "plan.md")})
 	h := New(Options{
-		Provider: script,
-		FastModel: "fast",
+		Provider:    script,
+		FastModel:   "fast",
 		StrongModel: "strong",
-		Policy: perms.Policy{Mode: perms.ModeYolo, Allow: []string{"edit_file", "read_file"}},
-		Gates: jev.Gates{},
-		Tools: set,
-		MaxSteps: 4,
+		Policy:      perms.Policy{Mode: perms.ModeYolo, Allow: []string{"edit_file", "read_file"}},
+		Gates:       jev.Gates{},
+		Tools:       set,
+		MaxSteps:    4,
 	})
 	sess, err := session.Create(dir, "s1", "t")
 	if err != nil {
@@ -68,11 +69,11 @@ func TestPlanModeDeniesEdit(t *testing.T) {
 		{Role: provider.RoleAssistant, Content: "could not edit"},
 	}}
 	h := New(Options{
-		Provider: script,
+		Provider:  script,
 		FastModel: "fast",
-		Policy: perms.Policy{Mode: perms.ModePlan, Allow: []string{"*"}},
-		Gates: jev.Gates{},
-		Tools: tools.New(tools.Env{Root: dir, PlanPath: filepath.Join(t.TempDir(), "plan.md")}),
+		Policy:    perms.Policy{Mode: perms.ModePlan, Allow: []string{"*"}},
+		Gates:     jev.Gates{},
+		Tools:     tools.New(tools.Env{Root: dir, PlanPath: filepath.Join(t.TempDir(), "plan.md")}),
 	})
 	sess, err := session.Create(dir, "s2", "plan")
 	if err != nil {
@@ -95,11 +96,11 @@ func TestDestructiveShellBlockedUnderYolo(t *testing.T) {
 		{Role: provider.RoleAssistant, Content: "blocked"},
 	}}
 	h := New(Options{
-		Provider: script,
+		Provider:  script,
 		FastModel: "fast",
-		Policy: perms.Policy{Mode: perms.ModeYolo},
-		Gates: jev.Gates{},
-		Tools: tools.New(tools.Env{Root: dir}),
+		Policy:    perms.Policy{Mode: perms.ModeYolo},
+		Gates:     jev.Gates{},
+		Tools:     tools.New(tools.Env{Root: dir}),
 	})
 	sess, err := session.Create(dir, "s3", "risk")
 	if err != nil {
@@ -119,4 +120,131 @@ func TestDestructiveShellBlockedUnderYolo(t *testing.T) {
 	if !strings.Contains(saw, "block=true") && !strings.Contains(sess.Messages[len(sess.Messages)-2].Content, "denied") {
 		t.Fatalf("saw %q msgs %#v", saw, sess.Messages)
 	}
+}
+
+func TestAskJevBatchTurn(t *testing.T) {
+	t.Setenv("ROCK_HOME", t.TempDir())
+	dir := t.TempDir()
+	script := &provider.Script{Replies: []provider.Message{
+		{Role: provider.RoleAssistant, ToolCalls: []provider.ToolCall{{ID: "c1", Name: "ask_jev", Arguments: `{"state":"fail","questions":[{"name":"resolved","question":"fixed?","mode":"boolean"},{"name":"kind","question":"class","mode":"choice","options":["rounding","other"]}]}`}}},
+		{Role: provider.RoleAssistant, Content: "it is rounding"},
+	}}
+	set := tools.New(tools.Env{Root: dir})
+	h := New(Options{
+		Provider:  script,
+		FastModel: "fast",
+		Policy:    perms.Policy{Mode: perms.ModeYolo, Allow: []string{"ask_jev"}},
+		Gates:     jev.Gates{},
+		Tools:     set,
+		MaxSteps:  4,
+	})
+	var calls int
+	var got []jev.Query
+	// Fake Jev after New so BeforeTurn/Risk stay on the existing gates
+	// and do not share an HTTP client with ask_jev.
+	set.Env.Ask = func(_ context.Context, _ any, qs []jev.Query) (jev.Result, error) {
+		calls++
+		got = qs
+		return jev.Result{
+			Source: "live",
+			Model:  "fake",
+			Answers: map[string]jev.Answer{
+				"resolved": {Mode: jev.ModeBoolean, Value: 0.11},
+				"kind":     {Mode: jev.ModeChoice, Value: "rounding", Confidence: 0.7},
+			},
+		}, nil
+	}
+	sess, err := session.Create(dir, "ask-live", "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var askText, done string
+	if err := h.Run(context.Background(), sess, "classify", func(ev Event) {
+		if ev.Kind == EvJev && ev.Name == "ask" {
+			askText = ev.Text
+		}
+		if ev.Kind == EvDone {
+			done = ev.Text
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("batched Ask calls: %d", calls)
+	}
+	if len(got) != 2 || got[0].Name != "resolved" || got[1].Name != "kind" {
+		t.Fatalf("%#v", got)
+	}
+	if done != "end_turn" {
+		t.Fatal(done)
+	}
+	if !strings.Contains(askText, "live") || !strings.Contains(askText, "resolved=0.11") {
+		t.Fatalf("ask event %q", askText)
+	}
+	if !strings.Contains(h.system("classify", nil), "ask_jev") || strings.Contains(h.system("classify", nil), "jev_decide") {
+		t.Fatal(h.system("classify", nil))
+	}
+}
+
+func TestAskJevRuntimeErrorTurnContinues(t *testing.T) {
+	t.Setenv("ROCK_HOME", t.TempDir())
+	dir := t.TempDir()
+	script := &provider.Script{Replies: []provider.Message{
+		{Role: provider.RoleAssistant, ToolCalls: []provider.ToolCall{{ID: "c1", Name: "ask_jev", Arguments: `{"state":"x","question":"ok?","mode":"boolean"}`}}},
+		{Role: provider.RoleAssistant, Content: "jev failed; I will keep going"},
+	}}
+	set := tools.New(tools.Env{Root: dir})
+	h := New(Options{
+		Provider:  script,
+		FastModel: "fast",
+		Policy:    perms.Policy{Mode: perms.ModeYolo, Allow: []string{"ask_jev"}},
+		Gates:     jev.Gates{},
+		Tools:     set,
+		MaxSteps:  4,
+	})
+	set.Env.Ask = func(context.Context, any, []jev.Query) (jev.Result, error) {
+		return jev.Result{
+			Error: "jev http 504: timeout",
+			Answers: map[string]jev.Answer{
+				"q": {Mode: jev.ModeBoolean, Detail: jev.FailedDetail},
+			},
+		}, nil
+	}
+	sess, err := session.Create(dir, "ask-err", "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var askText, done string
+	if err := h.Run(context.Background(), sess, "check", func(ev Event) {
+		if ev.Kind == EvJev && ev.Name == "ask" {
+			askText = ev.Text
+		}
+		if ev.Kind == EvDone {
+			done = ev.Text
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if done != "end_turn" {
+		t.Fatal(done)
+	}
+	if !strings.Contains(askText, "error=") || strings.Contains(askText, "q=0") {
+		t.Fatalf("ask event %q", askText)
+	}
+	var res jev.Result
+	if err := json.Unmarshal([]byte(toolResult(sess, "ask_jev")), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Error == "" || res.Answers["q"].Value != nil {
+		t.Fatalf("%#v", res)
+	}
+}
+
+func toolResult(sess *session.Session, name string) string {
+	for i := len(sess.Messages) - 1; i >= 0; i-- {
+		if sess.Messages[i].Role == provider.RoleTool && sess.Messages[i].Name == name {
+			return sess.Messages[i].Content
+		}
+	}
+	return ""
 }

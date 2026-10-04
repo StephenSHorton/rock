@@ -23,7 +23,7 @@ One `rock` binary:
 - Headless `rock -p` with `text` and `streaming-json`.
 - `rock acp` JSON-RPC on stdio (ACP v1 and v2 initialize, `session/new`, `session/prompt`, `session/cancel`, `session/update`).
 - `rock serve` on loopback: sessions, prompt, SSE.
-- Tools: read, edit, write, grep, glob, shell, web fetch, plan file, `jev_decide`, `spawn_subagent`.
+- Tools: read, edit, write, grep, glob, shell, web fetch, plan file, `ask_jev` (replaced `jev_decide`), `spawn_subagent`.
 - Permissions: allow / ask / deny, bash globs, plan mode that blocks edits even under yolo, review-only mode.
 - Skills from `SKILL.md` on the usual compat paths.
 - MCP stdio client (Content-Length frames): list and call tools.
@@ -57,7 +57,7 @@ Hard-wired gates (always run, one batched call when several questions share a st
 | Context pressure | score how heavy the transcript is | Compact when the score is high |
 | Plan exit | noul “is the plan ready” | Reported on the plan pane; does not auto-approve |
 
-The model can also call `jev_decide` itself (one question, weak schema). Same client. The loop does not trust the model to remember the hard gates. Replacing that tool with `ask_jev` and migrating the gates onto one primitive is the ask-jev plan, not a silent change to this 1.0 record.
+The model calls `ask_jev` (batched boolean / choice / score). Same client. The loop does not trust the model to remember the hard gates. Migrating those gates onto the same primitive is still [ask-jev-plan.md](ask-jev-plan.md) slice (e).
 
 ## Suzuri
 

@@ -2,7 +2,7 @@
 
 Dated 2026-10-04 against this tree. File and line numbers are for that checkout. This page is a reading of the Go, not a design. The intended `ask_jev` work is [ask-jev-plan.md](ask-jev-plan.md).
 
-**Headline:** Jev is almost entirely hard-coded. The harness and TUI call it at fixed moments. The model has a thin optional tool (`jev_decide`) and a one-line hint to use it. That is not Level 10 agentic Jev.
+**Headline:** Jev gates are still hard-coded. The agent tool is now `ask_jev` (slice (a)); `jev_decide` is gone. That is not yet Level 10 — the model can ask, but Go still calls Jev at fixed moments. See [ask-jev-plan.md](ask-jev-plan.md).
 
 Jev is not an LLM. Official docs describe a System One decision API: send `state` plus typed questions (`choice`, `score`, `noul`), get typed answers with probabilities. Rock already speaks that API. It does not yet let the agent drive it.
 
@@ -35,7 +35,7 @@ harness.Run
 tui
   Gates.PlanReady     (no EvJev)                     (/ready, plan pane)
   EvJev rows          ◇ jev <name>                   (turn/risk hidden unless verbose)
-  jev_decide          ordinary tool row              (▸ / ✓, not a diamond)
+  ask_jev             tool row + EvJev name=ask      (diamonds refined in slice (d))
 ```
 
 ## Client and API surface

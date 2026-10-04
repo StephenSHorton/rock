@@ -54,6 +54,18 @@ func TestDenyRuleWins(t *testing.T) {
 	}
 }
 
+func TestAskJevAllowedInPlanMode(t *testing.T) {
+	p := Policy{Mode: ModePlan}
+	d, _ := p.Decide("ask_jev", "boolean  resolved?")
+	if d != Allow {
+		t.Fatalf("ask_jev in plan: %s", d)
+	}
+	d, _ = p.Decide("jev_decide", "old")
+	if d != Ask && d != Deny {
+		t.Fatalf("retired jev_decide should not be a read-only default, got %s", d)
+	}
+}
+
 func TestReviewOnly(t *testing.T) {
 	p := Policy{Mode: ModeYolo, ReviewOnly: true}
 	d, _ := p.Decide("edit_file", "a.go")

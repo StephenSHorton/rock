@@ -28,10 +28,10 @@ type Choice struct {
 }
 
 type Score struct {
-	Type       string             `json:"type"`
-	Score      float64            `json:"score"`
-	Confidence float64            `json:"confidence"`
-	Legend     map[string]string  `json:"legend"`
+	Type          string             `json:"type"`
+	Score         float64            `json:"score"`
+	Confidence    float64            `json:"confidence"`
+	Legend        map[string]string  `json:"legend"`
 	Probabilities map[string]float64 `json:"probabilities"`
 }
 
@@ -43,6 +43,7 @@ type Noul struct {
 type Response struct {
 	Model   string                     `json:"model"`
 	Answers map[string]json.RawMessage `json:"answers"`
+	Usage   *Usage                     `json:"usage,omitempty"`
 }
 
 type Client struct {

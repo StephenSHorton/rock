@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/StephenSHorton/rock/internal/jev"
@@ -62,8 +63,8 @@ func New(opt Options) *Harness {
 		opt.MaxSteps = 12
 	}
 	if opt.Tools != nil {
-		opt.Tools.Env.Decide = func(ctx context.Context, state, question, typ string, criteria map[string]string) (string, error) {
-			return decideText(ctx, opt.Gates, state, question, typ, criteria)
+		opt.Tools.Env.Ask = func(ctx context.Context, state any, questions []jev.Query) (jev.Result, error) {
+			return opt.Gates.Ask(ctx, state, questions), nil
 		}
 		opt.Tools.Env.KeepGrep = func(query, snippet string) bool {
 			return opt.Gates.KeepSnippet(ctxBackground(), query, snippet)
@@ -167,6 +168,9 @@ func (h *Harness) Run(ctx context.Context, sess *session.Session, prompt string,
 			}
 			sess.Append(provider.Message{Role: provider.RoleTool, ToolCallID: call.ID, Name: call.Name, Content: text})
 			sink(Event{Kind: EvToolResult, Name: call.Name, Text: text})
+			if call.Name == "ask_jev" && err == nil {
+				sink(Event{Kind: EvJev, Name: "ask", Text: askEventText(text)})
+			}
 		}
 	}
 	sink(Event{Kind: EvDone, Text: "max_steps"})
@@ -177,8 +181,8 @@ func (h *Harness) system(prompt string, chosen []string) string {
 	var b strings.Builder
 	b.WriteString("You are Rock, a coding agent in this workspace. Use tools to read and change files. ")
 	b.WriteString("Prefer a small patch. In plan mode, write the plan with update_plan and do not edit other files. ")
-	b.WriteString("Shell is not a sandbox. Hard gates already judge risk, model size, and skills. ")
-	b.WriteString("Call jev_decide for an extra bounded question. Do not use it to draft code.\n")
+	b.WriteString("Shell is not a sandbox. Hard gates still block destructive shell. ")
+	b.WriteString("Call ask_jev to classify, verify a fix, filter or triage, or check risk. Batch questions. Do not draft code with it.\n")
 	b.WriteString("Mode: " + string(h.Policy.Mode) + "\n")
 	if h.Tools != nil {
 		b.WriteString("Workspace: " + h.Tools.Env.Root + "\n")
@@ -305,6 +309,8 @@ func detailFor(call provider.ToolCall) string {
 		if s, ok := raw["path"].(string); ok {
 			return s
 		}
+	case "ask_jev":
+		return askCallDetail(raw)
 	case "spawn_subagent":
 		if s, ok := raw["kind"].(string); ok {
 			return s
@@ -314,35 +320,55 @@ func detailFor(call provider.ToolCall) string {
 	return call.Name
 }
 
-func decideText(ctx context.Context, g jev.Gates, state, question, typ string, criteria map[string]string) (string, error) {
-	if g.Mode() != "live" {
-		return "offline: no Jev key, so this question was not sent. " + question, nil
-	}
-	var q jev.Question
-	switch typ {
-	case "choice":
-		if len(criteria) == 0 {
-			criteria = map[string]string{"yes": "yes", "no": "no"}
+func askCallDetail(raw map[string]any) string {
+	if list, ok := raw["questions"].([]any); ok && len(list) > 0 {
+		if m, ok := rawMap(list[0]); ok {
+			return strings.TrimSpace(fmt.Sprint(m["mode"]) + "  " + fmt.Sprint(m["question"]))
 		}
-		q = jev.ChoiceQ(question, criteria)
-	case "score":
-		levels := []string{"low", "medium", "high"}
-		if len(criteria) > 0 {
-			levels = levels[:0]
-			for k := range criteria {
-				levels = append(levels, k)
-			}
+	}
+	return strings.TrimSpace(fmt.Sprint(raw["mode"]) + "  " + fmt.Sprint(raw["question"]))
+}
+
+func rawMap(v any) (map[string]any, bool) {
+	m, ok := v.(map[string]any)
+	return m, ok
+}
+
+func askEventText(output string) string {
+	var res jev.Result
+	if err := json.Unmarshal([]byte(output), &res); err != nil {
+		return strings.TrimSpace(output)
+	}
+	var b strings.Builder
+	if res.Source != "" {
+		b.WriteString(res.Source)
+	} else {
+		b.WriteString("jev")
+	}
+	if res.Error != "" {
+		b.WriteString(" error=")
+		b.WriteString(res.Error)
+	}
+	names := make([]string, 0, len(res.Answers))
+	for name := range res.Answers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		a := res.Answers[name]
+		b.WriteByte(' ')
+		b.WriteString(a.Mode)
+		b.WriteByte(' ')
+		b.WriteString(name)
+		if a.Value != nil {
+			b.WriteByte('=')
+			fmt.Fprint(&b, a.Value)
+		} else if a.Detail != "" {
+			b.WriteString(": ")
+			b.WriteString(a.Detail)
 		}
-		q = jev.ScoreQ(question, levels)
-	default:
-		q = jev.NoulQ(question)
 	}
-	res, err := g.Client.Decide(ctx, state, map[string]jev.Question{"q": q})
-	if err != nil {
-		return "", err
-	}
-	raw, _ := json.Marshal(res.Answers["q"])
-	return string(raw), nil
+	return b.String()
 }
 
 func addWorktree(ctx context.Context, root string) (string, error) {

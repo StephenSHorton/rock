@@ -14,17 +14,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/StephenSHorton/rock/internal/jev"
 	"github.com/StephenSHorton/rock/internal/provider"
 )
 
 type SubagentFunc func(ctx context.Context, prompt, kind string, worktree bool) (string, error)
-type DecideFunc func(ctx context.Context, state, question, typ string, criteria map[string]string) (string, error)
+type AskFunc func(ctx context.Context, state any, questions []jev.Query) (jev.Result, error)
 
 type Env struct {
 	Root     string
 	PlanPath string
 	Subagent SubagentFunc
-	Decide   DecideFunc
+	Ask      AskFunc
 	KeepGrep func(query, snippet string) bool
 }
 
@@ -62,7 +63,7 @@ func New(env Env) *Set {
 		Env: env,
 		names: []string{
 			"read_file", "edit_file", "write_file", "grep", "glob",
-			"shell", "web_fetch", "update_plan", "jev_decide", "spawn_subagent",
+			"shell", "web_fetch", "update_plan", "ask_jev", "spawn_subagent",
 		},
 	}
 }
@@ -81,7 +82,7 @@ func (s *Set) Specs() []provider.ToolSpec {
 		{Name: "shell", Description: "Run a shell command in the workspace. Not a sandbox.", Parameters: obj(map[string]any{"command": str("command string")}, []string{"command"})},
 		{Name: "web_fetch", Description: "HTTP GET a URL and return text.", Parameters: obj(map[string]any{"url": str("http(s) URL")}, []string{"url"})},
 		{Name: "update_plan", Description: "Write the session plan. Allowed in plan mode.", Parameters: obj(map[string]any{"content": str("markdown plan")}, []string{"content"})},
-		{Name: "jev_decide", Description: "Ask Jev a bounded choice, score, or yes/no. Do not use it to write code.", Parameters: obj(map[string]any{"state": str("facts"), "question": str("one decision"), "type": str("choice, score, or noul"), "criteria": str("comma-separated options")}, []string{"state", "question", "type"})},
+		{Name: "ask_jev", Description: "Ask Jev to classify, verify a fix, filter or triage, or check risk. Batch questions. Do not draft code. A failed call returns error and no invented answer.", Parameters: askJevSpec(obj, str)},
 		{Name: "spawn_subagent", Description: "Run a depth-1 subagent: explore, plan, or general. Optional git worktree.", Parameters: obj(map[string]any{"prompt": str("task"), "kind": str("explore, plan, or general"), "worktree": map[string]any{"type": "boolean"}}, []string{"prompt"})},
 	}
 	for _, e := range s.extra {
@@ -184,25 +185,27 @@ func (s *Set) Run(ctx context.Context, name, args string) (Outcome, error) {
 			return Outcome{}, err
 		}
 		return Outcome{Output: "updated plan", Mutates: true, Path: "plan.md", Detail: "plan.md"}, nil
-	case "jev_decide":
-		if s.Env.Decide == nil {
+	case "ask_jev":
+		if s.Env.Ask == nil {
 			return Outcome{}, fmt.Errorf("jev is not wired")
 		}
-		criteria := map[string]string{}
-		for _, part := range strings.Split(str("criteria"), ",") {
-			part = strings.TrimSpace(part)
-			if part == "" {
-				continue
-			}
-			k, v, ok := strings.Cut(part, "=")
-			if ok {
-				criteria[strings.TrimSpace(k)] = strings.TrimSpace(v)
-			} else {
-				criteria[part] = part
-			}
+		state, qs, err := parseAsk(raw)
+		if err != nil {
+			return Outcome{}, err
 		}
-		out, err := s.Env.Decide(ctx, str("state"), str("question"), str("type"), criteria)
-		return Outcome{Output: out, Detail: str("type")}, err
+		res, err := s.Env.Ask(ctx, state, qs)
+		if err != nil {
+			return Outcome{}, err
+		}
+		body, err := json.Marshal(res)
+		if err != nil {
+			return Outcome{}, err
+		}
+		detail := "ask"
+		if len(qs) > 0 {
+			detail = strings.TrimSpace(queryMode(qs[0]) + "  " + qs[0].Question)
+		}
+		return Outcome{Output: string(body), Detail: detail}, nil
 	case "spawn_subagent":
 		if s.Env.Subagent == nil {
 			return Outcome{}, fmt.Errorf("subagents are not wired")

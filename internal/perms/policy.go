@@ -53,7 +53,7 @@ func (p Policy) Decide(tool, detail string) (Decision, string) {
 		return Ask, "matched an ask rule"
 	}
 	switch tool {
-	case "read_file", "grep", "glob", "web_fetch", "jev_decide", "update_plan":
+	case "read_file", "grep", "glob", "web_fetch", "ask_jev", "update_plan":
 		return Allow, "read-only default"
 	default:
 		return Ask, "mutating tools ask by default"
@@ -71,7 +71,7 @@ func Mutates(tool string) bool {
 
 func planBlocks(tool, detail string) bool {
 	switch tool {
-	case "update_plan", "read_file", "grep", "glob", "web_fetch", "jev_decide":
+	case "update_plan", "read_file", "grep", "glob", "web_fetch", "ask_jev":
 		return false
 	case "edit_file", "write_file":
 		return !strings.HasSuffix(filepath.Clean(detail), "plan.md")
