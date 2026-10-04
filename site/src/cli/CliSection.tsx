@@ -80,7 +80,7 @@ export function CliSection() {
       </div>
 
       <div className="mt-10 grid gap-6 md:grid-cols-2">
-        <article className="glass-hud rounded-2xl p-5">
+        <article className="glass-panel rounded-2xl p-5">
           <h3 className="text-2xl tracking-tight">Inside the TUI</h3>
           <p className="mt-2 text-[var(--ink-2)]">
             Composer placeholder: <code>Ask Rock</code>. Hint: <code>/ for commands</code>. Type{' '}
@@ -95,7 +95,7 @@ export function CliSection() {
             ))}
           </ul>
         </article>
-        <article className="glass-hud rounded-2xl p-5">
+        <article className="glass-panel rounded-2xl p-5">
           <h3 className="text-2xl tracking-tight">Gates, skills, MCP</h3>
           <ul className="mt-3 space-y-3 text-[var(--ink-2)]">
             <li>

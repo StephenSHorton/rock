@@ -6,7 +6,6 @@ import { Hero } from './hero/Hero'
 import { Jev } from './jev/Jev'
 import { Footer } from './layout/Footer'
 import { Nav } from './layout/Nav'
-import { YardBand } from './yard/YardBand'
 
 export function App() {
   return (
@@ -17,12 +16,13 @@ export function App() {
       <Nav />
       <main id="content">
         <Hero />
-        <YardBand />
-        <Jev />
-        <Features />
-        <Compare />
-        <Install />
-        <CliSection />
+        <div className="relative bg-[var(--background)]">
+          <Jev />
+          <Features />
+          <Compare />
+          <Install />
+          <CliSection />
+        </div>
       </main>
       <Footer />
     </>

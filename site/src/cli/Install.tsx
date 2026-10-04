@@ -70,7 +70,7 @@ export function Install() {
           </button>
         ))}
       </div>
-      <div className="glass-hud mt-3 flex flex-col gap-3 rounded-2xl p-4 sm:flex-row sm:items-center">
+      <div className="glass-panel mt-3 flex flex-col gap-3 rounded-2xl p-4 sm:flex-row sm:items-center">
         <pre className="m-0 flex-1 overflow-x-auto text-[0.92rem]">
           <code>{text}</code>
         </pre>

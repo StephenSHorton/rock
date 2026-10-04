@@ -36,7 +36,7 @@ export function InstallLine() {
 
   return (
     <div className="mt-6">
-      <div className="glass-hud flex flex-col gap-3 rounded-2xl p-3 sm:flex-row sm:items-center">
+      <div className="flex flex-col gap-3 rounded-xl border border-[var(--border)] bg-[var(--mokei-base)] p-3 sm:flex-row sm:items-center">
         <pre className="m-0 flex-1 overflow-x-auto whitespace-pre-wrap break-all text-[0.8rem] leading-6">
           <code>{text}</code>
         </pre>
