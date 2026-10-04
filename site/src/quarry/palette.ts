@@ -17,6 +17,29 @@ export const roles = {
 
 export type Role = keyof typeof roles
 
+/** Light-panel ink. Maps onto the role names where they already exist. */
+export const ink = {
+  text: roles.detail,
+  muted: '#6B7280',
+  brand: roles.accent1,
+  trim: roles.accent3,
+  attention: '#8A6A00',
+  error: '#C0362C',
+  ok: '#2E7D4F',
+} as const
+
+/** Dark terminal mock. Brand is a lifted azurite so it holds on charcoal. */
+export const term = {
+  bg: '#1E2228',
+  bar: '#181C22',
+  text: '#ECEAE4',
+  brand: '#7A9BFF',
+  trim: '#9AA4B2',
+  attention: roles.accent2,
+  error: ink.error,
+  ok: ink.ok,
+} as const
+
 const lamp = '#FFF8EC'
 
 /** Clay look mapped from the roles. Sandstone stays on the ground. */
@@ -57,13 +80,13 @@ export function applyPagePalette() {
   const set = (name: string, value: string) => root.style.setProperty(name, value)
 
   set('--background', roles.ground)
-  set('--foreground', roles.detail)
-  set('--ink', roles.detail)
-  set('--ink-2', roles.accent3)
-  set('--muted', roles.accent3)
-  set('--muted-2', '#6B7380')
+  set('--foreground', ink.text)
+  set('--ink', ink.text)
+  set('--ink-2', ink.trim)
+  set('--muted', ink.muted)
+  set('--muted-2', ink.muted)
   set('--hair', 'rgba(59, 69, 82, 0.22)')
-  set('--blue', roles.accent1)
+  set('--blue', ink.brand)
   set('--blue-deep', '#1F46C7')
 
   set('--glass-bg', 'rgba(247, 245, 240, 0.9)')
@@ -75,21 +98,33 @@ export function applyPagePalette() {
 
   set('--card', 'rgba(247, 245, 240, 0.94)')
   set('--card-foreground', roles.detail)
-  set('--primary', roles.accent1)
+  set('--primary', ink.brand)
   set('--primary-foreground', '#FFFFFF')
   set('--secondary', roles.base)
-  set('--secondary-foreground', roles.accent3)
+  set('--secondary-foreground', ink.trim)
   set('--muted-surface', '#EDE8DE')
-  set('--muted-foreground', roles.accent3)
+  set('--muted-foreground', ink.muted)
   set('--accent', '#E4EAFB')
-  set('--accent-foreground', roles.accent1)
+  set('--accent-foreground', ink.brand)
   set('--border', 'rgba(59, 69, 82, 0.2)')
   set('--input', '#E4DED2')
-  set('--ring', roles.accent1)
+  set('--ring', ink.brand)
 
-  set('--success', roles.accent1)
-  set('--warning', roles.accent2)
-  set('--info', roles.accent1)
+  set('--success', ink.ok)
+  set('--warning', ink.attention)
+  set('--info', ink.brand)
+  set('--error', ink.error)
+  set('--ok', ink.ok)
+  set('--attention', ink.attention)
+
+  set('--term-bg', term.bg)
+  set('--term-bar', term.bar)
+  set('--term-fg', term.text)
+  set('--term-brand', term.brand)
+  set('--term-trim', term.trim)
+  set('--term-attention', term.attention)
+  set('--term-error', term.error)
+  set('--term-ok', term.ok)
 
   set('--clay-ground', roles.ground)
   set('--clay-road', '#DDD6C8')
