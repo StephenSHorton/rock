@@ -239,10 +239,37 @@ a {
   background: #1e2228;
 }
 
-.tui-screen img {
+.tui-screen img,
+.tui-screen video {
   display: block;
   width: 100%;
   height: auto;
+}
+
+.demo-screen {
+  position: relative;
+}
+
+.demo-play {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 5.2rem;
+  height: 5.2rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--mokei-base) 82%, transparent);
+  color: var(--foreground);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.demo-play:hover,
+.demo-play:focus-visible {
+  border-color: var(--primary);
+  color: var(--primary);
 }
 
 .session-line {
