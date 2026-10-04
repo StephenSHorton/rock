@@ -482,16 +482,16 @@ func TestMouseWheelAndScrollbarScrollTheTranscript(t *testing.T) {
 
 func TestLightTerminalGetsThePalettePair(t *testing.T) {
 	m := sized(t, 100, 24)
-	if dark := m.View().Content; !strings.Contains(dark, "231;161;90") {
-		t.Fatal("dark frame should draw with copper #e7a15a")
+	if dark := m.View().Content; !strings.Contains(dark, "122;155;255") {
+		t.Fatal("dark frame should draw with brand #7A9BFF")
 	}
 	m.Update(tea.BackgroundColorMsg{Color: color.White})
 	if m.th.dark {
 		t.Fatal("white background should select the light palette")
 	}
 	light := m.View().Content
-	if !strings.Contains(light, "164;86;27") || strings.Contains(light, "231;161;9") {
-		t.Fatal("light frame should use the light copper and nothing from the dark one")
+	if !strings.Contains(light, "43;89;232") || strings.Contains(light, "122;155;255") {
+		t.Fatal("light frame should use the light brand and nothing from the dark one")
 	}
 	assertFrame(t, m, 100, 24)
 }
@@ -509,8 +509,8 @@ func TestAssistantMarkdownUsesTheRockPalette(t *testing.T) {
 		t.Fatalf("markdown was not rendered: %q", text)
 	}
 	raw := m.View().Content
-	if !strings.Contains(raw, "38;2;231;161;") {
-		t.Fatal("heading should be copper")
+	if !strings.Contains(raw, "38;2;122;155;") {
+		t.Fatal("heading should be brand azurite")
 	}
 	if strings.Contains(raw, "38;5;") || strings.Contains(raw, "48;5;") {
 		t.Fatal("a 256-color default style leaked into the frame")
@@ -521,13 +521,13 @@ func TestCodeBlocksFollowTheThemeInTruecolor(t *testing.T) {
 	m := sized(t, 120, 30)
 	m.Update(eventMsg{harness.Event{Kind: harness.EvAssistant, Text: "```go\nfmt.Println(\"hi\") // say hi\n```"}})
 	dark := m.View().Content
-	if !strings.Contains(dark, "38;2;231;161;90") || strings.Contains(dark, "38;5;") {
-		t.Fatal("dark code block should be truecolor copper")
+	if !strings.Contains(dark, "38;2;139;147;161") || strings.Contains(dark, "38;5;") {
+		t.Fatal("dark code comment should be truecolor muted")
 	}
 	m.Update(tea.BackgroundColorMsg{Color: color.White})
 	light := m.View().Content
-	if !strings.Contains(light, "38;2;164;86;27") || strings.Contains(light, "38;2;231;161;") || strings.Contains(light, "38;5;") {
-		t.Fatal("light code block should switch to the light copper")
+	if !strings.Contains(light, "38;2;107;114;128") || strings.Contains(light, "38;2;139;147;") || strings.Contains(light, "38;5;") {
+		t.Fatal("light code comment should switch to the light muted")
 	}
 }
 
