@@ -252,6 +252,7 @@ type geometry struct {
 	bodyY, bodyH int
 	composerRows int
 	frameRows    int
+	noticeRows   int
 	infoRows     int
 	helpRows     int
 	transcriptW  int
@@ -263,7 +264,10 @@ type geometry struct {
 	compact      bool
 }
 
-func (g geometry) composerY() int { return g.bodyY + g.bodyH }
+func (g geometry) noticeY() int { return g.bodyY + g.bodyH }
+func (g geometry) composerY() int {
+	return g.noticeY() + g.noticeRows
+}
 func (g geometry) statusY() int {
 	return g.composerY() + g.composerRows + g.frameRows + g.infoRows
 }
@@ -398,7 +402,21 @@ func New(deps Deps) *Model {
 	m.seedTranscript()
 	m.refreshPerms()
 	m.refreshPlan()
+	if n := forceUpdateNotice(); n.Newer {
+		m.avail = n
+	}
 	return m
+}
+
+// forceUpdateNotice is the visual / test hook. ROCK_TEST_UPDATE_NOTICE=1.0.2
+// paints a muted line above the composer without opening the update overlay
+// and without hitting GitHub.
+func forceUpdateNotice() update.Notice {
+	v := strings.TrimSpace(os.Getenv("ROCK_TEST_UPDATE_NOTICE"))
+	if v == "" {
+		return update.Notice{}
+	}
+	return update.Notice{Current: version.Version, Latest: v, Newer: true}
 }
 
 func newList(d list.ItemDelegate) list.Model {

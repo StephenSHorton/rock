@@ -759,23 +759,52 @@ func TestUpdateOverlayAndStatusNotice(t *testing.T) {
 	m.status = "ready"
 	m.layout()
 	m.syncView()
+	if m.geo.noticeRows != 1 || m.geo.noticeY() >= m.geo.composerY() {
+		t.Fatalf("notice should sit above the composer: %+v", m.geo)
+	}
+	notice := screen(m)[m.geo.noticeY()]
+	if !strings.Contains(notice, "Rock v1.0.2 available, run rock update") {
+		t.Fatalf("notice %q", notice)
+	}
+	composer := strings.Join(screen(m)[m.geo.composerY():m.geo.statusY()], "\n")
+	if strings.Contains(composer, "Rock v1.0.2 available") {
+		t.Fatalf("notice leaked into the frame:\n%s", composer)
+	}
 	status := screen(m)[m.geo.statusY()]
-	if !strings.Contains(status, "Rock v1.0.2 available, run rock update") {
-		t.Fatalf("status %q", status)
+	if strings.Contains(status, "Rock v1.0.2 available") {
+		t.Fatalf("notice should not replace the status row: %q", status)
 	}
 	m.openOverlay(updateOverlay)
+	m.layout()
 	view := strings.Join(screen(m), "\n")
 	for _, want := range []string{"Update", "Rock v1.0.2 is available", "y update"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q\n%s", want, view)
 		}
 	}
+	if m.geo.noticeRows != 0 {
+		t.Fatal("the muted line hides while the overlay is open")
+	}
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if m.overlay != noOverlay || !m.updateDismissed {
 		t.Fatal("esc should dismiss")
 	}
-	if !strings.Contains(m.status, "Rock v1.0.2 available") {
-		t.Fatal(m.status)
+	if !strings.Contains(screen(m)[m.geo.noticeY()], "Rock v1.0.2 available") {
+		t.Fatal("dismissed overlay should keep the muted line")
+	}
+}
+
+func TestForceUpdateNoticeHook(t *testing.T) {
+	t.Setenv("ROCK_TEST_UPDATE_NOTICE", "1.0.2")
+	m := sized(t, 100, 24)
+	if !m.avail.Newer || m.avail.Latest != "1.0.2" {
+		t.Fatalf("hook: %+v", m.avail)
+	}
+	if m.overlay == updateOverlay {
+		t.Fatal("hook should not open the overlay")
+	}
+	if !strings.Contains(screen(m)[m.geo.noticeY()], "Rock v1.0.2 available") {
+		t.Fatal(screen(m)[m.geo.noticeY()])
 	}
 }
 
