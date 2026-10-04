@@ -33,7 +33,7 @@ export function InstallLine() {
 
   return (
     <div className="glass-hud mt-6 flex flex-col gap-3 rounded-2xl p-3 sm:flex-row sm:items-center">
-      <pre className="m-0 flex-1 overflow-x-auto text-[0.88rem] leading-6">
+      <pre className="m-0 flex-1 overflow-x-auto whitespace-pre-wrap break-all text-[0.8rem] leading-6">
         <code>{text}</code>
       </pre>
       <button type="button" className="hud-btn bg-[var(--primary)] text-[var(--primary-foreground)]" onClick={copy}>

@@ -41,10 +41,6 @@ const STATES: { id: string; pair: ShotPair }[] = [
   },
 ]
 
-function prefersDark() {
-  return typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
-}
-
 export function TuiFrame({
   pair,
   states = true,
@@ -52,16 +48,15 @@ export function TuiFrame({
   pair?: ShotPair
   states?: boolean
 }) {
-  const [theme, setTheme] = useState<'dark' | 'light'>('light')
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [state, setState] = useState(STATES[0].id)
   const [pinned, setPinned] = useState(false)
 
   useEffect(() => {
-    const apply = () => {
-      if (!pinned) setTheme(prefersDark() ? 'dark' : 'light')
-    }
-    apply()
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const apply = () => {
+      if (!pinned) setTheme(mq.matches ? 'dark' : 'light')
+    }
     mq.addEventListener('change', apply)
     return () => mq.removeEventListener('change', apply)
   }, [pinned])
