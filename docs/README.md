@@ -27,6 +27,7 @@ Crush is FSL-1.1-MIT. Study freely. Do not wholesale-copy while FSL applies.
 | [ask-jev-plan.md](synthesis/ask-jev-plan.md) | Engineer-sized PRs for agentic `ask_jev` |
 | [v1-plan.md](synthesis/v1-plan.md) | 1.0 decisions: Go, shipped Jev gates, Suzuri |
 | [tui-parity.md](synthesis/tui-parity.md) | Charm TUI vs Grok Build: intended diffs + visual backlog |
+| [subscription-auth.md](synthesis/subscription-auth.md) | Consumer-plan model sign-in: sanctioned vs grey vs prohibited. Not Jev. |
 | [steal-priorities.md](synthesis/steal-priorities.md) | **Superseded identity** (mash-up ranking). Kept as raid history. |
 | [architecture-sketch.md](synthesis/architecture-sketch.md) | **Superseded identity** (mash-up sketch), plus a current Grok+Jev note. |
 
