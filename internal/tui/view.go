@@ -109,6 +109,7 @@ func (m *Model) layout() {
 	innerW, innerH := max(1, g.innerW-4), max(1, g.bodyH-2)
 	listH := max(1, innerH-2)
 	m.sessions.SetSize(innerW, listH)
+	m.palette.SetSize(innerW, listH)
 	m.perms.SetSize(innerW, max(1, listH-lipgloss.Height(wrapText(sandboxNote, innerW))-1))
 	m.agents.SetColumns(agentColumns(innerW))
 	m.agents.SetWidth(innerW)
@@ -348,6 +349,9 @@ func (m *Model) overlayView(w, h int) string {
 		} else {
 			body = m.agents.View()
 		}
+	case paletteOverlay:
+		title, sub = "Commands", "slash commands and keys"
+		body = m.palette.View()
 	}
 	head := t.accentBold.Render(title) + t.faint.Render("  "+clip(sub, max(0, innerW-ansi.StringWidth(title)-2)))
 	content := head + "\n\n" + body
@@ -361,14 +365,14 @@ func (m *Model) helpText(w int) string {
 	t := m.th
 	keys := [][2]string{
 		{"enter", "send"},
-		{"ctrl+j", "new line"},
+		{"tab / shift+tab", "focus · cycle default/plan/yolo"},
 		{"pgup/pgdn", "scroll the transcript"},
-		{"ctrl+u/d", "half a page"},
-		{"wheel", "scroll under the pointer"},
-		{"click", "select a block or jump the scrollbar"},
-		{"ctrl+h", "this help"},
-		{"esc", "close; deny a pending call"},
-		{"ctrl+c", "quit"},
+		{"ctrl+p", "command palette"},
+		{"ctrl+s / ctrl+o", "sessions · toggle yolo"},
+		{"←/→", "fold the selected block"},
+		{"ctrl+h / ctrl+.", "this help"},
+		{"esc", "close; deny; cancel a running turn"},
+		{"ctrl+c twice", "quit"},
 	}
 	cmds := [][2]string{
 		{"/help", "this help"},
@@ -676,14 +680,18 @@ func (m *Model) helpLineView() string {
 			key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "deny")),
 			k.move,
 		}
+	case m.overlay == paletteOverlay:
+		bindings = []key.Binding{k.pick, key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "close"))}
 	case m.overlay == sessionsOverlay:
 		bindings = []key.Binding{k.move, k.pick, k.close}
 	case m.overlay == helpOverlay:
 		bindings = []key.Binding{key.NewBinding(key.WithKeys("pgdown"), key.WithHelp("↑/↓ pgup pgdn", "scroll")), k.close}
 	case m.overlay != noOverlay:
 		bindings = []key.Binding{k.move, k.close}
+	case m.focusTranscript:
+		bindings = []key.Binding{k.focus, k.fold, k.back, k.scroll}
 	case m.busy:
-		bindings = []key.Binding{k.newline, k.scroll, k.help, k.quit}
+		bindings = []key.Binding{k.newline, k.scroll, key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")), k.quit}
 	default:
 		bindings = k.ShortHelp()
 	}
@@ -769,7 +777,7 @@ func (m *Model) renderLine(ln line, width int, selected, folded, running bool) s
 	case "user":
 		return m.renderUser(text, width, selected, folded)
 	case "assistant":
-		return m.renderAssistant(text, width, selected, folded)
+		return m.renderAssistant(text, width, selected, folded, ln.raw)
 	case "error":
 		bodyW := max(8, width-blockPad)
 		body := t.danger.Render(wrapText(text, bodyW))
@@ -826,9 +834,12 @@ func (m *Model) renderUser(text string, width int, selected, folded bool) string
 	return strings.Join(out, "\n")
 }
 
-func (m *Model) renderAssistant(text string, width int, selected, folded bool) string {
+func (m *Model) renderAssistant(text string, width int, selected, folded, raw bool) string {
 	bodyW := max(8, width-blockPad)
 	body := m.markdown(text, bodyW)
+	if raw {
+		body = m.th.plain.Render(wrapText(text, bodyW))
+	}
 	if folded && visualRows(body) > 6 {
 		rows := strings.Split(body, "\n")
 		body = strings.Join(rows[:5], "\n") + "\n" + m.th.faint.Render("› …")

@@ -423,8 +423,11 @@ func TestQInsidePanelsClosesInsteadOfQuitting(t *testing.T) {
 	if _, cmd := m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"}); isQuit(cmd) || m.pending == nil || len(reply) != 0 {
 		t.Fatal("q in the allow dialog must neither quit nor answer")
 	}
-	if _, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}); !isQuit(cmd) || <-reply != perms.Deny {
-		t.Fatal("ctrl+c quits and denies the pending call")
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}); isQuit(cmd) || m.pending != nil || <-reply != perms.Deny {
+		t.Fatal("first ctrl+c denies the pending call without quitting")
+	}
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}); !isQuit(cmd) {
+		t.Fatal("second ctrl+c quits")
 	}
 }
 
@@ -943,4 +946,112 @@ func countTools(m *Model) int {
 		}
 	}
 	return n
+}
+
+func TestTabMovesFocusAndSpaceReturns(t *testing.T) {
+	m := sized(t, 100, 24)
+	m.input.Focus()
+	m.Update(eventMsg{harness.Event{Kind: harness.EvAssistant, Text: "hello from focus"}})
+	if !m.input.Focused() || m.focusTranscript {
+		t.Fatal("composer starts focused")
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyTab, Text: "tab"})
+	if !m.focusTranscript || m.input.Focused() {
+		t.Fatal("tab should move focus to the transcript")
+	}
+	if m.selected < 0 {
+		t.Fatal("transcript focus should select a block")
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: "space"})
+	if m.focusTranscript || !m.input.Focused() {
+		t.Fatal("space should return to the composer")
+	}
+}
+
+func TestShiftTabCyclesModesAndCtrlOTogglesYolo(t *testing.T) {
+	m := sized(t, 100, 24)
+	m.Update(tea.KeyPressMsg{Code: tea.KeyTab, Text: "tab", Mod: tea.ModShift})
+	// Some Bubble Tea builds report shift+tab as Text "shift+tab".
+	if m.deps.Mode != perms.ModePlan {
+		m.Update(tea.KeyPressMsg{Text: "shift+tab"})
+	}
+	if m.deps.Mode != perms.ModePlan {
+		t.Fatalf("shift+tab should enter plan mode, got %s", m.deps.Mode)
+	}
+	m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+	if m.deps.Mode != perms.ModeYolo {
+		t.Fatalf("ctrl+o should toggle yolo, got %s", m.deps.Mode)
+	}
+	m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+	if m.deps.Mode != perms.ModeDefault {
+		t.Fatalf("ctrl+o again should leave yolo, got %s", m.deps.Mode)
+	}
+}
+
+func TestCtrlSOpensSessionsAndCtrlPOpensPalette(t *testing.T) {
+	m := sized(t, 100, 24)
+	m.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+	if m.overlay != sessionsOverlay {
+		t.Fatalf("ctrl+s overlay %d", m.overlay)
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
+	if m.overlay != paletteOverlay {
+		t.Fatalf("ctrl+p overlay %d", m.overlay)
+	}
+	view := flat(strings.Join(screen(m), "\n"))
+	if !strings.Contains(view, "Commands") || !strings.Contains(view, "/plan") {
+		t.Fatalf("palette:\n%s", view)
+	}
+	// enter the first item (/help)
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+	if m.overlay != helpOverlay {
+		t.Fatalf("palette /help should open help, got %d", m.overlay)
+	}
+}
+
+func TestEscCancelsARunningTurnAndKeepsTheDraft(t *testing.T) {
+	m := sized(t, 100, 24)
+	m.input.SetValue("keep me")
+	cancelled := false
+	m.busy = true
+	m.cancel = func() { cancelled = true }
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if !cancelled || !strings.Contains(m.status, "cancelled") {
+		t.Fatalf("esc should cancel the turn: busy=%v status=%s", m.busy, m.status)
+	}
+	if m.input.Value() != "keep me" {
+		t.Fatalf("draft should stay: %q", m.input.Value())
+	}
+}
+
+func TestDoubleCtrlCQuitsWhenIdleAndEmpty(t *testing.T) {
+	m := sized(t, 100, 24)
+	m.input.SetValue("draft")
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}); isQuit(cmd) || m.input.Value() != "" {
+		t.Fatal("first ctrl+c should clear the draft")
+	}
+	if _, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}); !isQuit(cmd) {
+		t.Fatal("second ctrl+c should quit")
+	}
+}
+
+func TestArrowKeysFoldTheSelectedBlock(t *testing.T) {
+	m := sized(t, 80, 24)
+	m.lines = append(m.lines, line{kind: "user", text: "one\ntwo\nthree\nfour"})
+	m.syncView()
+	from := len(m.lines) - 1
+	m.setSelected(from)
+	m.focusTranscript = true
+	if !m.foldableAt(from) || m.isFolded(from) {
+		t.Fatal("four-line user prompt should start expanded and foldable")
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyLeft, Text: "left"})
+	if !m.isFolded(from) {
+		t.Fatal("left should fold the selected block")
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyRight, Text: "right"})
+	if m.isFolded(from) {
+		t.Fatal("right should expand it again")
+	}
 }

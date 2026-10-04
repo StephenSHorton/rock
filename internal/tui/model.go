@@ -127,6 +127,7 @@ const (
 	sessionsOverlay
 	permsOverlay
 	agentsOverlay
+	paletteOverlay
 )
 
 type askMsg struct {
@@ -153,39 +154,53 @@ type tickMsg time.Time
 type forkNote struct{ text string }
 
 type keyMap struct {
-	submit  key.Binding
-	newline key.Binding
-	help    key.Binding
-	quit    key.Binding
-	scroll  key.Binding
-	up      key.Binding
-	down    key.Binding
-	allow   key.Binding
-	deny    key.Binding
-	close   key.Binding
-	move    key.Binding
-	pick    key.Binding
+	submit   key.Binding
+	newline  key.Binding
+	help     key.Binding
+	quit     key.Binding
+	scroll   key.Binding
+	up       key.Binding
+	down     key.Binding
+	allow    key.Binding
+	deny     key.Binding
+	close    key.Binding
+	move     key.Binding
+	pick     key.Binding
+	focus    key.Binding
+	cycle    key.Binding
+	palette  key.Binding
+	sessions key.Binding
+	yolo     key.Binding
+	fold     key.Binding
+	back     key.Binding
 }
 
 func newKeys() keyMap {
 	return keyMap{
-		submit:  key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "send")),
-		newline: key.NewBinding(key.WithKeys("shift+enter", "ctrl+j", "alt+enter"), key.WithHelp("ctrl+j", "new line")),
-		help:    key.NewBinding(key.WithKeys("ctrl+h"), key.WithHelp("ctrl+h", "help")),
-		quit:    key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit")),
-		scroll:  key.NewBinding(key.WithKeys("pgup", "pgdown"), key.WithHelp("pgup/pgdn", "scroll")),
-		up:      key.NewBinding(key.WithKeys("pgup", "ctrl+u"), key.WithHelp("pgup", "scroll up")),
-		down:    key.NewBinding(key.WithKeys("pgdown", "ctrl+d"), key.WithHelp("pgdn", "scroll down")),
-		allow:   key.NewBinding(key.WithKeys("y", "a"), key.WithHelp("y", "allow")),
-		deny:    key.NewBinding(key.WithKeys("n", "d"), key.WithHelp("n", "deny")),
-		close:   key.NewBinding(key.WithKeys("esc", "q"), key.WithHelp("esc", "close")),
-		move:    key.NewBinding(key.WithKeys("up", "down", "k", "j"), key.WithHelp("↑/↓", "move")),
-		pick:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "resume")),
+		submit:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "send")),
+		newline:  key.NewBinding(key.WithKeys("shift+enter", "ctrl+j", "alt+enter"), key.WithHelp("ctrl+j", "new line")),
+		help:     key.NewBinding(key.WithKeys("ctrl+h", "ctrl+.", "ctrl+x"), key.WithHelp("ctrl+.", "help")),
+		quit:     key.NewBinding(key.WithKeys("ctrl+c", "ctrl+q"), key.WithHelp("ctrl+c", "quit")),
+		scroll:   key.NewBinding(key.WithKeys("pgup", "pgdown"), key.WithHelp("pgup/pgdn", "scroll")),
+		up:       key.NewBinding(key.WithKeys("pgup", "ctrl+u"), key.WithHelp("pgup", "scroll up")),
+		down:     key.NewBinding(key.WithKeys("pgdown", "ctrl+d"), key.WithHelp("pgdn", "scroll down")),
+		allow:    key.NewBinding(key.WithKeys("y", "a"), key.WithHelp("y", "allow")),
+		deny:     key.NewBinding(key.WithKeys("n", "d"), key.WithHelp("n", "deny")),
+		close:    key.NewBinding(key.WithKeys("esc", "q"), key.WithHelp("esc", "close")),
+		move:     key.NewBinding(key.WithKeys("up", "down", "k", "j"), key.WithHelp("↑/↓", "move")),
+		pick:     key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "resume")),
+		focus:    key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "focus")),
+		cycle:    key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "cycle mode")),
+		palette:  key.NewBinding(key.WithKeys("ctrl+p"), key.WithHelp("ctrl+p", "palette")),
+		sessions: key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "sessions")),
+		yolo:     key.NewBinding(key.WithKeys("ctrl+o"), key.WithHelp("ctrl+o", "yolo")),
+		fold:     key.NewBinding(key.WithKeys("left", "right"), key.WithHelp("←/→", "fold")),
+		back:     key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "composer")),
 	}
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.submit, k.newline, k.scroll, k.help, k.quit}
+	return []key.Binding{k.submit, k.focus, k.palette, k.help, k.quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
@@ -245,8 +260,12 @@ type Model struct {
 	agents   table.Model
 	meter    progress.Model
 
-	overlay  overlay
-	showPlan bool
+	overlay         overlay
+	showPlan        bool
+	focusTranscript bool
+	quitArmed       time.Time
+
+	palette list.Model
 
 	pending   *askMsg
 	lastCall  harness.Event
@@ -314,6 +333,9 @@ func New(deps Deps) *Model {
 	m.choices = newList(rowDelegate{th: &m.th, rows: 1})
 	m.choices.SetShowPagination(false)
 	m.perms = newList(rowDelegate{th: &m.th, rows: 1})
+	m.palette = newList(rowDelegate{th: &m.th, rows: 1})
+	m.palette.SetFilteringEnabled(true)
+	m.palette.SetShowFilter(true)
 	m.agents = table.New(
 		table.WithColumns(agentColumns(60)),
 		table.WithHeight(6),
@@ -350,7 +372,7 @@ func (m *Model) applyTheme(dark bool) {
 	m.help.Styles = m.th.keyHelp()
 	m.spin.Style = m.th.accent
 	m.agents.SetStyles(m.th.table())
-	for _, l := range []*list.Model{&m.sessions, &m.choices, &m.perms} {
+	for _, l := range []*list.Model{&m.sessions, &m.choices, &m.perms, &m.palette} {
 		l.Styles.ActivePaginationDot = m.th.accent.SetString("•")
 		l.Styles.InactivePaginationDot = m.th.faint.SetString("·")
 		l.Styles.NoItems = m.th.faint
@@ -469,7 +491,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 
 func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 	if key.Matches(msg, m.keys.quit) {
-		return m.quit()
+		return m.quitKey()
 	}
 	if m.pending != nil {
 		return m.askKey(msg)
@@ -481,15 +503,222 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 	case key.Matches(msg, m.keys.help):
 		m.openOverlay(helpOverlay)
 		return nil
+	case key.Matches(msg, m.keys.palette):
+		return m.openPalette()
+	case key.Matches(msg, m.keys.sessions):
+		m.refreshSessions()
+		m.openOverlay(sessionsOverlay)
+		return nil
+	case key.Matches(msg, m.keys.yolo):
+		return m.toggleYolo()
+	case key.Matches(msg, m.keys.cycle):
+		return m.cycleMode()
+	case key.Matches(msg, m.keys.focus):
+		return m.toggleFocus()
+	case msg.String() == "esc" && m.busy:
+		return m.cancelTurn()
 	case key.Matches(msg, m.keys.up), key.Matches(msg, m.keys.down):
 		m.scrollKey(msg)
 		return nil
+	case m.focusTranscript:
+		return m.scrollbackKey(msg)
 	case key.Matches(msg, m.keys.submit):
 		return m.submit()
 	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return cmd
+}
+
+func (m *Model) scrollbackKey(msg tea.KeyPressMsg) tea.Cmd {
+	switch {
+	case key.Matches(msg, m.keys.back), msg.String() == "space":
+		return m.focusComposer()
+	case key.Matches(msg, m.keys.fold), msg.String() == "left", msg.String() == "right":
+		if m.foldableAt(m.selected) {
+			m.toggleFold(m.selected)
+		}
+		return nil
+	case msg.String() == "up":
+		m.moveSelect(-1)
+		return nil
+	case msg.String() == "down":
+		m.moveSelect(1)
+		return nil
+	case msg.String() == "r":
+		m.toggleRaw()
+		return nil
+	case msg.String() == "?":
+		return m.openPalette()
+	case msg.String() == "/":
+		m.input.SetValue("/")
+		return m.focusComposer()
+	}
+	return nil
+}
+
+func (m *Model) toggleFocus() tea.Cmd {
+	if m.focusTranscript {
+		return m.focusComposer()
+	}
+	m.focusTranscript = true
+	m.input.Blur()
+	if m.selected < 0 && len(m.spans) > 0 {
+		m.setSelected(m.spans[len(m.spans)-1].from)
+	}
+	return nil
+}
+
+func (m *Model) focusComposer() tea.Cmd {
+	m.focusTranscript = false
+	return m.input.Focus()
+}
+
+func (m *Model) setSelected(from int) {
+	if from < 0 || from >= len(m.lines) || m.selected == from {
+		return
+	}
+	m.selected = from
+	m.invalidatePaint()
+	m.syncView()
+}
+
+func (m *Model) moveSelect(delta int) {
+	if len(m.spans) == 0 {
+		return
+	}
+	idx := 0
+	for i, s := range m.spans {
+		if m.selected >= s.from && m.selected <= s.to {
+			idx = i
+			break
+		}
+	}
+	idx = min(len(m.spans)-1, max(0, idx+delta))
+	m.setSelected(m.spans[idx].from)
+}
+
+func (m *Model) toggleRaw() {
+	if m.selected < 0 || m.selected >= len(m.lines) {
+		return
+	}
+	if m.lines[m.selected].kind != "assistant" {
+		return
+	}
+	m.lines[m.selected].raw = !m.lines[m.selected].raw
+	m.lines[m.selected].out = ""
+	m.syncView()
+}
+
+func (m *Model) cycleMode() tea.Cmd {
+	switch m.deps.Mode {
+	case perms.ModeDefault:
+		m.input.SetValue("/plan")
+	case perms.ModePlan:
+		m.input.SetValue("/yolo")
+	default:
+		m.input.SetValue("/default")
+	}
+	return m.submit()
+}
+
+func (m *Model) toggleYolo() tea.Cmd {
+	if m.deps.Mode == perms.ModeYolo {
+		m.input.SetValue("/default")
+	} else {
+		m.input.SetValue("/yolo")
+	}
+	return m.submit()
+}
+
+func (m *Model) cancelTurn() tea.Cmd {
+	if m.cancel != nil {
+		m.cancel()
+	}
+	m.status, m.alert = "cancelled. the draft stays in the composer", false
+	return nil
+}
+
+func (m *Model) quitKey() tea.Cmd {
+	if m.pending != nil {
+		m.answer(perms.Deny)
+		m.quitArmed = time.Now()
+		m.status, m.alert = "denied. press ctrl+c again to quit", false
+		return m.input.Focus()
+	}
+	if m.busy {
+		return m.cancelTurn()
+	}
+	if m.overlay != noOverlay {
+		return m.closeOverlay()
+	}
+	if strings.TrimSpace(m.input.Value()) != "" {
+		m.input.Reset()
+		m.quitArmed = time.Now()
+		m.status, m.alert = "cleared. press ctrl+c again to quit", false
+		return nil
+	}
+	if !m.quitArmed.IsZero() && time.Since(m.quitArmed) < 2*time.Second {
+		return tea.Quit
+	}
+	m.quitArmed = time.Now()
+	m.status, m.alert = "press ctrl+c again to quit", false
+	return nil
+}
+
+func (m *Model) openPalette() tea.Cmd {
+	m.refreshPalette()
+	m.openOverlay(paletteOverlay)
+	return nil
+}
+
+func (m *Model) refreshPalette() {
+	items := []list.Item{
+		rowItem{title: "/help", desc: "keys and slash commands", id: "cmd:/help"},
+		rowItem{title: "/plan", desc: "plan mode; edits and shell blocked", id: "cmd:/plan"},
+		rowItem{title: "/yolo", desc: "skip asks; destructive gate stays", id: "cmd:/yolo"},
+		rowItem{title: "/default", desc: "back to the default policy", id: "cmd:/default"},
+		rowItem{title: "/sessions", desc: "resume a session from this folder", id: "cmd:/sessions"},
+		rowItem{title: "/permissions", desc: "allow, ask, and deny rules", id: "cmd:/permissions"},
+		rowItem{title: "/agents", desc: "subagents spawned this session", id: "cmd:/agents"},
+		rowItem{title: "/ready", desc: "is the plan ready? never approves", id: "cmd:/ready"},
+		rowItem{title: "/fork", desc: "new Rock pane in Suzuri (OSC 7880)", id: "cmd:/fork"},
+		rowItem{title: "/quit", desc: "quit", id: "cmd:/quit"},
+		rowItem{title: "tab", desc: "focus composer ↔ transcript", id: "key:focus"},
+		rowItem{title: "shift+tab", desc: "cycle default / plan / yolo", id: "key:cycle"},
+		rowItem{title: "ctrl+s", desc: "sessions", id: "key:sessions"},
+		rowItem{title: "ctrl+o", desc: "toggle yolo", id: "key:yolo"},
+		rowItem{title: "ctrl+.", desc: "help", id: "key:help"},
+	}
+	_ = m.palette.SetItems(items)
+	m.palette.Select(0)
+}
+
+func (m *Model) runPalette() tea.Cmd {
+	item, ok := m.palette.SelectedItem().(rowItem)
+	if !ok {
+		return m.closeOverlay()
+	}
+	if cmd := m.closeOverlay(); cmd != nil {
+		_ = cmd
+	}
+	switch {
+	case strings.HasPrefix(item.id, "cmd:"):
+		m.input.SetValue(strings.TrimPrefix(item.id, "cmd:"))
+		return m.submit()
+	case item.id == "key:focus":
+		return m.toggleFocus()
+	case item.id == "key:cycle":
+		return m.cycleMode()
+	case item.id == "key:sessions":
+		m.refreshSessions()
+		m.openOverlay(sessionsOverlay)
+	case item.id == "key:yolo":
+		return m.toggleYolo()
+	case item.id == "key:help":
+		m.openOverlay(helpOverlay)
+	}
+	return nil
 }
 
 func (m *Model) scrollKey(msg tea.KeyPressMsg) {
@@ -524,6 +753,17 @@ func (m *Model) askKey(msg tea.KeyPressMsg) tea.Cmd {
 }
 
 func (m *Model) overlayKey(msg tea.KeyPressMsg) tea.Cmd {
+	if m.overlay == paletteOverlay {
+		if msg.String() == "esc" {
+			return m.closeOverlay()
+		}
+		if msg.String() == "enter" {
+			return m.runPalette()
+		}
+		var cmd tea.Cmd
+		m.palette, cmd = m.palette.Update(msg)
+		return cmd
+	}
 	if key.Matches(msg, m.keys.close) || (m.overlay == helpOverlay && key.Matches(msg, m.keys.help)) {
 		return m.closeOverlay()
 	}
@@ -574,6 +814,7 @@ func (m *Model) openOverlay(o overlay) {
 
 func (m *Model) closeOverlay() tea.Cmd {
 	m.overlay = noOverlay
+	m.focusTranscript = false
 	return m.input.Focus()
 }
 
@@ -1041,6 +1282,8 @@ func (m *Model) onMouse(msg tea.MouseMsg) {
 		switch m.overlay {
 		case sessionsOverlay:
 			wheelList(&m.sessions, up)
+		case paletteOverlay:
+			wheelList(&m.palette, up)
 		case permsOverlay:
 			wheelList(&m.perms, up)
 		case agentsOverlay:
