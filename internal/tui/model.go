@@ -88,6 +88,10 @@ type line struct {
 	text string
 	at   time.Time
 
+	result   string
+	done     bool
+	finished time.Time
+
 	folded      bool
 	foldTouched bool
 	raw         bool
@@ -749,13 +753,13 @@ func (m *Model) apply(ev harness.Event) {
 	case harness.EvAssistant:
 		m.lines = append(m.lines, line{kind: "assistant", text: ev.Text})
 	case harness.EvToolCall:
-		m.lines = append(m.lines, line{kind: "tool", name: ev.Name, text: ev.Text})
+		m.lines = append(m.lines, line{kind: "tool", name: ev.Name, text: ev.Text, at: time.Now()})
 		m.lastCall = ev
 		if ev.Name == "spawn_subagent" {
 			m.agentStarted(ev.Text)
 		}
 	case harness.EvToolResult:
-		m.lines = append(m.lines, line{kind: "result", name: ev.Name, text: ev.Text})
+		m.attachResult(ev.Name, ev.Text)
 		if ev.Name == "spawn_subagent" {
 			m.agentFinished(ev.Text)
 		}
@@ -894,7 +898,7 @@ func (m *Model) seedTranscript() {
 					m.lines = append(m.lines, line{kind: "tool", name: c.Name, text: c.Arguments})
 				}
 			case provider.RoleTool:
-				m.lines = append(m.lines, line{kind: "result", name: msg.Name, text: msg.Content})
+				m.attachResult(msg.Name, msg.Content)
 			}
 		}
 		m.ctxBytes = m.deps.Session.Bytes()
@@ -1151,6 +1155,19 @@ func (m *Model) toggleFold(from int) {
 	m.syncView()
 }
 
+func (m *Model) foldableAt(from int) bool {
+	if from < 0 || from >= len(m.lines) {
+		return false
+	}
+	if _, _, n := verbRun(m.lines, from); n > 1 {
+		return true
+	}
+	if m.lines[from].kind == "tool" {
+		return true
+	}
+	return lineFoldable(m.lines[from], m.contentW)
+}
+
 func (m *Model) isFolded(from int) bool {
 	if from < 0 || from >= len(m.lines) {
 		return false
@@ -1159,18 +1176,39 @@ func (m *Model) isFolded(from int) bool {
 	if ln.foldTouched {
 		return ln.folded
 	}
-	_, _, n := verbRun(m.lines, from)
-	return n > 1
-}
-
-func (m *Model) foldableAt(from int) bool {
-	if from < 0 || from >= len(m.lines) {
-		return false
-	}
 	if _, _, n := verbRun(m.lines, from); n > 1 {
 		return true
 	}
-	return lineFoldable(m.lines[from], m.contentW)
+	return ln.kind == "tool" && toolFoldsByDefault(ln.name)
+}
+
+func (m *Model) attachResult(name, text string) {
+	for i := range m.lines {
+		if m.lines[i].kind == "tool" && m.lines[i].name == name && !m.lines[i].done {
+			m.lines[i].result = text
+			m.lines[i].done = true
+			m.lines[i].finished = time.Now()
+			m.lines[i].out = ""
+			return
+		}
+	}
+	m.lines = append(m.lines, line{kind: "result", name: name, text: text, done: true})
+}
+
+func (m *Model) toolRunning(i int) bool {
+	if !m.busy || i < 0 || i >= len(m.lines) {
+		return false
+	}
+	ln := m.lines[i]
+	if ln.kind != "tool" || ln.done {
+		return false
+	}
+	for j := i + 1; j < len(m.lines); j++ {
+		if m.lines[j].kind == "tool" && !m.lines[j].done {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *Model) lastUserSpan() *entrySpan {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
@@ -463,18 +464,6 @@ func (m *Model) preview(tool, detail string, w int) []string {
 		}
 		return t.faint.Render(label+" ") + t.plain.Render(clip(value, max(1, w-len(label)-1)))
 	}
-	snippet := func(prefix, text string, st lipgloss.Style, limit int) []string {
-		var out []string
-		ls := strings.Split(strings.TrimRight(text, "\n"), "\n")
-		for i, l := range ls {
-			if i == limit {
-				out = append(out, t.faint.Render(fmt.Sprintf("  … %d more lines", len(ls)-limit)))
-				break
-			}
-			out = append(out, st.Render(clip(prefix+l, w)))
-		}
-		return out
-	}
 	var out []string
 	switch tool {
 	case "shell":
@@ -488,13 +477,12 @@ func (m *Model) preview(tool, detail string, w int) []string {
 	case "edit_file":
 		out = append(out, field("path", str("path")))
 		if args != nil {
-			out = append(out, snippet("- ", str("old"), t.minus, 6)...)
-			out = append(out, snippet("+ ", str("new"), t.plus, 6)...)
+			out = append(out, m.hunkRows(str("old"), str("new"), w, 6)...)
 		}
 	case "write_file":
 		out = append(out, field("path", str("path")))
 		if args != nil {
-			out = append(out, snippet("  ", str("content"), t.faint, 6)...)
+			out = append(out, m.snippetRows("  ", str("content"), t.faint, w, 6)...)
 		}
 	case "spawn_subagent":
 		out = append(out, field("kind", str("kind")))
@@ -705,12 +693,13 @@ func (m *Model) renderTranscript(width int) string {
 		}
 		sel := m.selected == i
 		folded := m.isFolded(i)
+		running := m.toolRunning(i)
 		if ln.out == "" || ln.outW != width || ln.outDark != m.th.dark {
-			ln.out, ln.outW, ln.outDark = m.renderLine(*ln, width, false, false), width, m.th.dark
+			ln.out, ln.outW, ln.outDark = m.renderLine(*ln, width, false, false, false), width, m.th.dark
 		}
 		painted := ln.out
-		if sel || folded || lineFoldable(*ln, width) {
-			painted = m.renderLine(*ln, width, sel, folded)
+		if sel || folded || running || ln.kind == "tool" || lineFoldable(*ln, width) {
+			painted = m.renderLine(*ln, width, sel, folded, running)
 		}
 		y0, y1 := write(painted)
 		m.spans = append(m.spans, entrySpan{from: i, to: i, y0: y0, y1: y1, group: false})
@@ -719,7 +708,7 @@ func (m *Model) renderTranscript(width int) string {
 	return b.String()
 }
 
-func (m *Model) renderLine(ln line, width int, selected, folded bool) string {
+func (m *Model) renderLine(ln line, width int, selected, folded, running bool) string {
 	t := m.th
 	text := sanitize(ln.text)
 	switch ln.kind {
@@ -735,7 +724,7 @@ func (m *Model) renderLine(ln line, width int, selected, folded bool) string {
 		}
 		return m.markBlock(body, width, selected, folded)
 	case "tool":
-		return m.eventRow(t.chrome.Render("▸ ")+t.strong.Render(ln.name), toolSummary(ln.name, ln.text), t.faint, width, selected)
+		return m.renderTool(ln, width, selected, folded, running)
 	case "result":
 		mark, st := t.chrome.Render("✓ "), t.faint
 		if strings.HasPrefix(text, "denied") {
@@ -806,11 +795,8 @@ func (m *Model) renderGroup(kind string, n int, members []line, width int, selec
 	var rows []string
 	rows = append(rows, head)
 	for _, ln := range members {
-		if ln.kind == "result" {
-			rows = append(rows, m.renderLine(ln, width, false, false))
-			continue
-		}
-		rows = append(rows, m.renderLine(ln, width, false, false))
+		memberFold := ln.kind == "tool" && toolFoldsByDefault(ln.name) && !ln.foldTouched || ln.folded
+		rows = append(rows, m.renderLine(ln, width, false, memberFold, false))
 	}
 	return strings.Join(rows, "\n")
 }
@@ -850,6 +836,265 @@ func (m *Model) eventRow(head, detail string, st lipgloss.Style, width int, sele
 		lead = t.accent.Render("▎") + strings.Repeat(" ", max(0, blockPad-1))
 	}
 	return lead + row
+}
+
+func toolFoldsByDefault(name string) bool {
+	switch name {
+	case "read_file", "grep", "glob", "web_fetch":
+		return true
+	}
+	return false
+}
+
+func (m *Model) renderTool(ln line, width int, selected, folded, running bool) string {
+	t := m.th
+	inner := max(8, width-blockPad)
+	denied := strings.HasPrefix(ln.result, "denied")
+	verb, detail := toolHeading(ln.name, ln.text, running && !ln.done)
+	extra := toolDetail(ln)
+	if d := toolElapsed(ln); d != "" {
+		if extra != "" {
+			extra += "  " + d
+		} else {
+			extra = d
+		}
+	}
+
+	bulletSt, headSt, dimSt := t.chrome, t.strong, t.faint
+	if folded {
+		headSt, dimSt = t.faint, t.faint
+	}
+	if denied {
+		bulletSt, headSt = t.danger, t.danger
+	}
+	if running {
+		bulletSt = t.alarm
+	}
+	if selected {
+		bulletSt = t.accent
+	}
+
+	head := bulletSt.Render("◆ ") + headSt.Render(verb)
+	if detail != "" {
+		head += "  " + headSt.Render(clip(detail, max(1, inner-ansi.StringWidth(verb)-4)))
+	}
+	row := ansi.Truncate(head, inner, "…")
+	if room := inner - ansi.StringWidth(row) - 2; room > 0 && extra != "" {
+		row += "  " + dimSt.Render(clip(extra, room))
+	}
+	lead := strings.Repeat(" ", blockPad)
+	if selected {
+		lead = t.accent.Render("▎") + strings.Repeat(" ", max(0, blockPad-1))
+	} else if running {
+		lead = t.alarm.Render("▎") + strings.Repeat(" ", max(0, blockPad-1))
+	}
+	out := lead + row
+	if folded {
+		return out
+	}
+	body := m.toolBody(ln, inner)
+	if body == "" {
+		return out
+	}
+	return out + "\n" + indentBlock(body, lead)
+}
+
+func toolHeading(name, args string, running bool) (verb, detail string) {
+	detail = toolSummary(name, args)
+	switch name {
+	case "read_file":
+		if running {
+			return "Reading", detail
+		}
+		return "Read", detail
+	case "grep", "glob":
+		if running {
+			return "Searching", detail
+		}
+		return "Searched", detail
+	case "web_fetch":
+		if running {
+			return "Fetching", detail
+		}
+		return "Fetched", detail
+	case "shell":
+		if strings.HasPrefix(detail, "$ ") {
+			return detail, ""
+		}
+		if running {
+			return "Run", detail
+		}
+		return "Ran", detail
+	case "edit_file":
+		if running {
+			return "Editing", detail
+		}
+		return "Edit", detail
+	case "write_file":
+		if running {
+			return "Writing", detail
+		}
+		return "Write", detail
+	case "update_plan":
+		return "Update plan", ""
+	case "spawn_subagent":
+		return "Ran", detail
+	default:
+		return name, detail
+	}
+}
+
+func toolDetail(ln line) string {
+	if !ln.done {
+		return ""
+	}
+	if strings.HasPrefix(ln.result, "denied") {
+		return "denied"
+	}
+	switch ln.name {
+	case "edit_file", "write_file":
+		var raw map[string]any
+		if json.Unmarshal([]byte(ln.text), &raw) != nil {
+			return resultSummary(ln.result)
+		}
+		old, _ := raw["old"].(string)
+		neu, _ := raw["new"].(string)
+		if ln.name == "write_file" {
+			neu, _ = raw["content"].(string)
+		}
+		add, del := countLines(neu), countLines(old)
+		if add == 0 && del == 0 {
+			return resultSummary(ln.result)
+		}
+		return fmt.Sprintf("+%d/-%d", add, del)
+	case "read_file", "grep", "glob", "web_fetch", "shell":
+		n := countLines(ln.result)
+		if n == 0 {
+			return "(no output)"
+		}
+		if n == 1 {
+			return "1 line"
+		}
+		return fmt.Sprintf("%d lines", n)
+	}
+	return resultSummary(ln.result)
+}
+
+func toolElapsed(ln line) string {
+	if ln.at.IsZero() || ln.finished.IsZero() || !ln.done {
+		return ""
+	}
+	d := ln.finished.Sub(ln.at)
+	if d < 10*time.Millisecond {
+		return ""
+	}
+	if d < time.Second {
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	}
+	return fmt.Sprintf("%.1fs", d.Seconds())
+}
+
+func countLines(s string) int {
+	s = strings.TrimRight(s, "\n")
+	if s == "" {
+		return 0
+	}
+	return strings.Count(s, "\n") + 1
+}
+
+func (m *Model) toolBody(ln line, width int) string {
+	t := m.th
+	if strings.HasPrefix(ln.result, "denied") {
+		return t.danger.Render(wrapText(sanitize(ln.result), width))
+	}
+	switch ln.name {
+	case "edit_file":
+		var raw map[string]any
+		if json.Unmarshal([]byte(ln.text), &raw) != nil {
+			return t.faint.Render(wrapText(resultSummary(ln.result), width))
+		}
+		old, _ := raw["old"].(string)
+		neu, _ := raw["new"].(string)
+		return strings.Join(m.hunkRows(old, neu, width, 6), "\n")
+	case "write_file":
+		var raw map[string]any
+		if json.Unmarshal([]byte(ln.text), &raw) != nil {
+			return t.faint.Render(wrapText(resultSummary(ln.result), width))
+		}
+		content, _ := raw["content"].(string)
+		return strings.Join(m.snippetRows("  ", content, t.faint, width, 6), "\n")
+	case "shell":
+		return strings.Join(m.shellRows(ln.result, width), "\n")
+	default:
+		if !ln.done {
+			return ""
+		}
+		return t.faint.Render(wrapText(resultSummary(ln.result), width))
+	}
+}
+
+func (m *Model) hunkRows(old, neu string, w, limit int) []string {
+	var out []string
+	out = append(out, m.snippetRows("- ", old, m.th.minus, w, limit)...)
+	if old != "" && neu != "" {
+		out = append(out, m.th.faint.Render("…"))
+	}
+	out = append(out, m.snippetRows("+ ", neu, m.th.plus, w, limit)...)
+	return out
+}
+
+func (m *Model) snippetRows(prefix, text string, st lipgloss.Style, w, limit int) []string {
+	var out []string
+	ls := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	if text == "" || (len(ls) == 1 && ls[0] == "") {
+		return out
+	}
+	for i, l := range ls {
+		if i == limit {
+			out = append(out, m.th.faint.Render(fmt.Sprintf("  … %d more lines", len(ls)-limit)))
+			break
+		}
+		out = append(out, st.Render(clip(prefix+l, w)))
+	}
+	return out
+}
+
+func (m *Model) shellRows(text string, w int) []string {
+	t := m.th
+	ls := nonemptyLines(text)
+	if len(ls) == 0 {
+		return []string{t.faint.Render("(no output)")}
+	}
+	keep := ls
+	if len(ls) > 5 {
+		keep = append(append([]string{}, ls[:2]...), ls[len(ls)-3:]...)
+	}
+	var out []string
+	for i, l := range keep {
+		if len(ls) > 5 && i == 2 {
+			out = append(out, t.faint.Render("…"))
+		}
+		out = append(out, t.plain.Render(clip(l, w)))
+	}
+	return out
+}
+
+func nonemptyLines(text string) []string {
+	var rows []string
+	for _, l := range strings.Split(text, "\n") {
+		if strings.TrimSpace(l) != "" {
+			rows = append(rows, l)
+		}
+	}
+	return rows
+}
+
+func indentBlock(s, lead string) string {
+	lines := strings.Split(s, "\n")
+	for i := range lines {
+		lines[i] = lead + lines[i]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func groupKind(ln line) (string, bool) {
