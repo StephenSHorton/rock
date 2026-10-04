@@ -6,10 +6,15 @@ import (
 	"testing"
 )
 
-func TestJevKeyPrefersEnvThenFile(t *testing.T) {
-	t.Setenv("ROCK_HOME", t.TempDir())
+func clearJevEnv(t *testing.T) {
+	t.Helper()
 	t.Setenv("JEV_API_KEY", "")
 	t.Setenv("TYPESAFE_API_KEY", "")
+}
+
+func TestJevKeyPrefersEnvThenFile(t *testing.T) {
+	t.Setenv("ROCK_HOME", t.TempDir())
+	clearJevEnv(t)
 	origSet, origGet := keyringSet, keyringGet
 	t.Cleanup(func() { keyringSet, keyringGet = origSet, origGet })
 	keyringGet = func(string, string) (string, error) { return "", errors.New("no keychain") }
@@ -42,10 +47,22 @@ func TestJevKeyPrefersEnvThenFile(t *testing.T) {
 	}
 }
 
+func TestJevKeyWhitespaceIsUnset(t *testing.T) {
+	t.Setenv("ROCK_HOME", t.TempDir())
+	t.Setenv("JEV_API_KEY", "   ")
+	t.Setenv("TYPESAFE_API_KEY", "\t\n")
+	origSet, origGet := keyringSet, keyringGet
+	t.Cleanup(func() { keyringSet, keyringGet = origSet, origGet })
+	keyringGet = func(string, string) (string, error) { return "  ", nil }
+	keyringSet = func(string, string, string) error { return errors.New("no keychain") }
+	if k, src := JevKey(); k != "" || src != "" {
+		t.Fatalf("whitespace: %q %q", k, src)
+	}
+}
+
 func TestSaveJevKeyUsesKeychainWhenItWorks(t *testing.T) {
 	t.Setenv("ROCK_HOME", t.TempDir())
-	t.Setenv("JEV_API_KEY", "")
-	t.Setenv("TYPESAFE_API_KEY", "")
+	clearJevEnv(t)
 	origSet, origGet := keyringSet, keyringGet
 	t.Cleanup(func() { keyringSet, keyringGet = origSet, origGet })
 	mem := ""

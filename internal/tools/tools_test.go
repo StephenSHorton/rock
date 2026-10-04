@@ -54,3 +54,20 @@ func TestShell(t *testing.T) {
 		t.Fatalf("%v %q", err, out.Output)
 	}
 }
+
+func TestShellDoesNotInheritJevKeys(t *testing.T) {
+	t.Setenv("JEV_API_KEY", "secret-jev")
+	t.Setenv("TYPESAFE_API_KEY", "secret-typesafe")
+	dir := t.TempDir()
+	set := New(Env{Root: dir})
+	out, err := set.Run(context.Background(), "shell", `{"command":"echo JEV=$JEV_API_KEY; echo TYPESAFE=$TYPESAFE_API_KEY; test -n \"$PATH\" && echo PATH_OK"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out.Output, "secret-jev") || strings.Contains(out.Output, "secret-typesafe") {
+		t.Fatalf("leaked keys: %q", out.Output)
+	}
+	if !strings.Contains(out.Output, "PATH_OK") {
+		t.Fatalf("PATH should still be inherited: %q", out.Output)
+	}
+}
