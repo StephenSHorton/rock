@@ -158,7 +158,8 @@ func Load(cwd string) (Loaded, error) {
 			extra.Permissions.Allow = nil
 		}
 		// Project overlays must not inject a Jev key or endpoint.
-		// Keys are env-only. jev.base_url stays on the user-level file.
+		// Keys come from env, the OS keychain, or ROCK_HOME/jev.key.
+		// jev.base_url stays on the user-level file.
 		extra.Jev.BaseURL = ""
 		merge(&file, extra)
 	}
