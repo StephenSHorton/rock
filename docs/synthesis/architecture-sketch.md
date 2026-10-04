@@ -1,6 +1,6 @@
 # Architecture sketch
 
-Negotiable. Nothing here is a spec until application source exists. Update this when a raid changes the shape.
+Negotiable where the 1.0 plan leaves room. Update this when a raid changes the shape. The binary is `rock`; build it with `go build ./cmd/rock`.
 
 Rock is a synthesis: Charm-class face, Grok-class brain ambitions, OpenCode-class permissions, MIT license. Not a Crush fork. Not a Grok Build fork.
 
@@ -26,23 +26,11 @@ Rock is a synthesis: Charm-class face, Grok-class brain ambitions, OpenCode-clas
      workspace / VCS / OS
 ```
 
-## Language split (on the table)
+## Language (decided)
 
-Often discussed:
+**Go only.** Charm TUI and harness in one module. The TUI is a client of the harness package. See [v1-plan.md](v1-plan.md).
 
-```
-Go Charm TUI  ↔  protocol  ↔  Rust-ish harness
-```
-
-Legal outcomes:
-
-| Option | When it wins |
-|---|---|
-| **Split** | TUI velocity on Charm (Go) + harness performance / crate story (Rust). Protocol is the product. |
-| **Go-only** | Fastest path to a Crush-class face; harness in-process or as a Go server (`serve`). |
-| **Rust-only** | Single binary like Grok / Goose / Codex; Charm-*inspired* UX, not Bubble Tea. |
-
-Pick when raids are done and the first contract tests exist. Do not fork a peer “for now.”
+Protocol, quarry, and features stay negotiable. A Rust split is not the 1.0 plan. Do not fork a peer “for now.”
 
 ## Face
 
@@ -112,12 +100,14 @@ Claude Code leak dumps are out of scope. Public docs only.
 
 Do not price this in pre-AI years.
 
-## Open questions
+## Answers (1.0)
 
-- Go/Rust split vs one language?
-- Workspace HTTP in-process with the TUI, or always a daemon?
-- How much Grok radar vs clean-room reimplementation of ideas?
-- Review-only mode vs git auto-commit — one, both, or a flag?
-- Do we ever wrap other CLIs as ACP providers (Goose), or only *be* an ACP server?
+The build plan is [v1-plan.md](v1-plan.md). Short form:
 
-Write answers into this file when we have them. Until then, keep raiding.
+- **Go only.** Charm v2 face and harness in one module. The TUI is a client of the harness package. `rock acp` and `rock serve` speak the same loop.
+- **Clean-room.** Grok Build stays the quarry. Rock does not fork it. Crush stays FSL; we use Charm libraries.
+- **HTTP is a daemon (`rock serve`).** The TUI runs the harness in-process. Both read the session store.
+- **Git checkpoint and review-only both exist.** Checkpoint is off until config turns it on. Review-only denies mutating tools.
+- **Rock is an ACP server.** It does not wrap other CLIs in 1.0.
+- **Jev** takes the bounded decisions (model, skills, stuck, risk, subagent kind, retrieval, compact, plan readiness). No key means an offline policy, labeled as such.
+- **Suzuri** hosts the PTY. Rock emits OSC 7880 and can attach `suzuri mcp`. Claude Code leak dumps stay out.

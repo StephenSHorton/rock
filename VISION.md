@@ -39,15 +39,11 @@ OpenCode, Aider, Goose, Pi, Codex CLI, Crush, Claude Code (public Anthropic docs
 
 Claude Code is proprietary. Use official public documentation only. Never invent leak or source-level details. If unofficial dumps exist in the wild, skip them.
 
-### Language split
+### Language
 
-Often discussed, never locked:
+**Go only.** Charm TUI and harness in one module. See [docs/synthesis/v1-plan.md](docs/synthesis/v1-plan.md).
 
-```
-Go Charm TUI  ↔  protocol (ACP / stdio / JSON-RPC / session)  ↔  Rust-ish harness
-```
-
-A Go-only Charm stack, a Rust-only stack, or a split with a thin protocol in the middle are all legal. Pick when the architecture sketch hardens, not before the raids are written down.
+Protocol surface, quarry, and features stay negotiable. A second language is not the 1.0 plan.
 
 ### License and ownership
 
@@ -67,6 +63,6 @@ Rock itself is MIT. Copyright 2026 Stephen Horton. Keep the product forkable and
 1. Raid a peer. Write a dissection (`docs/_template.md`).
 2. Promote concrete steal ideas into `docs/synthesis/steal-priorities.md`.
 3. Keep `docs/synthesis/architecture-sketch.md` honest: if a raid changes the shape, update the sketch.
-4. When we start writing application source, implement contracts first (ACP / stdio / JSON / session), then the TUI.
+4. Keep ACP / stdio / JSON / session as first-class contracts. The TUI is a client of the same harness.
 
 Warm engineer prose. Ambitious and concrete. No corporate fluff. No lore about the name.

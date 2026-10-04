@@ -1,6 +1,6 @@
 # Docs
 
-Raid notes and synthesis for Rock. Application source is not here yet.
+Raid notes and synthesis for Rock. Application source lives in `cmd/` and `internal/`. Build the binary with `go build ./cmd/rock`.
 
 Rock is a synthesis CLI. We study peers, write one dissection per tool, then promote concrete ideas into steal priorities and an architecture sketch. See [VISION.md](../VISION.md) and [AGENTS.md](../AGENTS.md).
 
@@ -25,6 +25,7 @@ Crush is FSL-1.1-MIT. Study freely. Do not wholesale-copy while FSL applies.
 |---|---|
 | [steal-priorities.md](synthesis/steal-priorities.md) | Ranked ideas to take into Rock |
 | [architecture-sketch.md](synthesis/architecture-sketch.md) | Negotiable shape: TUI ↔ protocol ↔ harness |
+| [v1-plan.md](synthesis/v1-plan.md) | 1.0 decisions: Go, Jev gates, Suzuri |
 
 ### CLI dissections
 
