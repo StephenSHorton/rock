@@ -22,9 +22,9 @@ export const quarryLook = {
   skyIntensity: 0.74,
   aoIntensity: 2.8,
   aoRadius: 2.1,
-  cameraZoom: 30,
-  cameraAzimuth: 34,
-  cameraElevation: 39,
+  cameraZoom: 38,
+  cameraAzimuth: 32,
+  cameraElevation: 36,
 } satisfies LookPatch
 
 export const clay = {

@@ -1,4 +1,5 @@
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
+import { createReadStream, copyFileSync, existsSync, mkdirSync } from 'node:fs'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { resolve } from 'node:path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
@@ -12,6 +13,26 @@ const aliases = realMokei
       { find: 'mokei/clay', replacement: resolve(__dirname, 'src/compat/clay.tsx') },
       { find: 'mokei/theme', replacement: resolve(__dirname, 'src/compat/theme.ts') },
     ]
+
+function previewNotFound() {
+  return {
+    name: 'preview-not-found',
+    configurePreviewServer(server: { middlewares: { use: (fn: (req: IncomingMessage, res: ServerResponse, next: () => void) => void) => void } }) {
+      return () => {
+        server.middlewares.use((req, res, next) => {
+          if (res.headersSent) return next()
+          const url = req.url?.split('?')[0] ?? ''
+          if (url.includes('/assets/') || /\.\w+$/.test(url)) return next()
+          const file = resolve(__dirname, 'dist/404.html')
+          if (!existsSync(file)) return next()
+          res.statusCode = 404
+          res.setHeader('Content-Type', 'text/html; charset=utf-8')
+          createReadStream(file).pipe(res)
+        })
+      }
+    },
+  }
+}
 
 function copyRootFiles() {
   return {
@@ -27,7 +48,8 @@ function copyRootFiles() {
 
 export default defineConfig({
   base: '/rock/',
-  plugins: [react(), tailwindcss(), copyRootFiles()],
+  appType: 'mpa',
+  plugins: [react(), tailwindcss(), copyRootFiles(), previewNotFound()],
   resolve: { alias: aliases },
   optimizeDeps: {
     exclude: ['mokei'],

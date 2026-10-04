@@ -136,6 +136,9 @@ export function Cliff() {
       <Bench position={[-2.2, 0.55, -3.6]} size={[14, 1.1, 3.2]} color={clay.sand} />
       <Bench position={[1.4, 1.35, -5.1]} size={[10, 1.4, 2.4]} color={clay.sandDeep} />
       <Bench position={[-6.4, 1.9, -4.4]} size={[4.4, 1.6, 2.2]} color={clay.slate} />
+      <Bench position={[6.8, 0.85, -3.2]} size={[5.2, 0.9, 2.0]} color={clay.slatePale} />
+      <SoftBox size={[1.8, 0.7, 1.4]} r={0.14} color={clay.sandHot} position={[-8.6, 0.4, 1.8]} />
+      <SoftBox size={[1.3, 0.5, 1.1]} r={0.12} color={clay.slate} position={[4.8, 0.3, 2.4]} />
       <RoundCyl radius={0.42} height={1.15} fillet={0.12} color={clay.teal} position={[-1.8, 0.72, 2.6]} />
       <RoundCyl radius={0.32} height={0.85} fillet={0.1} color={clay.tealDeep} position={[2.4, 0.52, 2.2]} />
       <RoundCyl radius={0.38} height={1.0} fillet={0.11} color={clay.teal} position={[6.6, 0.62, 2.5]} />

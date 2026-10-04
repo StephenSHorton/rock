@@ -52,8 +52,7 @@ export function Hero() {
   }, [])
 
   return (
-    <section className="relative isolate min-h-[34rem] overflow-hidden bg-[var(--clay-sky)] md:min-h-[42rem] lg:min-h-[48rem]">
-      <h1 className="sr-only">Rock, a Go AI coding CLI</h1>
+    <section className="relative isolate min-h-[34rem] overflow-hidden bg-[var(--clay-sky)] md:min-h-[42rem] lg:min-h-[48rem]" aria-label="Clay quarry diorama">
       <div className="absolute inset-0">
         <StaticQuarry />
       </div>

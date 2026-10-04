@@ -17,10 +17,10 @@ export function App() {
           <p className="mono text-[0.72rem] tracking-[0.16em] uppercase text-[var(--muted)]">
             <span className="text-[var(--primary)]">01</span> coding cli · 1.0
           </p>
-          <p className="mt-3 max-w-3xl text-3xl tracking-tight sm:text-5xl">
+          <h1 className="mt-3 max-w-3xl text-3xl leading-[1.05] sm:text-5xl">
             Go AI coding CLI.
             <span className="block italic text-[var(--primary)]">Charm TUI, ACP, print, permissions.</span>
-          </p>
+          </h1>
           <p className="mt-5 max-w-2xl text-lg text-[var(--ink-2)]">
             Ask it of the repo. A Charm TUI, headless print, ACP on stdio, and a loopback HTTP API share
             one session. Jev judges the bounded calls. With no key, those gates still run, and{' '}

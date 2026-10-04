@@ -82,8 +82,7 @@ html[data-theme='quarry'],
 
 html {
   font-family: "SF Pro Text", "SF Pro Display", Inter, ui-sans-serif, system-ui, sans-serif;
-  font-size: calc(16px * var(--fs, 0.92));
-  letter-spacing: var(--track, -0.012em);
+  font-size: 16px;
   background: var(--background);
   color: var(--foreground);
 }
