@@ -36,7 +36,7 @@ Reference talk: IndyDevDan, [10 Levels of Jev For Agentic Engineers](https://www
 - No user-facing “honest offline” mode. Mid-turn HTTP fallback in `Gates` is not a start path.
 - Test-only stub: `ROCK_TEST_FAKE_JEV` (reject with `0` / `reject` / `fail` / `invalid` / `no`). Never default-on. Optional `ROCK_TEST_FAKE_JEV_DELAY`. Skips when `Client.BaseURL` is set so `httptest` still wins. `visual.sh`, `scripts/demos`, and CI set it.
 
-This slice does **not** add `ask_jev`. Keep Jev client edits small so slice (a) rebases cleanly.
+This slice does **not** add `ask_jev`. Jev client edits stay small (`Ping` + `ROCK_TEST_FAKE_JEV` hook) so later `ask_jev` work keeps rebasing.
 
 **Files.**
 
@@ -61,7 +61,7 @@ This slice does **not** add `ask_jev`. Keep Jev client edits small so slice (a) 
 
 **Scope.** Give the agent one tool that is the Jev primitive: multi-parameter queries, mode chosen per question (`boolean` / `choice` / `score`), a stable result format, and honest runtime errors. Register it on the tool list every client already uses. Retire `jev_decide` in the same PR so there is one name.
 
-Rock refuses to start without a Jev key (parallel PR: TUI onboarding, `rock setup jev`, headless fail-fast). **ask_jev does not implement a key-less user mode.** Do not add one here. A missing client or a failed Decide is a structured error, same as network/timeout/API failure.
+Rock refuses to start without a Jev key (slice (0): TUI onboarding, `rock setup jev`, headless fail-fast). **ask_jev does not implement a key-less user mode.** Do not add one here. A missing client or a failed Decide is a structured error, same as network/timeout/API failure.
 
 This slice does **not** add after-edit hooks, triage, or TUI diamonds. Those are (b), (c), (d). Hard-coded `Gates` stay.
 
