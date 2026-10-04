@@ -241,6 +241,60 @@ func TestAskJevRuntimeErrorTurnContinues(t *testing.T) {
 	}
 }
 
+func TestAskJevAndRiskSameTurn(t *testing.T) {
+	t.Setenv("ROCK_HOME", t.TempDir())
+	dir := t.TempDir()
+	script := &provider.Script{Replies: []provider.Message{
+		{Role: provider.RoleAssistant, ToolCalls: []provider.ToolCall{
+			{ID: "c1", Name: "ask_jev", Arguments: `{"state":"rm -rf /tmp/nope","question":"too risky?","mode":"boolean"}`},
+			{ID: "c2", Name: "shell", Arguments: `{"command":"rm -rf /tmp/nope"}`},
+		}},
+		{Role: provider.RoleAssistant, Content: "stopped"},
+	}}
+	set := tools.New(tools.Env{Root: dir})
+	h := New(Options{
+		Provider:  script,
+		FastModel: "fast",
+		Policy:    perms.Policy{Mode: perms.ModeYolo, Allow: []string{"ask_jev", "shell"}},
+		Gates:     jev.Gates{},
+		Tools:     set,
+		MaxSteps:  6,
+	})
+	set.Env.Ask = func(context.Context, any, []jev.Query) (jev.Result, error) {
+		return jev.Result{
+			Source:  "live",
+			Answers: map[string]jev.Answer{"q": {Mode: jev.ModeBoolean, Value: 0.2}},
+		}, nil
+	}
+	sess, err := session.Create(dir, "ask-risk", "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var askText, riskText string
+	if err := h.Run(context.Background(), sess, "clean", func(ev Event) {
+		if ev.Kind == EvJev && ev.Name == "ask" {
+			askText = ev.Text
+		}
+		if ev.Kind == EvJev && ev.Name == "risk" {
+			riskText = ev.Text
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(askText, "q=0.2") {
+		t.Fatalf("ask %q", askText)
+	}
+	if !strings.Contains(riskText, "block=true") {
+		t.Fatalf("risk %q", riskText)
+	}
+	if strings.Contains(riskText, "q=0.2") {
+		t.Fatalf("risk mixed ask answers: %q", riskText)
+	}
+	if !strings.Contains(toolResult(sess, "shell"), "denied") {
+		t.Fatal(toolResult(sess, "shell"))
+	}
+}
+
 func TestNudgeAfterEditWithoutAskJev(t *testing.T) {
 	t.Setenv("ROCK_HOME", t.TempDir())
 	dir := t.TempDir()

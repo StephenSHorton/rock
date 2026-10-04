@@ -244,6 +244,20 @@ Mode and question on the name/body; source and value on the text. Choice shows t
 
 ## Slice (e) — migrate hard-coded calls onto the same primitive
 
+**Landed.** BeforeTurn, SubagentKind, PlanReady, KeepSnippet/FilterSnippets, and the live half of Risk all go through `Gates.Ask` and `Result.Line()`. Failed Ask sets `error` and leaves values empty. Offline policy is still a local rule, labeled offline — it is not a Jev answer. `jev.enabled = false` forces offline even with a key. `/ready` emits `EvJev` name `ready`.
+
+**Kept hard-coded (Go still calls them; the agent cannot skip):**
+
+| Gate | Why it stayed a Go call |
+|---|---|
+| `Gates.Risk` / `DecideRisk` | Destructive block. Yolo must not bypass. Level 10 does not mean “trust the model to ask.” Shares the Ask encoder; still mandatory from `Run`. |
+| `BeforeTurn` stuck-stop | Load-bearing brake. Re-expressed on Ask, still invoked from `Run`. |
+| `BeforeTurn` model / skill / weight | Same: agent-driven `ask_jev` can ask the same questions, but the turn still needs a model and a stuck check before the first Complete. |
+| `SubagentKind` | Child policy (explore/plan/general) must be set before the child runs. Agent can request a kind; Go still confirms. |
+| `KeepSnippet` / grep filter | Silent keep/drop stays until a later change replaces it with an agent-only filter. Encoder is shared. |
+
+**Moved onto the primitive, still not agent-optional:** PlanReady (`DecideReady` + `EvJev` `ready` on `/ready`).
+
 **Scope.** Where it *makes sense*, run today’s gates through the same `ask_jev` / `Decide` helper slice (a) shipped, so there is one client path, one result shape, one offline sentence. Do not drop safety to look agentic.
 
 **Keep hard-coded (Go still calls them; the model cannot skip):**

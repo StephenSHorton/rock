@@ -105,6 +105,34 @@ func TestNudgeConfigMerge(t *testing.T) {
 	}
 }
 
+func TestEnabledConfig(t *testing.T) {
+	if !Default().Jev.LiveAllowed() {
+		t.Fatal("default on")
+	}
+	off := false
+	if (Jev{Enabled: &off}).LiveAllowed() {
+		t.Fatal("enabled=false")
+	}
+	dir := t.TempDir()
+	t.Setenv("ROCK_CONFIG", filepath.Join(t.TempDir(), "none.toml"))
+	if err := os.MkdirAll(filepath.Join(dir, ".rock"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".rock", "trusted"), []byte("ok\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".rock", "config.toml"), []byte("[jev]\nenabled = false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.File.Jev.LiveAllowed() {
+		t.Fatal("project enabled=false")
+	}
+}
+
 func TestTriageFilterConfig(t *testing.T) {
 	if !Default().Jev.TriageOn() || !Default().Jev.FilterOn() || Default().Jev.ClipSize() != 1500 {
 		t.Fatal("defaults")

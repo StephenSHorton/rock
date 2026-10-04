@@ -31,7 +31,7 @@ type Perms struct {
 }
 
 type Jev struct {
-	Enabled          bool    `toml:"enabled"`
+	Enabled          *bool   `toml:"enabled"`
 	BaseURL          string  `toml:"base_url"`
 	Model            string  `toml:"model"`
 	MinConfidence    float64 `toml:"min_confidence"`
@@ -47,6 +47,14 @@ type Jev struct {
 	Triage    *bool `toml:"triage"`
 	Filter    *bool `toml:"filter"`
 	ClipBytes int   `toml:"clip_bytes"`
+}
+
+// LiveAllowed is false only when jev.enabled is explicitly false.
+func (j Jev) LiveAllowed() bool {
+	if j.Enabled != nil {
+		return *j.Enabled
+	}
+	return true
 }
 
 func (j Jev) TriageOn() bool {
@@ -121,7 +129,7 @@ func Default() File {
 			Allow: []string{"read_file", "grep", "glob", "web_fetch", "ask_jev", "update_plan"},
 			Ask:   []string{"edit_file", "write_file", "shell", "spawn_subagent"},
 		},
-		Jev: Jev{Enabled: true, MinConfidence: 0.55, RiskBlock: 0.72},
+		Jev: Jev{MinConfidence: 0.55, RiskBlock: 0.72},
 	}
 }
 
@@ -231,6 +239,9 @@ func merge(dst *File, src File) {
 	}
 	if src.Jev.NudgeEvery != 0 {
 		dst.Jev.NudgeEvery = src.Jev.NudgeEvery
+	}
+	if src.Jev.Enabled != nil {
+		dst.Jev.Enabled = src.Jev.Enabled
 	}
 	if src.Jev.Triage != nil {
 		dst.Jev.Triage = src.Jev.Triage

@@ -67,6 +67,7 @@ func Open(cwd string) (*App, error) {
 		MinConfidence:    loaded.File.Jev.MinConfidence,
 		RiskBlock:        loaded.File.Jev.RiskBlock,
 		AllowDestructive: loaded.File.Jev.AllowDestructive,
+		ForceOffline:     !loaded.File.Jev.LiveAllowed(),
 	}
 	var model provider.Provider
 	if k := config.APIKey(); k != "" {
@@ -183,6 +184,9 @@ func (a *App) Inspect(w io.Writer) {
 		fmt.Fprintf(w, "strong model: %s\n", a.StrongModel())
 	}
 	fmt.Fprintf(w, "jev: %s\n", a.Gates.Mode())
+	if a.Gates.ForceOffline {
+		fmt.Fprintf(w, "jev.enabled: off\n")
+	}
 	if a.Gates.Mode() == "offline" {
 		fmt.Fprintf(w, "jev key: unset (JEV_API_KEY or TYPESAFE_API_KEY). Gates run a local policy. That policy is not Jev.\n")
 	} else {

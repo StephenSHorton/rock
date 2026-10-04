@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -198,6 +199,67 @@ func decodeAsk(q Query, raw json.RawMessage) Answer {
 		a.Value = n.Noul
 	}
 	return a
+}
+
+// Line is the shared EvJev text. Failed calls show error and no values.
+func (r Result) Line() string {
+	var b strings.Builder
+	if r.Source != "" {
+		b.WriteString(r.Source)
+	} else {
+		b.WriteString("jev")
+	}
+	if r.Error != "" {
+		b.WriteString(" error=")
+		b.WriteString(r.Error)
+	}
+	names := make([]string, 0, len(r.Answers))
+	for name := range r.Answers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		a := r.Answers[name]
+		b.WriteByte(' ')
+		b.WriteString(a.Mode)
+		b.WriteByte(' ')
+		b.WriteString(name)
+		if a.Value != nil && r.Error == "" {
+			b.WriteByte('=')
+			fmt.Fprint(&b, a.Value)
+		} else if a.Detail != "" {
+			b.WriteString(": ")
+			b.WriteString(a.Detail)
+		}
+	}
+	return b.String()
+}
+
+func AnswerString(a Answer) (string, bool) {
+	if a.Value == nil {
+		return "", false
+	}
+	s, ok := a.Value.(string)
+	if !ok {
+		return fmt.Sprint(a.Value), true
+	}
+	return s, true
+}
+
+func AnswerFloat(a Answer) (float64, bool) {
+	if a.Value == nil {
+		return 0, false
+	}
+	switch v := a.Value.(type) {
+	case float64:
+		return v, true
+	case float32:
+		return float64(v), true
+	case int:
+		return float64(v), true
+	default:
+		return 0, false
+	}
 }
 
 func extraReason(raw json.RawMessage) string {
