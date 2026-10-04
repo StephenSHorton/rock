@@ -86,7 +86,7 @@ func (s *Set) Specs() []provider.ToolSpec {
 		{Name: "shell", Description: "Run a shell command in the workspace. Not a sandbox.", Parameters: obj(map[string]any{"command": str("command string")}, []string{"command"})},
 		{Name: "web_fetch", Description: "HTTP GET a URL and return text.", Parameters: obj(map[string]any{"url": str("http(s) URL")}, []string{"url"})},
 		{Name: "update_plan", Description: "Write the session plan. Allowed in plan mode.", Parameters: obj(map[string]any{"content": str("markdown plan")}, []string{"content"})},
-		{Name: "ask_jev", Description: "Ask Jev to classify, verify a fix, filter or triage, or check risk. Batch questions. Do not draft code. Optional paths: Rock reads workspace clips into state — Jev has no filesystem. A failed call returns error and no invented answer.", Parameters: askJevSpec(obj, str)},
+		{Name: "ask_jev", Description: "Ask Jev to classify, verify a fix, filter or triage, or check risk. Batch questions. Do not draft code. Optional paths: Rock reads workspace clips into state — Jev has no filesystem. A failed call returns error and no invented answer.", Parameters: askJevSpec(obj, str), ReadOnly: true, Title: "Ask Jev"},
 		{Name: "spawn_subagent", Description: "Run a depth-1 subagent: explore, plan, or general. Optional git worktree.", Parameters: obj(map[string]any{"prompt": str("task"), "kind": str("explore, plan, or general"), "worktree": map[string]any{"type": "boolean"}}, []string{"prompt"})},
 	}
 	for _, e := range s.extra {
@@ -191,9 +191,6 @@ func (s *Set) Run(ctx context.Context, name, args string) (Outcome, error) {
 		}
 		return Outcome{Output: "updated plan", Mutates: true, Path: "plan.md", Detail: "plan.md"}, nil
 	case "ask_jev":
-		if s.Env.Ask == nil {
-			return Outcome{}, fmt.Errorf("jev is not wired")
-		}
 		state, qs, err := parseAsk(raw)
 		if err != nil {
 			return Outcome{}, err
@@ -211,9 +208,14 @@ func (s *Set) Run(ctx context.Context, name, args string) (Outcome, error) {
 		if err := jev.ValidateQueries(qs); err != nil {
 			return Outcome{}, err
 		}
-		res, err := s.Env.Ask(ctx, state, qs)
-		if err != nil {
-			return Outcome{}, err
+		var res jev.Result
+		if s.Env.Ask == nil {
+			res = jev.Failed(qs, "jev client is not wired")
+		} else {
+			res, err = s.Env.Ask(ctx, state, qs)
+			if err != nil {
+				res = jev.Failed(qs, err.Error())
+			}
 		}
 		if len(clips) > 0 {
 			res = applyClipFilter(res, clips, stats, s.keepAt(), filterFlag(raw))
@@ -222,11 +224,7 @@ func (s *Set) Run(ctx context.Context, name, args string) (Outcome, error) {
 		if err != nil {
 			return Outcome{}, err
 		}
-		detail := "ask"
-		if len(qs) > 0 {
-			detail = strings.TrimSpace(queryMode(qs[0]) + "  " + qs[0].Question)
-		}
-		return Outcome{Output: string(body), Detail: detail, Filter: res.Filter}, nil
+		return Outcome{Output: string(body), Detail: AskDetail(raw), Filter: res.Filter}, nil
 	case "spawn_subagent":
 		if s.Env.Subagent == nil {
 			return Outcome{}, fmt.Errorf("subagents are not wired")

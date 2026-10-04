@@ -455,3 +455,23 @@ func askSummary(raw map[string]any) string {
 	}
 	return strings.TrimSpace(asString(raw["mode"]) + "  " + asString(raw["question"]))
 }
+
+// AskDetail is the permission / display summary for an ask_jev argument blob.
+// Paths-only and empty input still get a title so nothing falls through.
+func AskDetail(raw map[string]any) string {
+	if s := askSummary(raw); s != "" {
+		return s
+	}
+	if raw != nil && raw["paths"] != nil {
+		return "paths"
+	}
+	return "ask"
+}
+
+// Title is the display name for a built-in tool. Unknown names stay as-is.
+func Title(name string) string {
+	if name == "ask_jev" {
+		return "Ask Jev"
+	}
+	return name
+}

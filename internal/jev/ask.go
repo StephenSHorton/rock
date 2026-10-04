@@ -143,11 +143,11 @@ func (g Gates) Ask(ctx context.Context, state any, questions []Query) Result {
 		qs[q.Name] = q.wireQuestion()
 	}
 	if g.Client == nil {
-		return askFailed(questions, "jev client is not wired")
+		return Failed(questions, "jev client is not wired")
 	}
 	res, err := g.Client.Decide(ctx, state, qs)
 	if err != nil {
-		return askFailed(questions, err.Error())
+		return Failed(questions, err.Error())
 	}
 	out := Result{Source: "live", Model: res.Model, Answers: make(map[string]Answer, len(questions))}
 	if res.Usage != nil && (res.Usage.InputTokens != 0 || res.Usage.OutputTokens != 0) {
@@ -164,7 +164,8 @@ func (g Gates) Ask(ctx context.Context, state any, questions []Query) Result {
 	return out
 }
 
-func askFailed(questions []Query, err string) Result {
+// Failed is a Decide failure: error set, every answer has FailedDetail, no values.
+func Failed(questions []Query, err string) Result {
 	out := Result{Error: err, Answers: make(map[string]Answer, len(questions))}
 	for _, q := range questions {
 		out.Answers[q.Name] = Answer{Mode: q.agentMode(), Question: q.Question, Detail: FailedDetail}

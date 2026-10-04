@@ -361,7 +361,7 @@ func detailFor(call provider.ToolCall) string {
 			return s
 		}
 	case "ask_jev":
-		return askCallDetail(raw)
+		return tools.AskDetail(raw)
 	case "spawn_subagent":
 		if s, ok := raw["kind"].(string); ok {
 			return s
@@ -369,20 +369,6 @@ func detailFor(call provider.ToolCall) string {
 		return "general"
 	}
 	return call.Name
-}
-
-func askCallDetail(raw map[string]any) string {
-	if list, ok := raw["questions"].([]any); ok && len(list) > 0 {
-		if m, ok := rawMap(list[0]); ok {
-			return strings.TrimSpace(fmt.Sprint(m["mode"]) + "  " + fmt.Sprint(m["question"]))
-		}
-	}
-	return strings.TrimSpace(fmt.Sprint(raw["mode"]) + "  " + fmt.Sprint(raw["question"]))
-}
-
-func rawMap(v any) (map[string]any, bool) {
-	m, ok := v.(map[string]any)
-	return m, ok
 }
 
 func jevEvent(name string, res jev.Result, extra string) Event {

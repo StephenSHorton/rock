@@ -66,6 +66,23 @@ func TestAskJevAllowedInPlanMode(t *testing.T) {
 	}
 }
 
+func TestAskJevNeverPrompts(t *testing.T) {
+	if Mutates("ask_jev") {
+		t.Fatal("ask_jev is read-only")
+	}
+	for _, mode := range []Mode{ModeDefault, ModePlan} {
+		p := Policy{Mode: mode, Ask: []string{"ask_jev", "*"}}
+		d, why := p.Decide("ask_jev", "boolean  ok?")
+		if d != Allow {
+			t.Fatalf("mode %s prompted: %s %s", mode, d, why)
+		}
+	}
+	p := Policy{Mode: ModeDefault, Deny: []string{"ask_jev"}}
+	if d, _ := p.Decide("ask_jev", "ask"); d != Deny {
+		t.Fatalf("explicit deny should still win: %s", d)
+	}
+}
+
 func TestReviewOnly(t *testing.T) {
 	p := Policy{Mode: ModeYolo, ReviewOnly: true}
 	d, _ := p.Decide("edit_file", "a.go")
