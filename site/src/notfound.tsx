@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { applyTheme } from 'mokei/theme'
+import { applyPagePalette } from './quarry/palette'
 import { StaticQuarry } from './quarry/StaticQuarry'
 import './styles.css'
 
@@ -9,6 +10,7 @@ if (typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platfor
 }
 
 applyTheme('quarry')
+applyPagePalette()
 
 function NotFound() {
   return (

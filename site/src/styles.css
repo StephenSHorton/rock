@@ -17,8 +17,7 @@ body {
   margin: 0;
   min-height: 100vh;
   background:
-    radial-gradient(1200px 600px at 80% -10%, rgba(240, 122, 42, 0.14), transparent 60%),
-    radial-gradient(900px 500px at -10% 20%, rgba(42, 157, 143, 0.1), transparent 55%),
+    radial-gradient(1200px 600px at 80% -10%, rgba(43, 89, 232, 0.08), transparent 60%),
     var(--background);
   color: var(--foreground);
   text-rendering: optimizeLegibility;
@@ -104,7 +103,7 @@ a {
 
 .term-bar .live {
   margin-left: auto;
-  color: #e7a15a;
+  color: #8aa4f2;
 }
 
 .term pre {
@@ -118,10 +117,10 @@ a {
 }
 
 .term .you { color: #f4ece3; }
-.term .rock { color: #e7a15a; }
+.term .rock { color: #8aa4f2; }
 .term .mute { color: #9c8f82; }
-.term .warn { color: #ff7a3c; }
-.term .ok { color: #7ddecc; }
+.term .warn { color: #f2b705; }
+.term .ok { color: #8aa4f2; }
 
 .hud-btn {
   min-width: 2.2rem;
