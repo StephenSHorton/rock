@@ -159,6 +159,127 @@ a {
   border-color: var(--primary);
 }
 
+.tui-frame {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--card);
+  box-shadow: var(--glass-shadow);
+}
+
+.tui-chrome {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.75rem;
+  background: var(--mokei-base);
+  border-bottom: 1px solid var(--border);
+}
+
+.tui-dots {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.tui-dots i {
+  display: block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: var(--mokei-accent-3);
+}
+
+.tui-dots i:nth-child(2) {
+  background: var(--mokei-detail-mid);
+}
+
+.tui-dots i:nth-child(3) {
+  background: var(--mokei-detail-light);
+}
+
+.tui-title {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.tui-tools {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.tui-chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--secondary);
+  color: var(--foreground);
+  padding: 0.2rem 0.55rem;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+}
+
+.tui-chip[aria-pressed='true'] {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: var(--primary);
+}
+
+.tui-screen {
+  background: var(--mokei-base);
+}
+
+.tui-screen-dark {
+  background: #1e2228;
+}
+
+.tui-screen img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.session-line {
+  display: flex;
+  gap: 0.65rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.35rem 0.45rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--term-trim);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.session-line .who {
+  flex: 0 0 2.4rem;
+  color: var(--term-brand);
+}
+
+.session-line.is-done {
+  color: var(--term-fg);
+}
+
+.session-line.is-on {
+  background: rgba(43, 89, 232, 0.22);
+  color: var(--term-fg);
+  outline: 1px solid var(--term-brand);
+}
+
+.session-line.is-on .who {
+  color: var(--term-attention);
+}
+
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   * {

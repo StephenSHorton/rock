@@ -2,6 +2,8 @@ import { useState } from 'react'
 
 const links = [
   { href: '#install', label: 'Install' },
+  { href: '#how', label: 'How' },
+  { href: '#features', label: 'Features' },
   { href: '#cli', label: 'CLI' },
   { href: '#docs', label: 'Docs' },
 ]
