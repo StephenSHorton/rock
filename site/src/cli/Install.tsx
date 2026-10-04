@@ -70,8 +70,8 @@ export function Install() {
           </button>
         ))}
       </div>
-      <div className="glass-panel mt-3 flex flex-col gap-3 rounded-2xl p-4 sm:flex-row sm:items-center">
-        <pre className="m-0 flex-1 overflow-x-auto text-[0.92rem]">
+      <div className="glass-panel mt-3 flex min-w-0 flex-col gap-3 rounded-2xl p-4 sm:flex-row sm:items-center">
+        <pre className="m-0 min-w-0 flex-1 overflow-x-auto text-[0.92rem]">
           <code>{text}</code>
         </pre>
         <button type="button" className="hud-btn bg-[var(--primary)] text-[var(--primary-foreground)]" onClick={copy}>

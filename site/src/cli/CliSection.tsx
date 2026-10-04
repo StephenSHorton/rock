@@ -36,13 +36,13 @@ export function CliSection() {
         were captured from this checkout with no model key set.
       </p>
 
-      <div className="mt-8 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card)]">
+      <div className="cmd-table mt-8 overflow-x-auto rounded-2xl border border-[var(--border)] bg-[var(--card)]">
         <table className="w-full text-left">
           <caption className="sr-only">Commands and what they do</caption>
           <tbody>
             {commands.map((row) => (
               <tr key={row.cmd} className="border-t border-[var(--border)] first:border-t-0">
-                <th scope="row" className="w-[42%] px-4 py-3 align-top mono text-[0.92rem] font-normal">
+                <th scope="row" className="w-[42%] min-w-0 px-4 py-3 align-top mono text-[0.92rem] font-normal">
                   <code>{row.cmd}</code>
                 </th>
                 <td className="px-4 py-3 text-[var(--ink-2)]">{row.detail}</td>
@@ -67,7 +67,7 @@ export function CliSection() {
             </button>
           ))}
         </div>
-        <div className="term mt-3">
+        <div className="term mt-3 min-w-0 max-w-full">
           <div className="term-bar">
             <span>{samples.find((s) => s.id === sample)?.label}</span>
             <span className="live">captured</span>
@@ -88,9 +88,9 @@ export function CliSection() {
           </p>
           <ul className="mt-4 space-y-2">
             {slash.map((row) => (
-              <li key={row.cmd} className="flex gap-3">
-                <code className="min-w-28 text-[var(--primary)]">{row.cmd}</code>
-                <span className="text-[var(--ink-2)]">{row.detail}</span>
+              <li key={row.cmd} className="flex min-w-0 gap-3">
+                <code className="min-w-28 shrink-0 text-[var(--primary)]">{row.cmd}</code>
+                <span className="min-w-0 text-[var(--ink-2)]">{row.detail}</span>
               </li>
             ))}
           </ul>

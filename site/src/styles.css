@@ -28,6 +28,24 @@ pre {
   letter-spacing: 0;
 }
 
+/* Inline tokens wrap. Pre/term boxes scroll inside themselves. */
+:not(pre) > code {
+  overflow-wrap: anywhere;
+}
+
+#install pre,
+#cli .term,
+#cli .term pre,
+#cli .cmd-table {
+  min-width: 0;
+  max-width: 100%;
+}
+
+#cli .cmd-table table {
+  table-layout: fixed;
+  width: 100%;
+}
+
 a {
   color: inherit;
 }
