@@ -318,19 +318,19 @@ func (m *Model) applyTheme(dark bool) {
 		l.Styles.InactivePaginationDot = m.th.faint.SetString("·")
 		l.Styles.NoItems = m.th.faint
 	}
-	hot, copper := m.th.hot, m.th.copper
+	warn, trim := m.th.attention, m.th.trim
 	m.meter = progress.New(
 		progress.WithWidth(m.meter.Width()),
 		progress.WithoutPercentage(),
 		progress.WithFillCharacters('━', '─'),
 		progress.WithColorFunc(func(total, _ float64) color.Color {
 			if total >= 0.8 {
-				return hot
+				return warn
 			}
-			return copper
+			return trim
 		}),
 	)
-	m.meter.EmptyColor = m.th.mute
+	m.meter.EmptyColor = m.th.muted
 	m.md = map[int]*glamour.TermRenderer{}
 	m.contentW, m.planW = 0, 0
 }

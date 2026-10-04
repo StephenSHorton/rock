@@ -3,7 +3,7 @@
 # inside xterm and keys go in through tmux send-keys: xdotool type into a
 # fresh xterm leaks the terminal's bracketed-paste replies into the composer.
 #
-#   visual.sh up 140 36 [bg fg]   xterm + tmux at 140x36 (default: Rock ground)
+#   visual.sh up 140 36 [bg fg]   xterm + tmux at 140x36 (default: Rock panel)
 #   visual.sh llm                 build and start stubllm on 127.0.0.1:18080
 #   visual.sh offline             rock with no model key (offline provider)
 #   visual.sh stub                rock against stubllm in a fresh workspace
@@ -45,7 +45,7 @@ cell() {
 }
 
 up() {
-	local cols=${1:-140} rows=${2:-36} bg=${3:-#0c0b0a} fg=${4:-#f4ece3}
+	local cols=${1:-140} rows=${2:-36} bg=${3:-#1E2228} fg=${4:-#ECEAE4}
 	mkdir -p "$WORK/project" "$ART"
 	cat >"$WORK/tmux.conf" <<-'EOF'
 		set -g default-terminal "tmux-256color"
@@ -58,7 +58,7 @@ up() {
 	t kill-server 2>/dev/null || true
 	env -u NO_COLOR tmux -L "$SOCK" -f "$WORK/tmux.conf" new-session -d -s rock -x "$cols" -y "$rows" -c "$WORK/project"
 	xterm -b 0 -geometry "${cols}x${rows}+16+16" -fa 'JetBrains Mono' -fs 12 \
-		-bg "$bg" -fg "$fg" -cr '#e7a15a' -T "$TITLE" -n "$TITLE" \
+		-bg "$bg" -fg "$fg" -cr '#7A9BFF' -T "$TITLE" -n "$TITLE" \
 		-e tmux -L "$SOCK" -f "$WORK/tmux.conf" attach -t rock >/dev/null 2>&1 &
 	for _ in $(seq 50); do
 		[ -n "$(wid)" ] && break

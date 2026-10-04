@@ -233,7 +233,7 @@ func (m *Model) scrollbarFor(vp *viewport.Model, h int) []string {
 	if maxOff := total - h; maxOff > 0 {
 		pos = int(math.Round(float64(vp.YOffset()) / float64(maxOff) * float64(h-thumb)))
 	}
-	track := lipgloss.NewStyle().Foreground(mix(m.th.ground, m.th.mute, 0.45))
+	track := lipgloss.NewStyle().Foreground(mix(m.th.panel, m.th.muted, 0.45))
 	for i := range bar {
 		if i >= pos && i < pos+thumb {
 			bar[i] = m.th.thumb.Render("┃")
@@ -355,7 +355,7 @@ func (m *Model) helpText(w int) string {
 		for _, r := range rows {
 			keyW = max(keyW, ansi.StringWidth(r[0]))
 		}
-		out := []string{t.strong.Render(title)}
+		out := []string{t.accentBold.Render(title)}
 		descW := max(8, width-keyW-2)
 		for _, r := range rows {
 			desc := strings.Split(wrapText(r[1], descW), "\n")
@@ -364,7 +364,7 @@ func (m *Model) helpText(w int) string {
 				if i == 0 {
 					k = padRight(r[0], keyW)
 				}
-				out = append(out, t.accent.Render(k)+"  "+t.plain.Render(d))
+				out = append(out, t.chrome.Render(k)+"  "+t.plain.Render(d))
 			}
 		}
 		return strings.Join(out, "\n")
@@ -457,8 +457,8 @@ func (m *Model) preview(tool, detail string, w int) []string {
 	case "edit_file":
 		out = append(out, field("path", str("path")))
 		if args != nil {
-			out = append(out, snippet("- ", str("old"), t.alarm, 6)...)
-			out = append(out, snippet("+ ", str("new"), t.accent, 6)...)
+			out = append(out, snippet("- ", str("old"), t.minus, 6)...)
+			out = append(out, snippet("+ ", str("new"), t.plus, 6)...)
 		}
 	case "write_file":
 		out = append(out, field("path", str("path")))
@@ -487,11 +487,7 @@ func (m *Model) statusView() string {
 	if m.deps.ReviewOnly {
 		badges += " " + t.badgeReview.Render("REVIEW")
 	}
-	jevStyle := t.faint
-	if m.deps.JevMode == "live" {
-		jevStyle = t.accent
-	}
-	jevSeg := jevStyle.Render("jev:" + m.deps.JevMode)
+	jevSeg := t.chrome.Render("jev:" + m.deps.JevMode)
 
 	name := m.deps.FastModel
 	if m.turnModel != "" {
@@ -511,11 +507,11 @@ func (m *Model) statusView() string {
 	}
 
 	build := func(barW int, withNote bool) string {
-		model := t.faint.Render("◆ ") + t.plain.Render(name)
+		model := t.chrome.Render("◆ ") + t.plain.Render(name)
 		if withNote {
 			model += t.faint.Render(note)
 		}
-		ctx := t.faint.Render("ctx ")
+		ctx := t.chrome.Render("ctx ")
 		if barW > 0 {
 			meter := m.meter
 			meter.SetWidth(barW)
@@ -543,6 +539,8 @@ func (m *Model) statusView() string {
 	status := sanitize(m.status)
 	statusStyle := t.faint
 	if m.alert {
+		statusStyle = t.danger
+	} else if m.busy {
 		statusStyle = t.alarm
 	}
 	right := ""
@@ -624,20 +622,20 @@ func (m *Model) renderLine(ln line, width int) string {
 	case "assistant":
 		return speak(t.rock.Render(padRight("rock", gutter)), m.markdown(text, bodyW))
 	case "error":
-		return speak(t.alarmBold.Render(padRight("error", gutter)), t.alarm.Render(wrapText(text, bodyW)))
+		return speak(t.dangerBold.Render(padRight("error", gutter)), t.danger.Render(wrapText(text, bodyW)))
 	case "tool":
-		return eventRow(t.accent.Render("▸ ")+t.strong.Render(ln.name), toolSummary(ln.name, ln.text), t.faint, bodyW)
+		return eventRow(t.chrome.Render("▸ ")+t.strong.Render(ln.name), toolSummary(ln.name, ln.text), t.faint, bodyW)
 	case "result":
-		mark, st := t.accent.Render("✓ "), t.faint
+		mark, st := t.chrome.Render("✓ "), t.faint
 		if strings.HasPrefix(text, "denied") {
-			mark, st = t.alarm.Render("✗ "), t.alarm
+			mark, st = t.danger.Render("✗ "), t.danger
 		}
 		return eventRow(mark+t.plain.Render(ln.name), resultSummary(text), st, bodyW)
 	case "permission":
 		decision, why, _ := strings.Cut(text, ":")
-		st := t.accent
+		st := t.chrome
 		if decision == string(perms.Deny) {
-			st = t.alarm
+			st = t.danger
 		}
 		return eventRow(st.Render("⚑ ")+t.plain.Render(ln.name)+"  "+st.Render(decision), strings.TrimSpace(why), t.faint, bodyW)
 	case "jev":
@@ -793,11 +791,11 @@ func (d rowDelegate) Render(w io.Writer, l list.Model, index int, item list.Item
 func tagStyle(t *theme, tag string) lipgloss.Style {
 	switch tag {
 	case "allow":
-		return t.accent
+		return t.chrome
 	case "deny":
-		return t.alarm
+		return t.danger
 	case "mode":
-		return t.accentBold
+		return t.strong
 	default:
 		return t.strong
 	}
