@@ -14,7 +14,7 @@ A coding agent with a Charm TUI, a headless print mode, ACP on stdio, and a loop
 - **Raid notes** — per-tool dissections of peers (Grok Build, Crush, OpenCode, Aider, Goose, Pi, Codex CLI, Claude Code public docs).
 - **Synthesis** — steal priorities and an architecture sketch.
 
-Nothing here is sacred. Language split, protocol surface, and which quarry we lean on are all on the table. Do not price the work in pre-AI years.
+Language is Go only. See [docs/synthesis/v1-plan.md](docs/synthesis/v1-plan.md). Protocol surface, quarry, and features stay negotiable. Do not price the work in pre-AI years.
 
 ## Navigate
 
@@ -25,6 +25,7 @@ Nothing here is sacred. Language split, protocol surface, and which quarry we le
 | [docs/README.md](docs/README.md) | Raid process, index of CLI notes, how to add a new dissection. |
 | [docs/synthesis/steal-priorities.md](docs/synthesis/steal-priorities.md) | Ranked ideas to take into Rock. |
 | [docs/synthesis/architecture-sketch.md](docs/synthesis/architecture-sketch.md) | Negotiable shape: Charm TUI ↔ protocol ↔ harness. |
+| [docs/synthesis/v1-plan.md](docs/synthesis/v1-plan.md) | 1.0 decisions: Go only, Jev gates, Suzuri. |
 
 Per-tool pages live under [`docs/clis/`](docs/clis/). The page template is [`docs/_template.md`](docs/_template.md).
 
@@ -54,7 +55,9 @@ curl -fsSL https://stephenshorton.github.io/rock/install.sh | bash
 
 Windows PowerShell: `irm https://stephenshorton.github.io/rock/install.ps1 | iex`
 
-Both need Go 1.27 or newer and install the current 1.0 build. Pushes that touch the site publish through GitHub Actions. The repo setting **Pages → GitHub Actions** has to be on once; the app token used from this environment cannot create the Pages site.
+Both need Go 1.27 or newer and install from `main` with `go install github.com/StephenSHorton/rock/cmd/rock@main`. The live site is served from [StephenSHorton/StephenSHorton.github.io](https://github.com/StephenSHorton/StephenSHorton.github.io/tree/main/rock); Pages is not enabled on this repo.
+
+Cloud agents can run the `rock-docs` reader on port 4173 to serve the tree as HTML and link-check the docs. Build the product binary with `go build ./cmd/rock`.
 
 Set `ROCK_API_KEY` (or `OPENAI_API_KEY`) and `ROCK_BASE_URL` for a real model. Set `TYPESAFE_API_KEY` or `JEV_API_KEY` for live Jev decisions. Without those keys the binary still runs: offline provider, offline gates, and `inspect` says so. Suzuri can set `ROCK_SESSION_TITLE` when it launches a pane.
 

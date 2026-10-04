@@ -1,6 +1,6 @@
 # Docs
 
-Raid notes and synthesis for Rock. Application source is not here yet.
+Raid notes and synthesis for Rock. Application source lives in `cmd/` and `internal/`. Build the binary with `go build ./cmd/rock`.
 
 Rock is a synthesis CLI. We study peers, write one dissection per tool, then promote concrete ideas into steal priorities and an architecture sketch. See [VISION.md](../VISION.md) and [AGENTS.md](../AGENTS.md).
 

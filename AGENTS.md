@@ -11,7 +11,7 @@ Read [VISION.md](VISION.md) before changing direction. Read [docs/README.md](doc
 - Warm engineer prose. Ambitious and concrete. No corporate fluff.
 - Do not explain or joke about the name.
 - Do not price work in pre-AI years or constrain ambition with human-only calendars.
-- Nothing is sacred: language split, protocol, quarry, and features are all negotiable.
+- Language is Go only. See [docs/synthesis/v1-plan.md](docs/synthesis/v1-plan.md). Protocol, quarry, and features stay negotiable.
 - Rock is a synthesis, not a soft-fork forever of Crush, Grok Build, or anyone else.
 - Crush is FSL-1.1-MIT. Study freely. Do not wholesale-copy Crush while FSL applies. Prefer Charm libraries.
 - Prefer Grok Build as quarry + upstream radar. Preferred, not destiny.
@@ -28,18 +28,27 @@ docs/README.md            raid process + index
 docs/_template.md         dissection skeleton
 docs/clis/<tool>.md       one page per peer
 docs/synthesis/           steal priorities + architecture sketch
-site/                     GitHub Pages, static, dark ground and copper type
-.github/workflows/pages.yml
+site/                     static public page (dark ground, copper type)
+.github/workflows/ci.yml  build, vet, race tests
 ```
 
-Application source lives in `cmd/` and `internal/`. Do not sneak crates or modules into `docs/`. The public page is `site/`, not a second app.
+Application source lives in `cmd/` and `internal/`. Do not sneak crates or modules into `docs/`. The public page is `site/`, not a second app. The live site is served from `StephenSHorton/StephenSHorton.github.io/rock`.
 
 ```
 cmd/rock/                 binary
 internal/                 harness, TUI, protocol, Jev, Suzuri OSC
 ```
 
-Build with Go 1.27 (Charm v2). `go test ./...` is the check. `rock inspect` prints what the process actually loaded.
+Build the binary with `go build ./cmd/rock` (Go 1.27, Charm v2). `go test ./...` is the check. `rock inspect` prints what the process actually loaded.
+
+## Cloud agent environment
+
+Cloud agents can run the `rock-docs` reader (installed by the environment, not this repo) to serve and link-check the docs:
+
+- `rock-docs` serves the repository as HTML on port 4173. `/` is `README.md`. `/health` answers `ok`.
+- `rock-docs --check` resolves every in-repo markdown link and confirms each `docs/clis/*.md` page still has the template headings. A missing link or heading exits non-zero.
+
+The product binary is `rock`. Build it with `go build ./cmd/rock`.
 
 ## How to add a CLI dissection
 
@@ -57,11 +66,10 @@ Slug style: lowercase, hyphenated, matches the binary or well-known name (`grok-
 - Separate facts about a peer from opinions about what Rock should take.
 - Keep peer license notes accurate (Crush FSL, Grok/Aider/Goose/Codex Apache-2.0, OpenCode/Pi MIT, Claude Code proprietary).
 - Update steal priorities when a raid changes the ranking.
-- Treat ACP / stdio / JSON-RPC / session as first-class contracts when we start coding.
+- Treat ACP / stdio / JSON-RPC / session as first-class contracts.
 
 ## Don’t
 
-- Don’t add application source in this phase unless the owner explicitly asks.
 - Don’t fork Crush or Grok Build “for now” and promise to diverge later.
 - Don’t copy Crush wholesale while FSL applies.
 - Don’t fetch, quote, or reconstruct Claude Code leak dumps.

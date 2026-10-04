@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -21,6 +22,9 @@ import (
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			os.Exit(0)
+		}
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -109,6 +113,9 @@ func root(args []string) error {
 	cwd := fs.String("cwd", "", "workspace")
 	fs.Usage = func() { fmt.Fprint(fs.Output(), usage) }
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 	rest := strings.TrimSpace(strings.Join(fs.Args(), " "))
@@ -227,6 +234,9 @@ func serveCmd(args []string) error {
 	addr := fs.String("addr", "127.0.0.1:8787", "loopback listen address")
 	cwd := fs.String("cwd", "", "workspace")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 	dir := *cwd
@@ -253,6 +263,9 @@ func acpCmd(args []string) error {
 	fs.SetOutput(os.Stderr)
 	cwd := fs.String("cwd", "", "workspace")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 	dir := *cwd
@@ -282,6 +295,9 @@ func forkCmd(args []string) error {
 	title := fs.String("title", "", "pane title")
 	cwd := fs.String("cwd", "", "workspace")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 	seq, err := cli.ForkSequence(*fresh, *id, *prompt, *title, *cwd)
