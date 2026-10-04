@@ -9,6 +9,9 @@ import (
 )
 
 // Agent-facing modes. boolean is noul on the wire — Jev has no boolean type.
+// The noul float is P(yes): the calibrated probability that the answer to
+// the question is yes (https://jevtypesafeai.com/jev/noul). Display may
+// say "yes"/"no"; the value itself stays the raw float.
 const (
 	ModeBoolean = "boolean"
 	ModeChoice  = "choice"

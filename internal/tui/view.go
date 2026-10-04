@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -962,7 +963,7 @@ func (m *Model) renderJev(ln line, width int, selected bool) string {
 			label += " · " + q.question
 		}
 		rows = append(rows, t.plain.Render(wrapText(label, inner)))
-		ans := q.answer
+		ans := formatJevAnswer(q)
 		if ans == "" && errText != "" {
 			ans = errText
 		}
@@ -971,10 +972,47 @@ func (m *Model) renderJev(ln line, width int, selected bool) string {
 			st = t.danger
 		}
 		if ans != "" {
-			rows = append(rows, st.Render(wrapText(ans, inner)))
+			rows = append(rows, m.jevAnswerRow(ans, st, inner))
 		}
 	}
 	return m.markBlock(strings.Join(rows, "\n"), width, selected, false)
+}
+
+// jevAnswerRow hangs the answer under its question with a dim gutter.
+func (m *Model) jevAnswerRow(ans string, st lipgloss.Style, inner int) string {
+	t := m.th
+	const gutter, cont = "  └ ", "    "
+	body := wrapText(ans, max(1, inner-len(gutter)))
+	lines := strings.Split(body, "\n")
+	for i := range lines {
+		lead := gutter
+		if i > 0 {
+			lead = cont
+		}
+		lines[i] = t.chrome.Render(lead) + st.Render(lines[i])
+	}
+	return strings.Join(lines, "\n")
+}
+
+// formatJevAnswer is display-only. Jev noul is P(yes): the calibrated
+// probability that the answer is yes (https://jevtypesafeai.com/jev/noul).
+// Rock's gates already treat a high noul as yes to the question. The tool
+// JSON returned to the model keeps the raw float unchanged.
+func formatJevAnswer(q jevPaint) string {
+	ans := q.answer
+	if q.failed || q.mode != "boolean" {
+		return ans
+	}
+	raw := strings.TrimSpace(ans)
+	n, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return ans
+	}
+	word := "no"
+	if n >= 0.5 {
+		word = "yes"
+	}
+	return word + " " + raw
 }
 
 type jevPaint struct {

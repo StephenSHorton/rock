@@ -1196,12 +1196,31 @@ func TestArrowKeysFoldTheSelectedBlock(t *testing.T) {
 	}
 }
 
+func TestFormatJevAnswerBooleanIsPYes(t *testing.T) {
+	cases := []struct {
+		q    jevPaint
+		want string
+	}{
+		{jevPaint{mode: "boolean", answer: "0.88"}, "yes 0.88"},
+		{jevPaint{mode: "boolean", answer: "0.5"}, "yes 0.5"},
+		{jevPaint{mode: "boolean", answer: "0.12"}, "no 0.12"},
+		{jevPaint{mode: "boolean", answer: "Jev returned no answer", failed: true}, "Jev returned no answer"},
+		{jevPaint{mode: "choice", answer: "other 0.90"}, "other 0.90"},
+	}
+	for _, tc := range cases {
+		if got := formatJevAnswer(tc.q); got != tc.want {
+			t.Fatalf("%+v: got %q want %q", tc.q, got, tc.want)
+		}
+	}
+}
+
 func TestAskJevTranscriptModesBatchAndFailure(t *testing.T) {
 	m := sized(t, 100, 30)
 	res := jev.Result{
 		Source: "live",
 		Answers: map[string]jev.Answer{
 			"resolved": {Mode: jev.ModeBoolean, Question: "Is the rounding failure gone?", Value: 0.91},
+			"stale":    {Mode: jev.ModeBoolean, Question: "Is this still broken?", Value: 0.12},
 			"kind":     {Mode: jev.ModeChoice, Question: "What kind of failure?", Value: "round", Confidence: 0.8},
 			"risk":     {Mode: jev.ModeScore, Question: "How risky is this change?", Value: 1.2, Legend: map[string]string{"1": "caution"}},
 			"fail":     {Mode: jev.ModeBoolean, Question: "Did this reach a dead endpoint?", Detail: "Jev returned no answer"},
@@ -1219,13 +1238,15 @@ func TestAskJevTranscriptModesBatchAndFailure(t *testing.T) {
 	}
 	for _, want := range []string{
 		"resolved · boolean · Is the rounding failure gone?",
-		"0.91",
+		"└ yes 0.91",
+		"stale · boolean · Is this still broken?",
+		"└ no 0.12",
 		"kind · choice · What kind of failure?",
-		"round 0.80",
+		"└ round 0.80",
 		"risk · score · How risky is this change?",
-		"1.2 caution",
+		"└ 1.2 caution",
 		"fail · boolean · Did this reach a dead endpoint?",
-		"Jev returned no answer",
+		"└ Jev returned no answer",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q:\n%s", want, got)
@@ -1272,7 +1293,7 @@ func TestAskJevVisibilityRules(t *testing.T) {
 	if !strings.Contains(got, "◇ jev ready") || !strings.Contains(got, "plan looks good") {
 		t.Fatalf("/ready must stay visible:\n%s", got)
 	}
-	if !strings.Contains(got, "◇ jev ask") || !strings.Contains(got, "Is it gone?") || !strings.Contains(got, "0.4") {
+	if !strings.Contains(got, "◇ jev ask") || !strings.Contains(got, "Is it gone?") || !strings.Contains(got, "no 0.4") {
 		t.Fatalf("agent ask_jev must stay visible:\n%s", got)
 	}
 
