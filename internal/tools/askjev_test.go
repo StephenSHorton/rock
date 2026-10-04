@@ -142,6 +142,38 @@ func TestAskJevEachModeAgainstFake(t *testing.T) {
 	}
 }
 
+func TestAskJevToolResultKeepsRawBooleanFloat(t *testing.T) {
+	set := New(Env{Root: t.TempDir(), Ask: fakeAsk(func(any, []jev.Query) jev.Result {
+		return jev.Result{
+			Source: "live",
+			Answers: map[string]jev.Answer{
+				"resolved": {Mode: jev.ModeBoolean, Question: "gone?", Value: 0.88},
+				"open":     {Mode: jev.ModeBoolean, Question: "still broken?", Value: 0.12},
+			},
+		}
+	})})
+	out, err := set.Run(context.Background(), "ask_jev", `{
+		"state":"rounding",
+		"questions":[
+			{"name":"resolved","question":"gone?","mode":"boolean"},
+			{"name":"open","question":"still broken?","mode":"boolean"}
+		]
+	}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var res jev.Result
+	if err := json.Unmarshal([]byte(out.Output), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Answers["resolved"].Value != 0.88 || res.Answers["open"].Value != 0.12 {
+		t.Fatalf("tool result must keep the raw noul float: %#v", res.Answers)
+	}
+	if strings.Contains(out.Output, "yes") || strings.Contains(out.Output, "no 0") {
+		t.Fatalf("yes/no display must not leak into the tool JSON:\n%s", out.Output)
+	}
+}
+
 func TestAskJevRuntimeErrorIsStructured(t *testing.T) {
 	set := New(Env{Root: t.TempDir(), Ask: fakeAsk(func(any, []jev.Query) jev.Result {
 		return jev.Result{
