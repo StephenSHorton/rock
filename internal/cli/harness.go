@@ -24,6 +24,7 @@ func (a *App) harness(set *tools.Set, ask harness.AskFunc) *harness.Harness {
 		MaxSteps:    a.Loaded.File.MaxSteps,
 		Checkpoint:  a.Checkpoint,
 		Ask:         ask,
+		NudgeEvery:  a.Loaded.File.Jev.NudgeInterval(),
 	})
 }
 

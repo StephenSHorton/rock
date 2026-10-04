@@ -189,6 +189,11 @@ func (a *App) Inspect(w io.Writer) {
 		_, src := config.JevKey()
 		fmt.Fprintf(w, "jev key: %s\n", src)
 	}
+	if n := a.Loaded.File.Jev.NudgeInterval(); n < 0 {
+		fmt.Fprintf(w, "jev.nudge: off\n")
+	} else {
+		fmt.Fprintf(w, "jev.nudge: every %d\n", n)
+	}
 	fmt.Fprintf(w, "git.checkpoint: %v\n", a.Checkpoint)
 	fmt.Fprintf(w, "allow: %s\n", strings.Join(a.Policy().Allow, ", "))
 	fmt.Fprintf(w, "ask: %s\n", strings.Join(a.Policy().Ask, ", "))

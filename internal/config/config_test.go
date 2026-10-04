@@ -52,3 +52,55 @@ func TestProjectAllowWaitsOnTrust(t *testing.T) {
 		t.Fatalf("allow %#v", got.Policy.Allow)
 	}
 }
+
+func TestNudgeInterval(t *testing.T) {
+	if Default().Jev.NudgeInterval() != 2 {
+		t.Fatalf("default %d", Default().Jev.NudgeInterval())
+	}
+	off := false
+	if (Jev{Nudge: &off}).NudgeInterval() != -1 {
+		t.Fatal("nudge=false")
+	}
+	if (Jev{NudgeEvery: -1}).NudgeInterval() != -1 {
+		t.Fatal("nudge_every=-1")
+	}
+	if (Jev{NudgeEvery: 4}).NudgeInterval() != 4 {
+		t.Fatal("nudge_every=4")
+	}
+	on := true
+	if (Jev{Nudge: &on, NudgeEvery: 3}).NudgeInterval() != 3 {
+		t.Fatal("nudge=true keeps every")
+	}
+}
+
+func TestNudgeConfigMerge(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("ROCK_CONFIG", filepath.Join(t.TempDir(), "none.toml"))
+	if err := os.MkdirAll(filepath.Join(dir, ".rock"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".rock", "trusted"), []byte("ok\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".rock", "config.toml"), []byte("[jev]\nnudge = false\nnudge_every = 5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.File.Jev.NudgeInterval() != -1 {
+		t.Fatalf("false wins over every: %d", got.File.Jev.NudgeInterval())
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, ".rock", "config.toml"), []byte("[jev]\nnudge_every = 5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err = Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.File.Jev.NudgeInterval() != 5 {
+		t.Fatalf("every 5: %d", got.File.Jev.NudgeInterval())
+	}
+}

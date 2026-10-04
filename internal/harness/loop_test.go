@@ -240,6 +240,364 @@ func TestAskJevRuntimeErrorTurnContinues(t *testing.T) {
 	}
 }
 
+func TestNudgeAfterEditWithoutAskJev(t *testing.T) {
+	t.Setenv("ROCK_HOME", t.TempDir())
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hello world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := &provider.Script{Replies: []provider.Message{
+		{Role: provider.RoleAssistant, ToolCalls: []provider.ToolCall{{ID: "c1", Name: "edit_file", Arguments: `{"path":"a.txt","old":"world","new":"rock"}`}}},
+		{Role: provider.RoleAssistant, Content: "renamed the greeting"},
+	}}
+	cap := &captureProvider{Script: script}
+	var asks int
+	set := tools.New(tools.Env{Root: dir, PlanPath: filepath.Join(dir, "plan.md")})
+	h := New(Options{
+		Provider:  cap,
+		FastModel: "fast",
+		Policy:    perms.Policy{Mode: perms.ModeYolo, Allow: []string{"edit_file"}},
+		Gates:     jev.Gates{},
+		Tools:     set,
+		MaxSteps:  4,
+	})
+	set.Env.Ask = func(context.Context, any, []jev.Query) (jev.Result, error) {
+		asks++
+		return jev.Result{Error: "should not run"}, nil
+	}
+	sess, err := session.Create(dir, "nudge-edit", "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Run(context.Background(), sess, "change world to rock", nil); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if string(got) != "hello rock" {
+		t.Fatal(string(got))
+	}
+	if asks != 0 {
+		t.Fatalf("ask_jev ran %d times", asks)
+	}
+	edit := toolResult(sess, "edit_file")
+	if !strings.Contains(edit, "edited a.txt") || !strings.Contains(edit, nudgeEditHint) {
+		t.Fatalf("edit result %q", edit)
+	}
+	if !sawHintOnComplete(cap.seen, nudgeEditHint) {
+		t.Fatal("nudge missing from the next complete")
+	}
+	if !strings.Contains(h.system("fix", nil), "You decide whether to call it") {
+		t.Fatal(h.system("fix", nil))
+	}
+}
+
+func TestNudgeThenAskJev(t *testing.T) {
+	t.Setenv("ROCK_HOME", t.TempDir())
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("broken"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := &provider.Script{Replies: []provider.Message{
+		{Role: provider.RoleAssistant, ToolCalls: []provider.ToolCall{{ID: "c1", Name: "edit_file", Arguments: `{"path":"a.txt","old":"broken","new":"fixed"}`}}},
+		{Role: provider.RoleAssistant, ToolCalls: []provider.ToolCall{{ID: "c2", Name: "ask_jev", Arguments: `{"state":"edited a.txt broken→fixed","question":"is the failure type resolved?","mode":"boolean"}`}}},
+		{Role: provider.RoleAssistant, Content: "verified"},
+	}}
+	cap := &captureProvider{Script: script}
+	var asks int
+	set := tools.New(tools.Env{Root: dir})
+	h := New(Options{
+		Provider:  cap,
+		FastModel: "fast",
+		Policy:    perms.Policy{Mode: perms.ModeYolo, Allow: []string{"edit_file", "ask_jev"}},
+		Gates:     jev.Gates{},
+		Tools:     set,
+		MaxSteps:  6,
+	})
+	set.Env.Ask = func(_ context.Context, _ any, qs []jev.Query) (jev.Result, error) {
+		asks++
+		return jev.Result{
+			Source: "live",
+			Model:  "fake",
+			Answers: map[string]jev.Answer{
+				"q": {Mode: jev.ModeBoolean, Value: 0.88},
+			},
+		}, nil
+	}
+	sess, err := session.Create(dir, "nudge-ask", "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Run(context.Background(), sess, "fix it", nil); err != nil {
+		t.Fatal(err)
+	}
+	if asks != 1 {
+		t.Fatalf("ask_jev calls %d", asks)
+	}
+	if !strings.Contains(toolResult(sess, "edit_file"), nudgeEditHint) {
+		t.Fatal(toolResult(sess, "edit_file"))
+	}
+	var res jev.Result
+	if err := json.Unmarshal([]byte(toolResult(sess, "ask_jev")), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Error != "" || res.Answers["q"].Value != 0.88 {
+		t.Fatalf("%#v", res)
+	}
+	if !sawHintOnComplete(cap.seen, `"value":0.88`) && !sawHintOnComplete(cap.seen, `"value": 0.88`) {
+		// The model must see the ask_jev payload on the complete after it.
+		found := false
+		for _, msgs := range cap.seen {
+			blob := messagesBlob(msgs)
+			if strings.Contains(blob, "0.88") && strings.Contains(blob, "ask_jev") {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("ask_jev result not on a later complete: %#v", cap.seen)
+		}
+	}
+	if sess.LastAssistant() != "verified" {
+		t.Fatal(sess.LastAssistant())
+	}
+}
+
+func TestNudgeDoesNotBypassRisk(t *testing.T) {
+	t.Setenv("ROCK_HOME", t.TempDir())
+	dir := t.TempDir()
+	script := &provider.Script{Replies: []provider.Message{
+		{Role: provider.RoleAssistant, ToolCalls: []provider.ToolCall{{ID: "c1", Name: "ask_jev", Arguments: `{"state":"rm -rf /tmp/nope","question":"too risky?","mode":"boolean"}`}}},
+		{Role: provider.RoleAssistant, ToolCalls: []provider.ToolCall{{ID: "c2", Name: "shell", Arguments: `{"command":"rm -rf /tmp/nope"}`}}},
+		{Role: provider.RoleAssistant, Content: "stopped"},
+	}}
+	set := tools.New(tools.Env{Root: dir})
+	h := New(Options{
+		Provider:  script,
+		FastModel: "fast",
+		Policy:    perms.Policy{Mode: perms.ModeYolo, Allow: []string{"ask_jev", "shell"}},
+		Gates:     jev.Gates{},
+		Tools:     set,
+		MaxSteps:  6,
+	})
+	set.Env.Ask = func(context.Context, any, []jev.Query) (jev.Result, error) {
+		return jev.Result{
+			Source:  "live",
+			Answers: map[string]jev.Answer{"q": {Mode: jev.ModeBoolean, Value: 0.2}},
+		}, nil
+	}
+	sess, err := session.Create(dir, "nudge-risk", "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var risk string
+	if err := h.Run(context.Background(), sess, "clean", func(ev Event) {
+		if ev.Kind == EvJev && ev.Name == "risk" {
+			risk = ev.Text
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(risk, "block=true") {
+		t.Fatalf("risk %q", risk)
+	}
+	if !strings.Contains(toolResult(sess, "shell"), "denied") {
+		t.Fatal(toolResult(sess, "shell"))
+	}
+	if strings.Contains(toolResult(sess, "shell"), "Hint:") {
+		t.Fatal("denied shell must not carry a nudge")
+	}
+}
+
+func TestNudgeWhenAskJevUnwired(t *testing.T) {
+	t.Setenv("ROCK_HOME", t.TempDir())
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := &provider.Script{Replies: []provider.Message{
+		{Role: provider.RoleAssistant, ToolCalls: []provider.ToolCall{{ID: "c1", Name: "edit_file", Arguments: `{"path":"a.txt","old":"x","new":"y"}`}}},
+		{Role: provider.RoleAssistant, ToolCalls: []provider.ToolCall{{ID: "c2", Name: "ask_jev", Arguments: `{"state":"y","question":"resolved?","mode":"boolean"}`}}},
+		{Role: provider.RoleAssistant, Content: "kept going"},
+	}}
+	h := New(Options{
+		Provider:  script,
+		FastModel: "fast",
+		Policy:    perms.Policy{Mode: perms.ModeYolo, Allow: []string{"edit_file", "ask_jev"}},
+		Gates:     jev.Gates{},
+		Tools:     tools.New(tools.Env{Root: dir}),
+		MaxSteps:  6,
+	})
+	sess, err := session.Create(dir, "nudge-offline", "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Run(context.Background(), sess, "fix", nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(toolResult(sess, "edit_file"), nudgeEditHint) {
+		t.Fatal(toolResult(sess, "edit_file"))
+	}
+	var res jev.Result
+	if err := json.Unmarshal([]byte(toolResult(sess, "ask_jev")), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Error == "" || res.Answers["q"].Value != nil {
+		t.Fatalf("unwired ask_jev must not fabricate %#v", res)
+	}
+}
+
+func TestNudgeRateLimitAndOff(t *testing.T) {
+	t.Setenv("ROCK_HOME", t.TempDir())
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.txt"), []byte("two"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runTwoEdits := func(every int, id string) (first, second string) {
+		script := &provider.Script{Replies: []provider.Message{
+			{Role: provider.RoleAssistant, ToolCalls: []provider.ToolCall{
+				{ID: "c1", Name: "edit_file", Arguments: `{"path":"a.txt","old":"one","new":"alpha"}`},
+				{ID: "c2", Name: "edit_file", Arguments: `{"path":"b.txt","old":"two","new":"beta"}`},
+			}},
+			{Role: provider.RoleAssistant, Content: "done"},
+		}}
+		h := New(Options{
+			Provider:   script,
+			FastModel:  "fast",
+			Policy:     perms.Policy{Mode: perms.ModeYolo, Allow: []string{"edit_file"}},
+			Gates:      jev.Gates{},
+			Tools:      tools.New(tools.Env{Root: dir}),
+			MaxSteps:   4,
+			NudgeEvery: every,
+		})
+		sess, err := session.Create(dir, id, "t")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := h.Run(context.Background(), sess, "edit both", nil); err != nil {
+			t.Fatal(err)
+		}
+		var edits []string
+		for _, m := range sess.Messages {
+			if m.Role == provider.RoleTool && m.Name == "edit_file" {
+				edits = append(edits, m.Content)
+			}
+		}
+		if len(edits) != 2 {
+			t.Fatalf("edits %#v", edits)
+		}
+		return edits[0], edits[1]
+	}
+
+	first, second := runTwoEdits(2, "nudge-rate-on")
+	if !strings.Contains(first, nudgeEditHint) {
+		t.Fatalf("first should hint: %q", first)
+	}
+	if strings.Contains(second, "Hint:") {
+		t.Fatalf("second should be silent at every=2: %q", second)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.txt"), []byte("two"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	first, second = runTwoEdits(-1, "nudge-rate-off")
+	if strings.Contains(first, "Hint:") || strings.Contains(second, "Hint:") {
+		t.Fatalf("disabled: %q %q", first, second)
+	}
+}
+
+func TestNudgeSkipsFailedEditAndDenied(t *testing.T) {
+	t.Setenv("ROCK_HOME", t.TempDir())
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := &provider.Script{Replies: []provider.Message{
+		{Role: provider.RoleAssistant, ToolCalls: []provider.ToolCall{{ID: "c1", Name: "edit_file", Arguments: `{"path":"a.txt","old":"missing","new":"x"}`}}},
+		{Role: provider.RoleAssistant, Content: "missed"},
+	}}
+	h := New(Options{
+		Provider:   script,
+		FastModel:  "fast",
+		Policy:     perms.Policy{Mode: perms.ModeYolo, Allow: []string{"edit_file"}},
+		Gates:      jev.Gates{},
+		Tools:      tools.New(tools.Env{Root: dir}),
+		NudgeEvery: 1,
+	})
+	sess, err := session.Create(dir, "nudge-fail", "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Run(context.Background(), sess, "edit", nil); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(toolResult(sess, "edit_file"), "Hint:") {
+		t.Fatal(toolResult(sess, "edit_file"))
+	}
+}
+
+func TestNudgeAfterAllowedShell(t *testing.T) {
+	t.Setenv("ROCK_HOME", t.TempDir())
+	dir := t.TempDir()
+	script := &provider.Script{Replies: []provider.Message{
+		{Role: provider.RoleAssistant, ToolCalls: []provider.ToolCall{{ID: "c1", Name: "shell", Arguments: `{"command":"echo ok"}`}}},
+		{Role: provider.RoleAssistant, Content: "ran"},
+	}}
+	h := New(Options{
+		Provider:  script,
+		FastModel: "fast",
+		Policy:    perms.Policy{Mode: perms.ModeYolo, Allow: []string{"shell"}},
+		Gates:     jev.Gates{},
+		Tools:     tools.New(tools.Env{Root: dir}),
+		MaxSteps:  4,
+	})
+	sess, err := session.Create(dir, "nudge-shell", "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Run(context.Background(), sess, "echo", nil); err != nil {
+		t.Fatal(err)
+	}
+	got := toolResult(sess, "shell")
+	if !strings.Contains(got, "ok") || !strings.Contains(got, nudgeShellHint) {
+		t.Fatalf("shell result %q", got)
+	}
+}
+
+type captureProvider struct {
+	*provider.Script
+	seen [][]provider.Message
+}
+
+func (c *captureProvider) Complete(ctx context.Context, model string, msgs []provider.Message, specs []provider.ToolSpec) (provider.Message, error) {
+	cp := make([]provider.Message, len(msgs))
+	copy(cp, msgs)
+	c.seen = append(c.seen, cp)
+	return c.Script.Complete(ctx, model, msgs, specs)
+}
+
+func sawHintOnComplete(seen [][]provider.Message, hint string) bool {
+	for _, msgs := range seen {
+		if strings.Contains(messagesBlob(msgs), hint) {
+			return true
+		}
+	}
+	return false
+}
+
+func messagesBlob(msgs []provider.Message) string {
+	var b strings.Builder
+	for _, m := range msgs {
+		b.WriteString(m.Content)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
 func toolResult(sess *session.Session, name string) string {
 	for i := len(sess.Messages) - 1; i >= 0; i-- {
 		if sess.Messages[i].Role == provider.RoleTool && sess.Messages[i].Name == name {

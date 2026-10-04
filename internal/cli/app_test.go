@@ -26,7 +26,7 @@ func TestHeadlessOfflineAndInspect(t *testing.T) {
 	var inspect bytes.Buffer
 	app.Inspect(&inspect)
 	text := inspect.String()
-	for _, want := range []string{"provider: offline", "jev: offline", "Permissions are not a sandbox", "redirections are not inspected"} {
+	for _, want := range []string{"provider: offline", "jev: offline", "jev.nudge: every 2", "Permissions are not a sandbox", "redirections are not inspected"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("inspect missing %q\n%s", want, text)
 		}

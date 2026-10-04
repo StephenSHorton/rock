@@ -131,6 +131,8 @@ ask_jev
 
 ## Slice (b) — self-validation hooks
 
+**Landed.** After a successful `edit_file` / `write_file`, or an allowed `shell`, the loop may append a short tool-result hint. The system prompt says the same thing. The agent decides whether to call `ask_jev`. No new hard-coded `Decide`. Config: `jev.nudge` (default on) and `jev.nudge_every` (default 2). `-1` or `nudge = false` disables.
+
 **Scope.** After an edit or a proposed fix, and before a risky shell, the agent is *nudged or allowed* to ask Jev whether the problem looks resolved or the change looks too risky. Results re-enter the loop as tool results (and, once (d) lands, as transcript marks). The agent still decides to call `ask_jev`. Go does not start calling Jev after every `edit_file` on its own.
 
 Two layers, both in this PR:
