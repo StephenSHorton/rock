@@ -1,15 +1,15 @@
 const POINTS = [
   {
     title: 'Triage before the completion',
-    body: 'Jev picks fast or strong, and which skills to load, before the main model writes. That is the cheap turn. The LLM still does the reasoning.',
+    body: 'The agent can classify a failure or filter file clips with ask_jev before the main model reads the pile. Built-in turn checks share that path. The LLM still does the reasoning.',
   },
   {
     title: 'A risk gate yolo cannot skip',
-    body: 'Destructive shell and write still hit the Jev risk check. Allow / ask / deny, plan mode, and review-only stay in front. inspect says permissions are not a sandbox.',
+    body: 'Destructive shell and write still hit the Jev Risk check. Allow / ask / deny, plan mode, and review-only stay in front. inspect says permissions are not a sandbox.',
   },
   {
-    title: 'Live or offline, labeled',
-    body: 'JEV_API_KEY or TYPESAFE_API_KEY makes the gates live. No key: the same functions run a local policy. Offline is not Jev, and inspect says so.',
+    title: 'Jev is required',
+    body: 'Rock will not start an agent without a working key. rock setup jev validates and stores it. The TUI asks on first run. Headless -p, serve, and acp fail without one.',
   },
 ] as const
 

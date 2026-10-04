@@ -111,8 +111,9 @@ export function CliSection() {
               <code>mcp_&lt;server&gt;_&lt;tool&gt;</code>.
             </li>
             <li>
-              <strong>Jev.</strong> Live when <code>JEV_API_KEY</code> or <code>TYPESAFE_API_KEY</code> is set. Otherwise
-              the same gates run a local policy and inspect says offline.
+              <strong>Jev.</strong> A working key is required. <code>rock setup jev</code> validates
+              and stores it; the TUI asks on first run. <code>ask_jev</code> is the agent tool.
+              Built-in checks share that path. Risk stays mandatory.
             </li>
           </ul>
         </article>
