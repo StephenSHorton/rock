@@ -1,5 +1,4 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { Hud } from './Hud'
 import { StaticQuarry } from './StaticQuarry'
 import { useQuarry } from './sim'
 
@@ -15,7 +14,7 @@ function can3D() {
   return Boolean(canvas.getContext('webgl2') || canvas.getContext('webgl'))
 }
 
-export function Hero() {
+export function Stage() {
   const [motion, setMotion] = useState(false)
   const [pretty, setPretty] = useState(false)
 
@@ -24,7 +23,7 @@ export function Hero() {
     const wide = window.matchMedia('(min-width: 720px)').matches
     setPretty(wide && !reduce)
     if (reduce) {
-      useQuarry.getState().dispatch({ type: 'task-progress', progress: 0.88 })
+      useQuarry.getState().dispatch({ type: 'task-progress', progress: 0.38 })
       useQuarry.setState({ playing: false })
       return
     }
@@ -39,20 +38,8 @@ export function Hero() {
     return () => window.clearTimeout(t)
   }, [])
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return
-      if (event.code === 'Space') {
-        event.preventDefault()
-        useQuarry.getState().toggle()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
-
   return (
-    <section className="relative isolate min-h-[34rem] overflow-hidden bg-[var(--clay-sky)] md:min-h-[42rem] lg:min-h-[48rem]" aria-label="Clay quarry diorama">
+    <div className="relative isolate h-[20rem] overflow-hidden bg-[var(--clay-sky)] md:h-[24rem]">
       <div className="absolute inset-0">
         <StaticQuarry />
       </div>
@@ -63,12 +50,6 @@ export function Hero() {
           </div>
         </Suspense>
       ) : null}
-      <Hud />
-      <p className="sr-only">
-        The diorama maps a Rock session: the prompt is a drill rig, agents are ore carts on rails,
-        tool calls are stations, a permission gate can stop a cart, and output is crates on a dock.
-        Pause and replay from the HUD. Space toggles playback. Reduced motion keeps this still picture.
-      </p>
-    </section>
+    </div>
   )
 }
