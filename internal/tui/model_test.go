@@ -476,7 +476,8 @@ func TestOverlaysOpenReadableAndCloseBackToTheTranscript(t *testing.T) {
 		cmd, title string
 		want       []string
 	}{
-		{"/help", "Help", []string{"Slash commands", "/default", "/quit", "/permissions"}},
+		{"/help", "Help", []string{"Slash commands", "/default", "/quit", "/permissions", "/provider"}},
+		{"/provider", "Provider", []string{"ChatGPT", "API key", "Offline model"}},
 		{"/sessions", "Sessions", []string{"demo", "this session"}},
 		{"/permissions", "Permissions", []string{"Permissions are not a sandbox.", "read_file", "shell", "default"}},
 		{"/agents", "Subagents", []string{"No subagents yet."}},
@@ -699,7 +700,7 @@ func TestCodeBlocksFollowTheThemeInTruecolor(t *testing.T) {
 }
 
 func TestPlaceholderListsEverySlashCommandAndTheyAllWork(t *testing.T) {
-	all := []string{"/help", "/plan", "/yolo", "/default", "/sessions", "/permissions", "/agents", "/ready", "/verbose", "/fork", "/quit"}
+	all := []string{"/help", "/plan", "/yolo", "/default", "/sessions", "/permissions", "/agents", "/ready", "/verbose", "/fork", "/provider", "/quit"}
 	m := sized(t, 80, 24)
 	g := m.geo
 	composer := flat(strings.Join(screen(m)[g.composerY():g.composerY()+g.composerRows+g.infoRows], " "))
@@ -737,6 +738,42 @@ func TestPlaceholderListsEverySlashCommandAndTheyAllWork(t *testing.T) {
 	submit(m, "/nope")
 	if !m.alert || !strings.Contains(m.status, "unknown command /nope") {
 		t.Fatal(m.status)
+	}
+}
+
+func TestProviderPickerKeepsAPIKeyFallback(t *testing.T) {
+	m := sized(t, 100, 24)
+	submit(m, "/provider")
+	if m.overlay != providerOverlay {
+		t.Fatal(m.overlay)
+	}
+	view := strings.Join(screen(m), "\n")
+	for _, want := range []string{"ChatGPT", "API key", "Offline model", "Jev still runs", "not a Jev bypass"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q\n%s", want, view)
+		}
+	}
+	// ChatGPT is first; enter without a session should keep the fallback.
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+	if m.overlay != noOverlay {
+		t.Fatal("picker should close")
+	}
+	if !m.alert || !strings.Contains(m.status, "rock login chatgpt") {
+		t.Fatal(m.status)
+	}
+
+	picked := ""
+	m = sized(t, 100, 24)
+	m.deps.HasAPIKey = true
+	m.deps.SetAuth = func(class string) (string, string, error) {
+		picked = class
+		return "openai", class, nil
+	}
+	submit(m, "/provider")
+	m.providers.Select(1)
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+	if picked != "api_key" || m.deps.Auth != "api_key" || m.deps.Provider != "openai" {
+		t.Fatalf("picked %q auth %q provider %q", picked, m.deps.Auth, m.deps.Provider)
 	}
 }
 
