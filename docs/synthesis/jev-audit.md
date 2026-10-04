@@ -21,7 +21,6 @@ The reference talk for the *product* direction is IndyDevDan, [10 Levels of Jev 
 ```
 cli.Open
   config.JevKey() → jev.Client → jev.Gates
-  jev.enabled=false → Gates.ForceOffline
   inspect prints Mode() live|offline
 
 harness.New
@@ -62,20 +61,24 @@ Unknown from public docs, so this audit does not claim them: native file ingest,
 
 [`internal/config/config.go`](../../internal/config/config.go).
 
-```33:40:internal/config/config.go
+```33:48:internal/config/config.go
 type Jev struct {
-	Enabled          bool    `toml:"enabled"`
 	BaseURL          string  `toml:"base_url"`
 	Model            string  `toml:"model"`
 	MinConfidence    float64 `toml:"min_confidence"`
 	RiskBlock        float64 `toml:"risk_block"`
 	AllowDestructive bool    `toml:"allow_destructive"`
+	Nudge            *bool   `toml:"nudge"`
+	NudgeEvery       int     `toml:"nudge_every"`
+	Triage           *bool   `toml:"triage"`
+	Filter           *bool   `toml:"filter"`
+	ClipBytes        int     `toml:"clip_bytes"`
 }
 ```
 
-Defaults ([`Default`](../../internal/config/config.go) lines 62–75): `Enabled: true`, `MinConfidence: 0.55`, `RiskBlock: 0.72`. `jev_decide` is on the default allow list (line 71).
+Defaults ([`Default`](../../internal/config/config.go)): `MinConfidence: 0.55`, `RiskBlock: 0.72`. `ask_jev` is on the default allow list. There is no `jev.enabled` field and no user offline switch.
 
-**`jev.enabled` is honored.** `Enabled` is `*bool` (omit = on). `false` sets `Gates.ForceOffline` so Mode is offline even with a key. `merge` copies the pointer when set.
+Project `.rock/config.toml` cannot supply a Jev key or `jev.base_url`. Keys are env-only (`JEV_API_KEY` / `TYPESAFE_API_KEY`). The endpoint may come from the user-level 0600 file. `Load` clears project `jev.base_url` before merge. See [jev-integration-notes.md](../jev-integration-notes.md).
 
 Slice (b) added `jev.nudge` and `jev.nudge_every`. Slice (c) added `jev.triage`, `jev.filter`, and `jev.clip_bytes`. Slice (e) shares the Ask encoder across gates. See [ask-jev-plan.md](ask-jev-plan.md).
 
@@ -203,7 +206,7 @@ Headless text mode prints Jev events to stderr as `jev <name> <text>` ([`App.Hea
 | `TestHeadlessOfflineAndInspect` | same 13–48 | `inspect` says `jev: offline` with keys unset |
 | `TestJevDiagnosticsStayHiddenUntilVerbose` and neighbors | [`internal/tui/model_test.go`](../../internal/tui/model_test.go) 347–405 | `◇ jev turn` / `risk` hidden; a `ready` event would show |
 
-Covered in slice (e) tests: live BeforeTurn question keys, Ask failure invents nothing, SubagentKind / PlanReady / Risk on Ask, `jev.enabled=false`, ask_jev + Risk in one turn without mixed answers.
+Covered in slice (e) tests: live BeforeTurn question keys, Ask failure invents nothing, SubagentKind / PlanReady / Risk on Ask, project overlay cannot inject `jev.base_url` or a key, ask_jev + Risk in one turn without mixed answers.
 
 ## How agent-driven is Jev today?
 

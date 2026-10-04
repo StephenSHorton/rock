@@ -13,14 +13,9 @@ type Gates struct {
 	MinConfidence    float64
 	RiskBlock        float64
 	AllowDestructive bool
-	// ForceOffline honors jev.enabled = false even when a key is set.
-	ForceOffline bool
 }
 
 func (g Gates) Mode() string {
-	if g.ForceOffline {
-		return "offline"
-	}
 	if g.Client != nil && g.Client.Live() {
 		return "live"
 	}

@@ -244,7 +244,7 @@ Mode and question on the name/body; source and value on the text. Choice shows t
 
 ## Slice (e) — migrate hard-coded calls onto the same primitive
 
-**Landed.** BeforeTurn, SubagentKind, PlanReady, KeepSnippet/FilterSnippets, and the live half of Risk all go through `Gates.Ask` and `Result.Line()`. Failed Ask sets `error` and leaves values empty. Offline policy is still a local rule, labeled offline — it is not a Jev answer. `jev.enabled = false` forces offline even with a key. `/ready` emits `EvJev` name `ready`.
+**Landed.** BeforeTurn, SubagentKind, PlanReady, KeepSnippet/FilterSnippets, and the live half of Risk all go through `Gates.Ask` and `Result.Line()`. Failed Ask sets `error` and leaves values empty. Offline policy is still a local rule, labeled offline — it is not a Jev answer. There is no `jev.enabled` switch: Rock does not offer a user offline mode. `/ready` emits `EvJev` name `ready`.
 
 **Kept hard-coded (Go still calls them; the agent cannot skip):**
 
@@ -275,7 +275,6 @@ Mode and question on the name/body; source and value on the text. Choice shows t
 **Candidate to drop or demote, only with a test that proves the agent path covers it:**
 
 - The system-prompt line *“Hard gates already judge risk, model size, and skills”* — rewrite so the agent knows `ask_jev` is for triage and validation, and that Risk still blocks
-- `jev.enabled` in config: either honor it (offline when false even with a key) or delete the field. Today it is unused ([jev-audit.md](jev-audit.md))
 
 **Do not migrate into the agent’s discretion in this slice:** the destructive block.
 

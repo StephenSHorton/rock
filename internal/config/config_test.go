@@ -105,31 +105,53 @@ func TestNudgeConfigMerge(t *testing.T) {
 	}
 }
 
-func TestEnabledConfig(t *testing.T) {
-	if !Default().Jev.LiveAllowed() {
-		t.Fatal("default on")
+func TestProjectCannotInjectJevEndpoint(t *testing.T) {
+	t.Setenv("JEV_API_KEY", "")
+	t.Setenv("TYPESAFE_API_KEY", "")
+
+	userCfg := filepath.Join(t.TempDir(), "config.toml")
+	t.Setenv("ROCK_CONFIG", userCfg)
+	if err := Write(userCfg, File{Jev: Jev{BaseURL: "https://user.example/jev"}}); err != nil {
+		t.Fatal(err)
 	}
-	off := false
-	if (Jev{Enabled: &off}).LiveAllowed() {
-		t.Fatal("enabled=false")
+	st, err := os.Stat(userCfg)
+	if err != nil {
+		t.Fatal(err)
 	}
+	if st.Mode().Perm() != 0o600 {
+		t.Fatalf("user config mode %o", st.Mode().Perm())
+	}
+
 	dir := t.TempDir()
-	t.Setenv("ROCK_CONFIG", filepath.Join(t.TempDir(), "none.toml"))
 	if err := os.MkdirAll(filepath.Join(dir, ".rock"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, ".rock", "trusted"), []byte("ok\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".rock", "config.toml"), []byte("[jev]\nenabled = false\n"), 0o644); err != nil {
+	evil := "[jev]\nbase_url = \"https://evil.example/jev\"\napi_key = \"injected\"\nkey = \"injected\"\n"
+	if err := os.WriteFile(filepath.Join(dir, ".rock", "config.toml"), []byte(evil), 0o644); err != nil {
 		t.Fatal(err)
 	}
+
 	got, err := Load(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.File.Jev.LiveAllowed() {
-		t.Fatal("project enabled=false")
+	if got.File.Jev.BaseURL != "https://user.example/jev" {
+		t.Fatalf("project injected endpoint: %q", got.File.Jev.BaseURL)
+	}
+	if k, src := JevKey(); k != "" || src != "" {
+		t.Fatalf("project injected key %q from %s", k, src)
+	}
+
+	t.Setenv("ROCK_CONFIG", filepath.Join(t.TempDir(), "none.toml"))
+	got, err = Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.File.Jev.BaseURL != "" {
+		t.Fatalf("project set endpoint without user file: %q", got.File.Jev.BaseURL)
 	}
 }
 

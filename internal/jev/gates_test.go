@@ -138,24 +138,6 @@ func TestSubagentKindAndPlanReadyUseAsk(t *testing.T) {
 	}
 }
 
-func TestForceOfflineEvenWithKey(t *testing.T) {
-	var posts int
-	g := Gates{
-		Client:       fakeClient(t, func(http.ResponseWriter, *http.Request) { posts++ }),
-		ForceOffline: true,
-	}
-	if g.Mode() != "offline" {
-		t.Fatal(g.Mode())
-	}
-	turn := g.BeforeTurn(context.Background(), "hi", nil, nil, 10)
-	if posts != 0 || turn.Source != "offline" {
-		t.Fatalf("posts=%d turn=%#v", posts, turn)
-	}
-	if g.SubagentKind(context.Background(), "plan the work", "") != "plan" {
-		t.Fatal("offline kind")
-	}
-}
-
 func TestLiveRiskUsesAsk(t *testing.T) {
 	g := Gates{Client: fakeClient(t, func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)

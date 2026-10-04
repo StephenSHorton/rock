@@ -24,6 +24,7 @@ Crush is FSL-1.1-MIT. Study freely. Do not wholesale-copy while FSL applies.
 | Page | What it is |
 |---|---|
 | [jev-audit.md](synthesis/jev-audit.md) | How Jev is wired in the Go today |
+| [jev-integration-notes.md](jev-integration-notes.md) | Grok Build | Project Lead notes on optional Jev in the Rust harness fork. Not Rock's design. |
 | [ask-jev-plan.md](synthesis/ask-jev-plan.md) | Engineer-sized PRs for agentic `ask_jev` |
 | [v1-plan.md](synthesis/v1-plan.md) | 1.0 decisions: Go, shipped Jev gates, Suzuri |
 | [tui-parity.md](synthesis/tui-parity.md) | Charm TUI vs Grok Build: intended diffs + visual backlog |

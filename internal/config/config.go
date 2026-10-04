@@ -31,7 +31,6 @@ type Perms struct {
 }
 
 type Jev struct {
-	Enabled          *bool   `toml:"enabled"`
 	BaseURL          string  `toml:"base_url"`
 	Model            string  `toml:"model"`
 	MinConfidence    float64 `toml:"min_confidence"`
@@ -47,14 +46,6 @@ type Jev struct {
 	Triage    *bool `toml:"triage"`
 	Filter    *bool `toml:"filter"`
 	ClipBytes int   `toml:"clip_bytes"`
-}
-
-// LiveAllowed is false only when jev.enabled is explicitly false.
-func (j Jev) LiveAllowed() bool {
-	if j.Enabled != nil {
-		return *j.Enabled
-	}
-	return true
 }
 
 func (j Jev) TriageOn() bool {
@@ -164,6 +155,9 @@ func Load(cwd string) (Loaded, error) {
 			ignored = append(ignored, extra.Permissions.Allow...)
 			extra.Permissions.Allow = nil
 		}
+		// Project overlays must not inject a Jev key or endpoint.
+		// Keys are env-only. jev.base_url stays on the user-level file.
+		extra.Jev.BaseURL = ""
 		merge(&file, extra)
 	}
 	if file.MaxSteps <= 0 {
@@ -219,9 +213,7 @@ func merge(dst *File, src File) {
 	if src.Git.ReviewOnly {
 		dst.Git.ReviewOnly = true
 	}
-	if src.Jev.BaseURL != "" {
-		dst.Jev.BaseURL = src.Jev.BaseURL
-	}
+	// merge is the project overlay. jev.base_url is user-level only.
 	if src.Jev.Model != "" {
 		dst.Jev.Model = src.Jev.Model
 	}
@@ -239,9 +231,6 @@ func merge(dst *File, src File) {
 	}
 	if src.Jev.NudgeEvery != 0 {
 		dst.Jev.NudgeEvery = src.Jev.NudgeEvery
-	}
-	if src.Jev.Enabled != nil {
-		dst.Jev.Enabled = src.Jev.Enabled
 	}
 	if src.Jev.Triage != nil {
 		dst.Jev.Triage = src.Jev.Triage
@@ -275,7 +264,7 @@ func Write(path string, file File) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, raw, 0o644)
+	return os.WriteFile(path, raw, 0o600)
 }
 
 func APIKey() string {
