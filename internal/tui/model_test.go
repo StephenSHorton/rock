@@ -725,7 +725,7 @@ func TestDecisionFromTheDialogLandsInTheTranscript(t *testing.T) {
 			t.Fatal("edit_file should ask in default mode")
 		}
 		text := transcriptText(m)
-		for _, want := range []string{"you fix the greeting typo", "edit_file greeting.txt", "edit_file " + string(tc.decision) + " you answered " + string(tc.decision), tc.reply} {
+		for _, want := range []string{"fix the greeting typo", "edit_file greeting.txt", "edit_file " + string(tc.decision) + " you answered " + string(tc.decision), tc.reply} {
 			if !strings.Contains(text, want) {
 				t.Fatalf("%s: transcript lacks %q:\n%s", tc.decision, want, strings.Join(screen(m), "\n"))
 			}
@@ -736,5 +736,104 @@ func TestDecisionFromTheDialogLandsInTheTranscript(t *testing.T) {
 		if m.busy || m.ctxBytes == 0 || m.target == 0 {
 			t.Fatalf("after the turn: busy %v ctx %d target %v", m.busy, m.ctxBytes, m.target)
 		}
+	}
+}
+
+func TestTranscriptHasNoSpeakerGutter(t *testing.T) {
+	m := sized(t, 100, 24)
+	m.Update(eventMsg{harness.Event{Kind: harness.EvAssistant, Text: "hello from the block"}})
+	submit(m, "pin this prompt")
+	text := transcriptText(m)
+	if strings.Contains(text, "you pin") || strings.Contains(text, "rock hello") {
+		t.Fatalf("speaker gutter still painted: %q", text)
+	}
+	if !strings.Contains(text, "❯") || !strings.Contains(text, "pin this prompt") {
+		t.Fatalf("user turn should be a ❯ band: %q", text)
+	}
+	if !strings.Contains(text, "hello from the block") {
+		t.Fatalf("assistant text missing: %q", text)
+	}
+	if !strings.Contains(transcriptText(sized(t, 80, 24)), readyText) {
+		t.Fatal("empty state should invite the first prompt")
+	}
+}
+
+func TestClickSelectsAndFoldsAUserPrompt(t *testing.T) {
+	m := sized(t, 80, 24)
+	long := "one\ntwo\nthree\nfour"
+	m.Update(eventMsg{harness.Event{Kind: harness.EvAssistant, Text: "ack"}})
+	m.lines = append(m.lines, line{kind: "user", text: long})
+	m.follow = true
+	m.syncView()
+	g := m.geo
+	from := len(m.lines) - 1
+	if !m.foldableAt(from) {
+		t.Fatal("a four-line user prompt should be foldable")
+	}
+	y := g.vpY
+	for _, s := range m.spans {
+		if s.from == from {
+			y = g.vpY + s.y0 - m.vp.YOffset()
+			break
+		}
+	}
+	m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: g.padL + 2, Y: y})
+	if m.selected != from {
+		t.Fatalf("click should select the user block, got %d", m.selected)
+	}
+	if m.isFolded(from) {
+		t.Fatal("first click selects; it should not fold")
+	}
+	m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: g.padL + 2, Y: y})
+	if !m.isFolded(from) {
+		t.Fatal("second click on the selection should fold")
+	}
+	if !strings.Contains(transcriptText(m), "›") {
+		t.Fatalf("folded row should show ›: %q", transcriptText(m))
+	}
+}
+
+func TestVerbGroupReadsConsecutiveFiles(t *testing.T) {
+	m := sized(t, 100, 24)
+	for _, path := range []string{"alpha.go", "beta.go", "gamma.go"} {
+		m.Update(eventMsg{harness.Event{Kind: harness.EvToolCall, Name: "read_file", Text: `{"path":"` + path + `"}`}})
+		m.Update(eventMsg{harness.Event{Kind: harness.EvToolResult, Name: "read_file", Text: "ok " + path}})
+	}
+	text := transcriptText(m)
+	if !strings.Contains(text, "Read 3 files") {
+		t.Fatalf("expected a verb group: %q", text)
+	}
+	if strings.Contains(text, "alpha.go") {
+		t.Fatalf("folded group should hide member paths: %q", text)
+	}
+	g := m.geo
+	m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: g.padL + 2, Y: g.vpY})
+	m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: g.padL + 2, Y: g.vpY})
+	if opened := transcriptText(m); !strings.Contains(opened, "alpha.go") || !strings.Contains(opened, "gamma.go") {
+		t.Fatalf("expanded group should list the files: %q", opened)
+	}
+	m = sized(t, 100, 24)
+	m.Update(eventMsg{harness.Event{Kind: harness.EvToolCall, Name: "read_file", Text: `{"path":"solo.go"}`}})
+	if got := transcriptText(m); strings.Contains(got, "Read 1") || !strings.Contains(got, "solo.go") {
+		t.Fatalf("a single read stays a row: %q", got)
+	}
+}
+
+func TestStickyLastUserPrompt(t *testing.T) {
+	m := sized(t, 80, 20)
+	submit(m, "keep this prompt in view")
+	for i := range 40 {
+		m.Update(eventMsg{harness.Event{Kind: harness.EvAssistant, Text: fmt.Sprintf("line %d", i)}})
+	}
+	if !m.vp.AtBottom() {
+		t.Fatal("should follow the tail")
+	}
+	g := m.geo
+	top := flat(ansi.Cut(screen(m)[g.vpY], g.padL, g.padL+g.transcriptW))
+	if !strings.Contains(top, "keep this prompt in view") {
+		t.Fatalf("scrolled-past user prompt should stick: %q\n%s", top, strings.Join(screen(m), "\n"))
+	}
+	if h, from := m.stickyUser(); h == 0 || from < 0 {
+		t.Fatal("stickyUser should report the pinned prompt")
 	}
 }

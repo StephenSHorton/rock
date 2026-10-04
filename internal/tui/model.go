@@ -43,8 +43,9 @@ const (
 	// splitMin is the narrowest width that still puts the plan beside the
 	// transcript. Narrower screens stack the plan above it in plan mode.
 	splitMin = 64
-	// gutter is the speaker column of the transcript.
-	gutter = 6
+	// blockPad is the left inset of transcript blocks, Grok's
+	// scrollback.layout.block_pad_left default.
+	blockPad = 2
 	// compactAt is the height at which outer padding drops and the
 	// composer shrinks, matching Grok's auto-compact cut.
 	compactAt = 20
@@ -53,7 +54,7 @@ const (
 	shortAt = 16
 	fps     = 30
 
-	readyText   = "Rock is ready. The transcript lives in the session store, not in this screen."
+	readyText   = "Ask Rock to start. /help lists the keys and commands."
 	placeholder = "Ask Rock. /help /plan /yolo /default /sessions /permissions /agents /ready /fork /quit"
 )
 
@@ -85,10 +86,22 @@ type line struct {
 	kind string
 	name string
 	text string
+	at   time.Time
+
+	folded      bool
+	foldTouched bool
+	raw         bool
 
 	out     string
 	outW    int
 	outDark bool
+}
+
+// entrySpan maps a painted transcript range back to one or more log lines.
+type entrySpan struct {
+	from, to int
+	y0, y1   int
+	group    bool
 }
 
 type rowItem struct {
@@ -199,8 +212,8 @@ type geometry struct {
 	compact      bool
 }
 
-func (g geometry) statusY() int    { return g.bodyY + g.bodyH }
-func (g geometry) composerY() int  { return g.statusY() + 1 }
+func (g geometry) statusY() int     { return g.bodyY + g.bodyH }
+func (g geometry) composerY() int   { return g.statusY() + 1 }
 func (g geometry) contentLeft() int { return g.padL }
 
 // Model is the Bubble Tea program.
@@ -214,6 +227,8 @@ type Model struct {
 	geo    geometry
 
 	lines    []line
+	selected int
+	spans    []entrySpan
 	vp       viewport.Model
 	planVP   viewport.Model
 	sheet    viewport.Model
@@ -259,12 +274,13 @@ func New(deps Deps) *Model {
 		deps.Output = os.Stdout
 	}
 	m := &Model{
-		deps:   deps,
-		keys:   newKeys(),
-		follow: true,
-		status: "ready",
-		spring: harmonica.NewSpring(harmonica.FPS(fps), 7, 1),
-		md:     map[int]*glamour.TermRenderer{},
+		deps:     deps,
+		keys:     newKeys(),
+		follow:   true,
+		status:   "ready",
+		selected: -1,
+		spring:   harmonica.NewSpring(harmonica.FPS(fps), 7, 1),
+		md:       map[int]*glamour.TermRenderer{},
 	}
 
 	ta := textarea.New()
@@ -349,6 +365,7 @@ func (m *Model) applyTheme(dark bool) {
 	m.meter.EmptyColor = m.th.muted
 	m.md = map[int]*glamour.TermRenderer{}
 	m.contentW, m.planW = 0, 0
+	m.invalidatePaint()
 }
 
 // Send is set by Run before the program starts so the harness can post events.
@@ -861,6 +878,8 @@ func (m *Model) setAgents(rows []table.Row) {
 
 func (m *Model) seedTranscript() {
 	m.lines = nil
+	m.selected = -1
+	m.spans = nil
 	m.ctxBytes = 0
 	if m.deps.Session != nil {
 		for _, msg := range m.deps.Session.Messages {
@@ -1034,10 +1053,15 @@ func (m *Model) onMouse(msg tea.MouseMsg) {
 			m.follow = m.vp.AtBottom()
 		}
 	case tea.MouseClickMsg:
-		if mo.Button == tea.MouseLeft && m.overlay == noOverlay && m.onScrollbar(mo.X, mo.Y) {
+		if mo.Button != tea.MouseLeft || m.overlay != noOverlay {
+			return
+		}
+		if m.onScrollbar(mo.X, mo.Y) {
 			m.dragging = true
 			m.scrollTo(mo.Y)
+			return
 		}
+		m.clickTranscript(mo.X, mo.Y)
 	case tea.MouseMotionMsg:
 		if m.dragging {
 			m.scrollTo(mo.Y)
@@ -1073,6 +1097,100 @@ func (m *Model) overflowing() bool {
 func (m *Model) onScrollbar(x, y int) bool {
 	g := m.geo
 	return m.overflowing() && x == g.barX && y >= g.vpY && y < g.vpY+g.vpH
+}
+
+func (m *Model) invalidatePaint() {
+	for i := range m.lines {
+		m.lines[i].out = ""
+	}
+}
+
+func (m *Model) clickTranscript(x, y int) {
+	g := m.geo
+	if m.pending != nil || y < g.vpY || y >= g.vpY+g.vpH || x < g.padL || x >= g.barX || m.inPlan(x, y) {
+		return
+	}
+	local := y - g.vpY
+	if h, from := m.stickyUser(); h > 0 && local < h && from >= 0 {
+		m.selectEntry(from)
+		return
+	}
+	contentY := m.vp.YOffset() + local
+	for i := range m.spans {
+		s := m.spans[i]
+		if contentY >= s.y0 && contentY <= s.y1 {
+			m.selectEntry(s.from)
+			return
+		}
+	}
+}
+
+func (m *Model) selectEntry(from int) {
+	if from < 0 || from >= len(m.lines) {
+		return
+	}
+	if m.selected == from {
+		if m.foldableAt(from) {
+			m.toggleFold(from)
+		}
+		return
+	}
+	m.selected = from
+	m.invalidatePaint()
+	m.syncView()
+}
+
+func (m *Model) toggleFold(from int) {
+	if from < 0 || from >= len(m.lines) {
+		return
+	}
+	was := m.isFolded(from)
+	m.lines[from].foldTouched = true
+	m.lines[from].folded = !was
+	m.invalidatePaint()
+	m.syncView()
+}
+
+func (m *Model) isFolded(from int) bool {
+	if from < 0 || from >= len(m.lines) {
+		return false
+	}
+	ln := m.lines[from]
+	if ln.foldTouched {
+		return ln.folded
+	}
+	_, _, n := verbRun(m.lines, from)
+	return n > 1
+}
+
+func (m *Model) foldableAt(from int) bool {
+	if from < 0 || from >= len(m.lines) {
+		return false
+	}
+	if _, _, n := verbRun(m.lines, from); n > 1 {
+		return true
+	}
+	return lineFoldable(m.lines[from], m.contentW)
+}
+
+func (m *Model) lastUserSpan() *entrySpan {
+	for i := len(m.spans) - 1; i >= 0; i-- {
+		s := &m.spans[i]
+		if s.from >= 0 && s.from < len(m.lines) && m.lines[s.from].kind == "user" {
+			return s
+		}
+	}
+	return nil
+}
+
+// stickyUser is the last user prompt when the viewport has scrolled past it.
+// Height is 0 when nothing should pin.
+func (m *Model) stickyUser() (height, from int) {
+	u := m.lastUserSpan()
+	if u == nil || m.vp.YOffset() <= u.y0 {
+		return 0, -1
+	}
+	return 1, u.from
 }
 
 // scrollTo maps a row on the scrollbar track to a transcript offset.
