@@ -75,11 +75,14 @@ func TestLayoutHasNoWordmarkHeader(t *testing.T) {
 		t.Fatalf("height 20 should compact: %+v", compact.geo)
 	}
 	if m.geo.infoRows != 0 {
-		t.Fatalf("idle chrome should not keep a model · mode info line: %+v", m.geo)
+		t.Fatalf("chips sit on the frame, not an extra info row: %+v", m.geo)
 	}
 	composer := flat(strings.Join(screen(m)[m.geo.composerY():m.geo.statusY()], " "))
 	if !strings.Contains(composer, "Ask Rock") || !strings.Contains(composer, "/ for commands") {
 		t.Fatalf("quiet placeholder: %q", composer)
+	}
+	if !strings.Contains(composer, "╭") || !strings.Contains(composer, "gpt-4o-mini") || !strings.Contains(composer, "default") {
+		t.Fatalf("framed composer should carry model · mode chips: %q", composer)
 	}
 	if strings.Contains(composer, "/help") || strings.Contains(composer, "/plan") {
 		t.Fatalf("placeholder still lists commands: %q", composer)
@@ -314,12 +317,12 @@ func TestShortHeightKeepsStatusComposerAndHelp(t *testing.T) {
 			if !strings.Contains(status, "jev:offline") || !strings.Contains(status, "gpt-4o-mini") || !strings.Contains(status, "ctx") {
 				t.Fatalf("%dx%d: status row %q", w, h, status)
 			}
-			top := strings.TrimLeft(rows[g.composerY()], " ")
-			if !strings.Contains(top, "❯") {
-				t.Fatalf("%dx%d: composer should use ❯, got %q", w, h, top)
+			band := strings.Join(rows[g.composerY():g.statusY()], "\n")
+			if !strings.Contains(band, "❯") {
+				t.Fatalf("%dx%d: composer should use ❯, got %q", w, h, band)
 			}
-			if strings.Contains(rows[g.composerY()], "╭") {
-				t.Fatalf("%dx%d: composer still has a rounded box: %q", w, h, rows[g.composerY()])
+			if !strings.Contains(rows[g.composerY()], "╭") {
+				t.Fatalf("%dx%d: composer should be framed: %q", w, h, rows[g.composerY()])
 			}
 			if g.helpRows != 0 {
 				t.Fatalf("%dx%d: idle help row should stay off: %+v %q", w, h, g, rows[h-1])
@@ -424,7 +427,7 @@ func TestStatusLineSitsUnderTheComposer(t *testing.T) {
 		t.Fatalf("status should sit under the composer: composerY=%d statusY=%d", g.composerY(), g.statusY())
 	}
 	rows := screen(m)
-	if !strings.Contains(rows[g.composerY()], "❯") {
+	if !strings.Contains(strings.Join(rows[g.composerY():g.statusY()], "\n"), "❯") {
 		t.Fatalf("composer: %q", rows[g.composerY()])
 	}
 	if !strings.Contains(rows[g.statusY()], "│") || !strings.Contains(rows[g.statusY()], "jev:offline") {
@@ -481,8 +484,6 @@ func TestOverlaysOpenReadableAndCloseBackToTheTranscript(t *testing.T) {
 		want       []string
 	}{
 		{"/help", "Help", []string{"Slash commands", "/help", "/plan"}},
-		{"/provider", "Provider", []string{"ChatGPT", "SuperGrok", "API key", "Offline model"}},
-		{"/sessions", "Sessions", []string{"demo", "this session"}},
 		{"/permissions", "Permissions", []string{"Permissions are not a sandbox.", "read_file", "shell", "default"}},
 		{"/agents", "Subagents", []string{"No subagents yet."}},
 	} {
@@ -781,18 +782,18 @@ func TestUpdateOverlayAndStatusNotice(t *testing.T) {
 func TestProviderPickerKeepsAPIKeyFallback(t *testing.T) {
 	m := sized(t, 100, 24)
 	submit(m, "/provider")
-	if m.overlay != providerOverlay {
-		t.Fatal(m.overlay)
+	if m.picker.kind != modelPicker || m.overlay != noOverlay {
+		t.Fatalf("provider should open the model modal: overlay=%d picker=%d", m.overlay, m.picker.kind)
 	}
 	view := strings.Join(screen(m), "\n")
-	for _, want := range []string{"ChatGPT", "SuperGrok", "API key", "Offline model", "Jev still runs", "not a Jev bypass"} {
+	for _, want := range []string{"ChatGPT", "SuperGrok", "API key", "Offline model", "Jev still runs"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("missing %q\n%s", want, view)
 		}
 	}
 	// ChatGPT is first; enter without a session should keep the fallback.
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
-	if m.overlay != noOverlay {
+	if m.picker.open() || m.overlay != noOverlay {
 		t.Fatal("picker should close")
 	}
 	if !m.alert || !strings.Contains(m.status, "rock login chatgpt") {
@@ -807,7 +808,7 @@ func TestProviderPickerKeepsAPIKeyFallback(t *testing.T) {
 		return "openai", class, nil
 	}
 	submit(m, "/provider")
-	m.providers.Select(2)
+	m.picker.sel = 2
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
 	if picked != "api_key" || m.deps.Auth != "api_key" || m.deps.Provider != "openai" {
 		t.Fatalf("picked %q auth %q provider %q", picked, m.deps.Auth, m.deps.Provider)
@@ -817,7 +818,7 @@ func TestProviderPickerKeepsAPIKeyFallback(t *testing.T) {
 func TestProviderPickerGrokNeedsOfficialBinary(t *testing.T) {
 	m := sized(t, 100, 24)
 	submit(m, "/provider")
-	m.providers.Select(1)
+	m.picker.sel = 1
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
 	if !m.alert || !strings.Contains(m.status, "https://x.ai/cli") || !strings.Contains(m.status, "grok login") {
 		t.Fatal(m.status)
@@ -1178,8 +1179,8 @@ func TestShiftTabCyclesModesAndCtrlOTogglesYolo(t *testing.T) {
 func TestCtrlSOpensSessionsAndCtrlPOpensPalette(t *testing.T) {
 	m := sized(t, 100, 24)
 	m.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
-	if m.overlay != sessionsOverlay {
-		t.Fatalf("ctrl+s overlay %d", m.overlay)
+	if m.picker.kind != sessionsPicker {
+		t.Fatalf("ctrl+s picker %d overlay %d", m.picker.kind, m.overlay)
 	}
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m.Update(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})

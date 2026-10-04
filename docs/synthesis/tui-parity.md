@@ -16,7 +16,7 @@ Fetched 2026-10-04.
 | [README](https://github.com/xai-org/grok-build/blob/main/README.md) | Product surface + [public TUI screenshot](https://media.x.ai/v1/website/universe-tui-screenshot-6f7a0837.png) (the image URL 500’d when fetched here; the README still cites it) |
 | In-tree user guide | Especially [keyboard shortcuts](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/03-keyboard-shortcuts.md), [slash commands](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/04-slash-commands.md), [theming](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/06-theming.md), [plan mode](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/19-plan-mode.md), [status line](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/25-status-line.md) |
 | Official docs | [Overview](https://docs.x.ai/build/overview), [keyboard shortcuts](https://docs.x.ai/build/keyboard-shortcuts), [modes and commands](https://docs.x.ai/build/modes-and-commands) |
-| This repo at `acc18bc` | `internal/tui/{model,view,theme}.go` — the Charm client as shipped |
+| This repo at `8b7074d` + input-bar work | `internal/tui/{model,view,theme,modal}.go` — the Charm client |
 | [docs/clis/grok-build.md](../clis/grok-build.md) | Earlier raid of the harness, not the pixels |
 
 Facts about Grok below come from those sources. Opinions about Rock stay in the intended-difference and backlog sections.
@@ -46,15 +46,18 @@ Outer padding, compact mode (`/compact-mode`, forced at ≤20 rows), and a 16-ro
 
 ### Prompt / composer
 
-`PromptWidget` (`src/views/prompt_widget/mod.rs`):
+`PromptWidget` (`src/views/prompt_widget/mod.rs`). Default chrome is a **rounded box** (`show_borders: true`): `╭─╮` / `│` / `╰─╯`, accent `┃` on the left, prefix `❯`. Minimal mode drops the box.
 
 ```
-❯ type here, text wraps
-  continuation of long input...
-grok-3 · yolo
+╭──────────────────────────────────────╮
+│ ❯ type here, text wraps              │
+│   continuation of long input...      │
+╰────────────────── grok-3 · yolo ─────╯
 ```
 
-Accent `┃` and the selection box are caller chrome. `Enter` sends. `Shift+Enter` / `Alt+Enter` newline; `/multiline` flips that. `Ctrl+M` toggles multiline. Empty `!` is shell mode. `@` is file search. `/` opens fuzzy slash autocomplete. Image / file / paste chips. Mid-turn `Enter` queues a follow-up; `Ctrl+Enter` (or `Ctrl+L` on VS Code-family terminals) interjects.
+The bottom border is the info line (`PromptInfo`): right-aligned `model_name · flags` (plan, always-approve / yolo). Placeholder `"Build anything"` hides on focus. `Enter` sends. `Shift+Enter` / `Alt+Enter` newline; `/multiline` flips that. `Ctrl+M` toggles multiline. Empty `!` is shell mode. `@` opens file search (filter-as-you-type; `@!` includes hidden files). `/` opens the fuzzy slash dropdown (same row layout as the question panel: `▸` on the selected row, arrows / Enter / Esc). Image / paste chips live *inside* the textarea, not on the info line. `Ctrl+S` is the session picker (`ModalWindow`). Clicking the model / mode chrome opens those pickers. Mid-turn `Enter` queues a follow-up; `Ctrl+Enter` (or `Ctrl+L` on VS Code-family terminals) interjects.
+
+Shared popup chrome is `ModalWindow` (`src/views/modal_window.rs`): accent border, title on the top edge, Esc closes. Slash and `@` stay attached dropdowns above the prompt; model / sessions / extensions use the centered modal.
 
 ### Transcript
 
@@ -123,19 +126,22 @@ There is no welcome screen. `rock` opens on the current session.
 │                                         │ …      │
 ├ DEFAULT  jev:offline  ◆ model  ctx ━━ 12%  ready ┤  status (1)
 │╭────────────────────────────────────────────────╮│
-││ › Ask Rock. /help /plan …                      ││  composer (3+border)
-│╰────────────────────────────────────────────────╯│
-│ enter send · ctrl+j new line · pgup/pgdn …       │  help (1)
+││ ❯ Ask Rock                        / for commands││  composer (3+frame)
+│╰────────────────────────── gpt-4o-mini · default─╯│
 ```
 
 - **Header** — copper ` rock  `, session title · id, cwd (home-collapsed).
 - **Body** — transcript. Plan column (28–46 cols, ~32%) when plan mode is on or a plan already exists, and the inner width is ≥ 64; stacked above the transcript on a narrower screen. Hidden otherwise so the idle layout is full width. Permission ask card eats the bottom of the body.
-- **Overlays** replace the body: help, sessions, permissions, subagents.
+- **Overlays** replace the body: help, permissions, subagents, palette. Sessions and provider are composer modals now.
 - **Scrollbar** — `┃` thumb / `│` track on the transcript’s last column. Click and drag. Wheel scrolls under the pointer.
 
 ### Prompt / composer
 
-Bubbles `textarea`. Prompt `› ` on line 0, two-space hang after. Placeholder lists the slash commands. Rounded box; copper border when focused, mute when not. `Enter` sends. `ctrl+j` / `shift+enter` / `alt+enter` newline. Char limit 8000. No `@` file search, no `!` shell mode, no image chips, no mid-turn queue: a busy turn leaves the draft in the box and says so on the status line.
+Bubbles `textarea` inside a Grok-shaped rounded frame. `❯ ` on line 0, two-space hang after. Placeholder `Ask Rock`; muted `/ for commands` on the right when empty. Azurite border when the composer or a picker is focused, trim when not. Bottom border carries **model · mode** chips (right-aligned, like Grok’s info line). Click a chip to open that picker. `Enter` sends. `ctrl+j` / `shift+enter` / `alt+enter` newline. Char limit 8000.
+
+`/` opens the slash menu on the shared modal (prefix match, then contains at length ≥ 2). `@` opens a workspace file picker (skips hidden / `.git` / `node_modules`). `Ctrl+S` and `/sessions` open the sessions picker. `/provider` and the model chip open the provider list. The mode chip lists default / plan / yolo. Arrows move, Enter selects, Esc closes; chip-opened lists filter as you type. A busy turn leaves the draft in the box and says so on the status line.
+
+Skipped on purpose: Grok’s `!` shell mode, image / paste chips, `@!` hidden files, mid-turn follow-up queue. Those need harness work Rock does not have yet.
 
 ### Transcript
 
@@ -186,7 +192,7 @@ No Tab focus swap — the composer stays focused unless an overlay or ask is ope
 
 ### Slash commands
 
-Typed at the composer, exact name, no fuzzy menu.
+Typed at the composer. A leading `/` opens the shared modal; prefix match, then contains at length ≥ 2. Enter runs the selected command; Tab completes without running.
 
 | Command | What Rock does |
 |---|---|
@@ -194,7 +200,9 @@ Typed at the composer, exact name, no fuzzy menu.
 | `/plan` | Plan mode; show the plan pane |
 | `/yolo` | Skip asks; destructive Jev gate still blocks |
 | `/default` | Back to the default policy |
-| `/sessions` | Resume picker for this folder |
+| `/sessions` | Resume picker (composer modal) for this folder |
+| `/provider` | Model/provider picker (composer modal) |
+| `/update` | Install the latest GitHub release |
 | `/permissions` | Loaded allow / ask / deny rules + sandbox honesty note |
 | `/agents` | Table of `spawn_subagent` rows this session (kind / status / detail) |
 | `/ready` | Jev (or offline policy) plan-readiness verdict — **never approves** |
@@ -203,6 +211,28 @@ Typed at the composer, exact name, no fuzzy menu.
 | `/quit` | Quit |
 
 Unknown `/foo` is an alert on the status line.
+
+---
+
+## Input bar
+
+Grok’s composer (`PromptWidget` + `ModalWindow` at `2bdd1d6`) is a framed box with `❯`, a quiet placeholder, and `model · mode` on the bottom border. `/` and `@` drop a list above the prompt; model, mode, and sessions open the shared modal. Arrows, Enter, Esc, and filter-as-you-type.
+
+Rock now matches that shape:
+
+| Grok | Rock |
+|---|---|
+| Rounded `╭─╮` frame; active border is the accent | Same; azurite when focused |
+| `❯` + wrap; placeholder hides on focus | `❯` + wrap; `Ask Rock` stays, `/ for commands` on the right |
+| `model · yolo` on the bottom border | `model · default\|plan\|yolo` chips on the bottom border |
+| Click model / mode chrome | Click a chip (mouse on) |
+| `/` fuzzy dropdown | `/` on the shared modal (prefix, then contains at length ≥ 2) |
+| `@` file search | `@` workspace files; hidden / VCS dirs skipped |
+| `Ctrl+S` session modal | `Ctrl+S` and `/sessions` on the shared modal |
+| `/model` picker | `/provider` and the model chip (ChatGPT / SuperGrok / API key / offline) |
+| Filter-as-you-type, arrows, Enter, Esc | Same |
+
+Skipped: `!` shell, image/paste chips, `@!` hidden files, mid-turn queue — Rock has no honest backing for those. Help, `/agents`, the permission card, Jev `◇` marks, and the plan pane stay Rock-shaped.
 
 ---
 
@@ -255,7 +285,7 @@ Ordered inside each area so a follow-up PR can take the first item and stop. Do 
 ### 1. Layout
 
 1. **Restack the chrome to Grok’s order.** Scrollback fills; composer sits on the shortcuts bar; the live session row is not a branded header. Today Rock spends a row on ` rock  ` + cwd and another on a mid-screen status. Grok’s agent view has no product wordmark in the header and keeps the prompt flush against the hint bar.
-2. **Composer chrome.** Drop the full-width rounded box toward Grok’s `❯` + wrapping lines + info line (`model · mode`) and a one-column accent. Keep copper as the focus color; the *shape* is the gap.
+2. **Composer chrome.** Done: framed `❯` box, `model · mode` chips on the bottom border, shared modal for `/` `@` model mode sessions. Leftover: Grok’s left `┃` accent column and hiding the placeholder on focus.
 3. **Shortcuts bar, not a Bubbles help line.** Contextual hints that change with ask / overlay / busy, instead of a static `enter send · ctrl+j new line · …` row. Pin the route back from an ask the way Grok pins `Tab/Space: question` on a narrow bar.
 4. **Outer padding and a compact cut.** Grok’s `outer_vpad` / `outer_hpad_*` and auto-compact at ≤20 rows. Rock currently goes edge-to-edge and only shrinks the composer.
 5. **Scrollbar geometry.** Grok’s track sits in a reserved gutter with theme `scrollbar_bg` / `scrollbar_fg` and an optional gap. Rock paints `┃`/`│` in the last transcript column. Match gutter + thumb, keep click-drag.

@@ -251,6 +251,7 @@ type geometry struct {
 	innerW       int
 	bodyY, bodyH int
 	composerRows int
+	frameRows    int
 	infoRows     int
 	helpRows     int
 	transcriptW  int
@@ -262,8 +263,10 @@ type geometry struct {
 	compact      bool
 }
 
-func (g geometry) composerY() int   { return g.bodyY + g.bodyH }
-func (g geometry) statusY() int     { return g.composerY() + g.composerRows + g.infoRows }
+func (g geometry) composerY() int { return g.bodyY + g.bodyH }
+func (g geometry) statusY() int {
+	return g.composerY() + g.composerRows + g.frameRows + g.infoRows
+}
 func (g geometry) contentLeft() int { return g.padL }
 
 // Model is the Bubble Tea program.
@@ -300,6 +303,9 @@ type Model struct {
 	gate            *jevGate
 
 	palette         list.Model
+	picker          picker
+	chips           []chipHit
+	chipY           int
 	slashSel        int
 	slashHide       bool
 	avail           update.Notice
@@ -581,6 +587,10 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 	if m.overlay != noOverlay {
 		return m.overlayKey(msg)
 	}
+	m.syncPicker()
+	if m.picker.open() {
+		return m.pickerKey(msg)
+	}
 	switch {
 	case key.Matches(msg, m.keys.help):
 		m.openOverlay(helpOverlay)
@@ -588,8 +598,7 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 	case key.Matches(msg, m.keys.palette):
 		return m.openPalette()
 	case key.Matches(msg, m.keys.sessions):
-		m.refreshSessions()
-		m.openOverlay(sessionsOverlay)
+		m.openSessionsPicker()
 		return nil
 	case key.Matches(msg, m.keys.yolo):
 		return m.toggleYolo()
@@ -603,16 +612,6 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.toggleFocus()
 	case msg.String() == "esc" && m.busy:
 		return m.cancelTurn()
-	case msg.String() == "esc" && m.slashVisible():
-		m.slashHide = true
-		return nil
-	case m.slashVisible() && (msg.String() == "up" || msg.String() == "down"):
-		if msg.String() == "up" {
-			m.slashMove(-1)
-		} else {
-			m.slashMove(1)
-		}
-		return nil
 	case key.Matches(msg, m.keys.up), key.Matches(msg, m.keys.down):
 		m.scrollKey(msg)
 		return nil
@@ -622,14 +621,11 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.openOverlay(helpOverlay)
 		return nil
 	case key.Matches(msg, m.keys.submit):
-		if m.slashVisible() {
-			m.slashComplete()
-		}
 		return m.submit()
 	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
-	m.syncSlash()
+	m.syncPicker()
 	return cmd
 }
 
@@ -852,6 +848,9 @@ func (m *Model) slashVisible() bool {
 	if m.slashHide || m.focusTranscript || m.overlay != noOverlay || m.pending != nil {
 		return false
 	}
+	if m.picker.open() && m.picker.kind != slashPicker && m.picker.kind != filesPicker {
+		return false
+	}
 	v := m.input.Value()
 	return strings.HasPrefix(v, "/") && !strings.ContainsAny(v, " \t\n")
 }
@@ -876,14 +875,7 @@ func (m *Model) slashMatches() []rowItem {
 }
 
 func (m *Model) syncSlash() {
-	if !strings.HasPrefix(m.input.Value(), "/") {
-		m.slashHide = false
-	}
-	if n := len(m.slashMatches()); n == 0 {
-		m.slashSel = 0
-	} else if m.slashSel >= n {
-		m.slashSel = n - 1
-	}
+	m.syncPicker()
 }
 
 func (m *Model) slashMove(delta int) {
@@ -892,6 +884,9 @@ func (m *Model) slashMove(delta int) {
 		return
 	}
 	m.slashSel = (m.slashSel + delta%n + n) % n
+	if m.picker.kind == slashPicker {
+		m.picker.sel = m.slashSel
+	}
 }
 
 func (m *Model) slashComplete() {
@@ -901,6 +896,212 @@ func (m *Model) slashComplete() {
 	}
 	m.input.SetValue(items[m.slashSel].title)
 	m.slashHide = true
+	m.picker.close()
+}
+
+func (m *Model) syncPicker() {
+	if m.overlay != noOverlay || m.pending != nil || m.focusTranscript {
+		if m.picker.kind == slashPicker || m.picker.kind == filesPicker {
+			m.picker.close()
+		}
+		return
+	}
+	v := m.input.Value()
+	if !strings.HasPrefix(v, "/") {
+		m.slashHide = false
+	}
+	if _, query, ok := atToken(v); ok && !m.slashHide {
+		if m.picker.kind != filesPicker {
+			m.openFilesPicker(query)
+			return
+		}
+		m.picker.items = listWorkspaceFiles(m.deps.CWD, query, 40)
+		m.picker.filter = query
+		m.picker.clamp()
+		return
+	}
+	if m.slashVisible() {
+		items := m.slashMatches()
+		if m.picker.kind != slashPicker {
+			m.picker.set(slashPicker, "", items)
+			m.picker.sel = m.slashSel
+			m.picker.clamp()
+			m.slashSel = m.picker.sel
+			return
+		}
+		m.picker.items = items
+		m.picker.sel = m.slashSel
+		m.picker.clamp()
+		m.slashSel = m.picker.sel
+		return
+	}
+	if m.picker.kind == slashPicker || m.picker.kind == filesPicker {
+		m.picker.close()
+	}
+}
+
+func (m *Model) openModelPicker() {
+	m.refreshProviders()
+	m.picker.set(modelPicker, "Model", listItems(m.providers))
+	m.input.Blur()
+}
+
+func (m *Model) openModePicker() {
+	cur := string(m.deps.Mode)
+	items := []rowItem{
+		{title: "default", desc: "asks when the policy says so", id: "default"},
+		{title: "plan", desc: "edits and shell blocked", id: "plan"},
+		{title: "yolo", desc: "skip asks; destructive gate stays", id: "yolo"},
+	}
+	m.picker.set(modePicker, "Mode", items)
+	for i, it := range items {
+		if it.id == cur {
+			m.picker.sel = i
+		}
+	}
+	m.input.Blur()
+}
+
+func (m *Model) openSessionsPicker() {
+	m.refreshSessions()
+	m.picker.set(sessionsPicker, "Sessions", listItems(m.sessions))
+	m.input.Blur()
+}
+
+func (m *Model) openFilesPicker(query string) {
+	items := listWorkspaceFiles(m.deps.CWD, query, 40)
+	m.picker.set(filesPicker, "", items)
+	m.picker.filter = query
+}
+
+func (m *Model) closePicker() tea.Cmd {
+	m.picker.close()
+	m.slashHide = true
+	m.focusTranscript = false
+	return m.input.Focus()
+}
+
+func (m *Model) pickerKey(msg tea.KeyPressMsg) tea.Cmd {
+	switch {
+	case msg.String() == "esc":
+		if m.picker.kind == slashPicker || m.picker.kind == filesPicker {
+			m.slashHide = true
+			m.picker.close()
+			return nil
+		}
+		return m.closePicker()
+	case msg.String() == "up":
+		m.picker.move(-1)
+		if m.picker.kind == slashPicker {
+			m.slashSel = m.picker.sel
+		}
+		return nil
+	case msg.String() == "down":
+		m.picker.move(1)
+		if m.picker.kind == slashPicker {
+			m.slashSel = m.picker.sel
+		}
+		return nil
+	case msg.String() == "tab" && (m.picker.kind == slashPicker || m.picker.kind == filesPicker):
+		if m.picker.kind == filesPicker {
+			m.acceptFile()
+			return nil
+		}
+		m.slashComplete()
+		return nil
+	case key.Matches(msg, m.keys.submit) || msg.String() == "enter":
+		return m.pickCurrent()
+	}
+	if m.picker.ownsTyping() {
+		switch msg.String() {
+		case "backspace", "ctrl+h":
+			m.picker.backspace()
+			return nil
+		}
+		if text := msg.Text; text != "" && !strings.ContainsAny(text, "\n\t") {
+			m.picker.typeFilter(text)
+			return nil
+		}
+		return nil
+	}
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	m.syncPicker()
+	return cmd
+}
+
+func (m *Model) pickCurrent() tea.Cmd {
+	switch m.picker.kind {
+	case slashPicker:
+		m.slashComplete()
+		return m.submit()
+	case modelPicker:
+		if it, ok := m.picker.selected(); ok {
+			m.selectProviderItem(it)
+		}
+		return m.closePicker()
+	case modePicker:
+		if it, ok := m.picker.selected(); ok {
+			m.applyModeID(it.id)
+		}
+		return m.closePicker()
+	case sessionsPicker:
+		if it, ok := m.picker.selected(); ok {
+			m.resumeID(it.id)
+		}
+		return m.closePicker()
+	case filesPicker:
+		m.acceptFile()
+		return nil
+	}
+	return m.closePicker()
+}
+
+func (m *Model) applyModeID(id string) {
+	switch id {
+	case "plan":
+		m.setMode(perms.ModePlan)
+		m.showPlan = true
+		m.refreshPlan()
+		m.status = "plan mode. Shell is blocked. Write the plan with update_plan."
+	case "yolo":
+		m.reportReady()
+		m.setMode(perms.ModeYolo)
+		m.showPlan = false
+		m.status = "yolo. Asks are skipped. The destructive gate still blocks."
+	default:
+		m.reportReady()
+		m.setMode(perms.ModeDefault)
+		m.showPlan = false
+		m.status = "default mode"
+	}
+	m.alert = false
+}
+
+func (m *Model) acceptFile() {
+	it, ok := m.picker.selected()
+	if !ok {
+		m.picker.close()
+		return
+	}
+	v := m.input.Value()
+	start, _, found := atToken(v)
+	if !found {
+		m.picker.close()
+		return
+	}
+	m.input.SetValue(v[:start] + "@" + it.id + " ")
+	m.picker.close()
+}
+
+func listItems(l list.Model) []rowItem {
+	var items []rowItem
+	for _, it := range l.Items() {
+		if row, ok := it.(rowItem); ok {
+			items = append(items, row)
+		}
+	}
+	return items
 }
 
 func (m *Model) runPalette() tea.Cmd {
@@ -920,8 +1121,7 @@ func (m *Model) runPalette() tea.Cmd {
 	case item.id == "key:cycle":
 		return m.cycleMode()
 	case item.id == "key:sessions":
-		m.refreshSessions()
-		m.openOverlay(sessionsOverlay)
+		m.openSessionsPicker()
 	case item.id == "key:yolo":
 		return m.toggleYolo()
 	case item.id == "key:verbose":
@@ -1024,6 +1224,7 @@ func (m *Model) overlayKey(msg tea.KeyPressMsg) tea.Cmd {
 }
 
 func (m *Model) openOverlay(o overlay) {
+	m.picker.close()
 	m.overlay = o
 	m.input.Blur()
 	if o == helpOverlay {
@@ -1090,8 +1291,7 @@ func (m *Model) slash(text string) tea.Cmd {
 		m.showPlan = false
 		m.status = "default mode"
 	case "/sessions":
-		m.refreshSessions()
-		m.openOverlay(sessionsOverlay)
+		m.openSessionsPicker()
 	case "/permissions":
 		m.refreshPerms()
 		m.openOverlay(permsOverlay)
@@ -1107,8 +1307,7 @@ func (m *Model) slash(text string) tea.Cmd {
 	case "/fork":
 		return m.emitFork(rest)
 	case "/provider":
-		m.refreshProviders()
-		m.openOverlay(providerOverlay)
+		m.openModelPicker()
 	case "/update":
 		return m.askUpdate()
 	case "/quit":
@@ -1471,10 +1670,17 @@ func (m *Model) seedTranscript() {
 
 func (m *Model) resumeSelected() {
 	item, ok := m.sessions.SelectedItem().(rowItem)
-	if !ok || item.id == "" || m.deps.LoadSession == nil {
+	if !ok {
 		return
 	}
-	sess, err := m.deps.LoadSession(item.id)
+	m.resumeID(item.id)
+}
+
+func (m *Model) resumeID(id string) {
+	if id == "" || m.deps.LoadSession == nil {
+		return
+	}
+	sess, err := m.deps.LoadSession(id)
 	if err != nil {
 		m.setAlert(err.Error())
 		return
@@ -1482,7 +1688,7 @@ func (m *Model) resumeSelected() {
 	m.deps.Session = sess
 	m.seedTranscript()
 	m.refreshPlan()
-	m.status, m.alert = "resumed "+item.id, false
+	m.status, m.alert = "resumed "+id, false
 }
 
 func (m *Model) refreshSessions() {
@@ -1593,23 +1799,27 @@ func (m *Model) pickProvider() tea.Cmd {
 	if !ok {
 		return m.closeOverlay()
 	}
-	if item.id == "siwc" && !m.deps.HasSIWC {
+	m.selectProviderItem(item)
+	return m.closeOverlay()
+}
+
+func (m *Model) selectProviderItem(item rowItem) {
+	switch {
+	case item.id == "siwc" && !m.deps.HasSIWC:
 		m.setAlert("ChatGPT: run rock login chatgpt first. API keys stay the fallback.")
-		return m.closeOverlay()
-	}
-	if item.id == "grok-cli" && !m.deps.HasGrokCLI {
+		return
+	case item.id == "grok-cli" && !m.deps.HasGrokCLI:
 		m.setAlert("grok is not on PATH. Install from https://x.ai/cli then run grok login. Rock does not sign you in.")
-		return m.closeOverlay()
-	}
-	if item.id == "api_key" && !m.deps.HasAPIKey {
+		return
+	case item.id == "api_key" && !m.deps.HasAPIKey:
 		m.setAlert("no ROCK_API_KEY / OPENAI_API_KEY; offline model is the fallback")
-		return m.closeOverlay()
+		return
 	}
 	if m.deps.SetAuth != nil {
 		name, auth, err := m.deps.SetAuth(item.id)
 		if err != nil {
 			m.setAlert(err.Error())
-			return m.closeOverlay()
+			return
 		}
 		m.deps.Provider = name
 		m.deps.Auth = auth
@@ -1627,7 +1837,6 @@ func (m *Model) pickProvider() tea.Cmd {
 		}
 	}
 	m.status, m.alert = "model auth "+m.deps.Auth, false
-	return m.closeOverlay()
 }
 
 func (m *Model) refreshPerms() {
@@ -1734,6 +1943,17 @@ func (m *Model) onMouse(msg tea.MouseMsg) {
 		case helpOverlay:
 			m.sheet, _ = m.sheet.Update(msg)
 		default:
+			if m.picker.open() {
+				if up {
+					m.picker.move(-1)
+				} else {
+					m.picker.move(1)
+				}
+				if m.picker.kind == slashPicker {
+					m.slashSel = m.picker.sel
+				}
+				return
+			}
 			if m.inPlan(mo.X, mo.Y) {
 				m.planVP, _ = m.planVP.Update(msg)
 				return
@@ -1742,7 +1962,13 @@ func (m *Model) onMouse(msg tea.MouseMsg) {
 			m.follow = m.vp.AtBottom()
 		}
 	case tea.MouseClickMsg:
-		if mo.Button != tea.MouseLeft || m.overlay != noOverlay {
+		if mo.Button != tea.MouseLeft {
+			return
+		}
+		if m.clickChip(mo.X, mo.Y) {
+			return
+		}
+		if m.overlay != noOverlay {
 			return
 		}
 		if m.onScrollbar(mo.X, mo.Y) {
@@ -1758,6 +1984,32 @@ func (m *Model) onMouse(msg tea.MouseMsg) {
 	case tea.MouseReleaseMsg:
 		m.dragging = false
 	}
+}
+
+func (m *Model) clickChip(x, y int) bool {
+	if y != m.chipY || m.pending != nil || m.overlay != noOverlay {
+		return false
+	}
+	for _, c := range m.chips {
+		if x >= c.x && x < c.x+c.w {
+			switch c.id {
+			case "model":
+				if m.picker.kind == modelPicker {
+					_ = m.closePicker()
+					return true
+				}
+				m.openModelPicker()
+			case "mode":
+				if m.picker.kind == modePicker {
+					_ = m.closePicker()
+					return true
+				}
+				m.openModePicker()
+			}
+			return true
+		}
+	}
+	return false
 }
 
 func wheelList(l *list.Model, up bool) {
