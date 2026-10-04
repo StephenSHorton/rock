@@ -1468,7 +1468,12 @@ func readyEventText(res jev.Result, verdict string) string {
 	if line == "" || line == "jev" {
 		return verdict
 	}
-	return line + " " + verdict
+	first, rest, ok := strings.Cut(line, "\n")
+	first = strings.TrimSpace(first + " " + verdict)
+	if !ok {
+		return first
+	}
+	return first + "\n" + rest
 }
 
 func (m *Model) onMouse(msg tea.MouseMsg) {

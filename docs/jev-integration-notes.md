@@ -10,4 +10,4 @@ Lessons from Grok Build | Project Lead adding optional Jev to [StephenSHorton/gr
 
 4. Config overlays must not be able to inject a Jev key.
 
-**Rock status.** A project or repo `.rock/config.toml` cannot supply a Jev key or `jev.base_url`. Keys stay env-only (`JEV_API_KEY` / `TYPESAFE_API_KEY`); there is no keyring and no TOML key field. The endpoint may come from the user-level 0600 file only. `Load` clears project `jev.base_url` before merge. Covered by `TestProjectCannotInjectJevEndpoint`.
+**Rock status.** A project or repo `.rock/config.toml` cannot supply a Jev key or `jev.base_url`. Key lookup is env (`JEV_API_KEY`, then `TYPESAFE_API_KEY`), then the OS keychain (service `rock`, user `jev`), then a `0600` file in `ROCK_HOME`. There is no TOML key field. `Load` clears project `jev.base_url` before merge. Covered by `TestProjectCannotInjectJevEndpoint`.

@@ -8,6 +8,7 @@
 #   FONT_SIZE / STUB_DELAY        optional env for the xterm face and stub pause
 #   visual.sh offline             rock with no model key (offline provider)
 #   visual.sh stub                rock against stubllm in a fresh workspace
+#   visual.sh askjev              stub + fake Jev; type "ask jev about rounding"
 #   visual.sh onboard [env...]    first-run Jev gate (no saved key)
 #   visual.sh onboard-ok          gate + ROCK_TEST_FAKE_JEV accept
 #   visual.sh onboard-bad         gate + ROCK_TEST_FAKE_JEV reject
@@ -136,6 +137,7 @@ up) up "$@" ;;
 llm) llm ;;
 offline) offline ;;
 stub) stub ;;
+askjev) stub ;;
 onboard) onboard "$@" ;;
 onboard-ok) onboard "ROCK_TEST_FAKE_JEV=1" ;;
 onboard-bad) onboard "ROCK_TEST_FAKE_JEV=reject" ;;
@@ -147,5 +149,5 @@ wheel) wheel "$@" ;;
 click) click "$@" ;;
 shot) shot "$1" ;;
 text) t capture-pane -p -t "$PANE" ;;
-*) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//' && exit 2 ;;
+*) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//' && exit 2 ;;
 esac

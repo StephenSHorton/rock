@@ -118,6 +118,40 @@ func TestValidateQueries(t *testing.T) {
 	}
 }
 
+func TestResultLineModesAndFailure(t *testing.T) {
+	ok := Result{
+		Source: "live",
+		Answers: map[string]Answer{
+			"resolved": {Mode: ModeBoolean, Question: "Is the rounding failure gone?", Value: 0.91},
+			"kind":     {Mode: ModeChoice, Question: "What kind of failure?", Value: "round", Confidence: 0.8},
+			"risk":     {Mode: ModeScore, Question: "How risky is this change?", Value: 1.2, Legend: map[string]string{"0": "safe", "1": "caution"}},
+		},
+	}
+	line := ok.Line()
+	if !strings.Contains(line, "live") || !strings.Contains(line, "resolved=0.91") {
+		t.Fatal(line)
+	}
+	if !strings.Contains(line, "boolean") || !strings.Contains(line, "Is the rounding failure gone?") {
+		t.Fatal(line)
+	}
+	if !strings.Contains(line, "kind=round") || !strings.Contains(line, "0.80") {
+		t.Fatal(line)
+	}
+	if !strings.Contains(line, "risk=1.2") || !strings.Contains(line, "caution") {
+		t.Fatal(line)
+	}
+	fail := Result{
+		Error: "jev http 502: nope",
+		Answers: map[string]Answer{
+			"q": {Mode: ModeBoolean, Question: "ok?", Detail: FailedDetail},
+		},
+	}
+	got := fail.Line()
+	if !strings.Contains(got, "error=") || strings.Contains(got, "q=0") || !strings.Contains(got, FailedDetail) {
+		t.Fatal(got)
+	}
+}
+
 func TestAskKeepsReasonWhenPresent(t *testing.T) {
 	g := Gates{Client: fakeClient(t, func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{

@@ -749,7 +749,7 @@ func (m *Model) renderTranscript(width int) string {
 	}
 	i := 0
 	for i < len(m.lines) {
-		if !m.verbose && diagnosticJev(m.lines[i]) {
+		if hiddenTranscript(m.lines[i], m.verbose) {
 			i++
 			continue
 		}
@@ -817,7 +817,7 @@ func (m *Model) renderLine(ln line, width int, selected, folded, running bool) s
 		}
 		return m.eventRow(st.Render("⚑ ")+t.plain.Render(ln.name)+"  "+st.Render(decision), strings.TrimSpace(why), t.faint, width, selected)
 	case "jev":
-		return m.eventRow(t.faint.Render("◇ jev "+ln.name), text, t.faint, width, selected)
+		return m.renderJev(ln, width, selected)
 	default:
 		return m.eventRow(t.faint.Render(ln.kind), text, t.faint, width, selected)
 	}
@@ -919,12 +919,143 @@ func (m *Model) eventRow(head, detail string, st lipgloss.Style, width int, sele
 	return lead + row
 }
 
+func hiddenTranscript(ln line, verbose bool) bool {
+	if ln.kind == "tool" && ln.name == "ask_jev" {
+		return true
+	}
+	return !verbose && diagnosticJev(ln)
+}
+
 func toolFoldsByDefault(name string) bool {
 	switch name {
-	case "read_file", "grep", "glob", "web_fetch":
+	case "read_file", "grep", "glob", "web_fetch", "ask_jev":
 		return true
 	}
 	return false
+}
+
+func (m *Model) renderJev(ln line, width int, selected bool) string {
+	t := m.th
+	inner := max(8, width-blockPad)
+	head := t.accent.Render("◇ jev ") + t.plain.Render(ln.name)
+	src, errText, extra, qs := parseJevLine(ln.text)
+	if len(qs) == 0 {
+		detail := sanitize(ln.text)
+		st := t.faint
+		if errText != "" || strings.Contains(detail, "error=") {
+			st = t.danger
+		}
+		return m.eventRow(head, detail, st, width, selected)
+	}
+	meta := strings.TrimSpace(strings.TrimSpace(src + " " + extra))
+	first := head
+	if room := inner - ansi.StringWidth(ansi.Strip(first)) - 2; room > 0 && meta != "" {
+		first += "  " + t.faint.Render(clip(meta, room))
+	}
+	rows := []string{first}
+	for _, q := range qs {
+		label := q.name
+		if q.mode != "" {
+			label += " · " + q.mode
+		}
+		if q.question != "" {
+			label += " · " + q.question
+		}
+		rows = append(rows, t.plain.Render(wrapText(label, inner)))
+		ans := q.answer
+		if ans == "" && errText != "" {
+			ans = errText
+		}
+		st := t.plain
+		if q.failed || (errText != "" && ans == errText) {
+			st = t.danger
+		}
+		if ans != "" {
+			rows = append(rows, st.Render(wrapText(ans, inner)))
+		}
+	}
+	return m.markBlock(strings.Join(rows, "\n"), width, selected, false)
+}
+
+type jevPaint struct {
+	mode, name, question, answer string
+	failed                       bool
+}
+
+func parseJevLine(text string) (source, errText, extra string, qs []jevPaint) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "", "", "", nil
+	}
+	lines := strings.Split(text, "\n")
+	head := strings.TrimSpace(lines[0])
+	if strings.HasPrefix(head, "error=") {
+		errText = strings.TrimSpace(strings.TrimPrefix(head, "error="))
+	} else {
+		source, rest, _ := strings.Cut(head, " ")
+		source = strings.TrimSpace(source)
+		rest = strings.TrimSpace(rest)
+		switch source {
+		case "live", "jev", "offline":
+			if after, ok := strings.CutPrefix(rest, "error="); ok {
+				errText = strings.TrimSpace(after)
+			} else {
+				extra = rest
+			}
+		default:
+			extra = head
+			source = ""
+		}
+	}
+	for _, raw := range lines[1:] {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		if q, ok := parseJevQuestion(raw); ok {
+			qs = append(qs, q)
+		} else if extra == "" {
+			extra = raw
+		} else {
+			extra += " " + raw
+		}
+	}
+	if len(qs) == 0 {
+		if q, ok := parseJevQuestion(head); ok {
+			qs = append(qs, q)
+			source, extra = "", ""
+		}
+	}
+	return source, errText, extra, qs
+}
+
+func parseJevQuestion(s string) (jevPaint, bool) {
+	s = strings.TrimSpace(s)
+	body, question, _ := strings.Cut(s, " · ")
+	mode, rest, ok := strings.Cut(body, " ")
+	if !ok {
+		return jevPaint{}, false
+	}
+	switch mode {
+	case "boolean", "choice", "score":
+	default:
+		return jevPaint{}, false
+	}
+	q := jevPaint{mode: mode, question: strings.TrimSpace(question)}
+	if name, val, found := strings.Cut(rest, "="); found {
+		q.name = strings.TrimSpace(name)
+		q.answer = strings.TrimSpace(val)
+		return q, q.name != ""
+	}
+	if name, detail, found := strings.Cut(rest, ": "); found {
+		q.name = strings.TrimSpace(name)
+		q.answer = strings.TrimSpace(detail)
+		q.failed = true
+		return q, q.name != ""
+	}
+	q.name = strings.TrimSpace(rest)
+	q.failed = true
+	return q, q.name != ""
 }
 
 func (m *Model) renderTool(ln line, width int, selected, folded, running bool) string {

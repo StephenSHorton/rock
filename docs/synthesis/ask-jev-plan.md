@@ -236,6 +236,8 @@ Out of scope: replacing `KeepSnippet` (that is (e)), embedding search, or claimi
 
 ## Slice (d) — TUI visibility
 
+**Landed.** Agent `ask_jev` and Go gate calls share `Result.Line()` → `EvJev` → `◇ jev`. Each question paints name, mode, question, then the answer (boolean value, choice + confidence, score against its legend, or the error with no value). Batches stay one call. `ask` is always visible; `turn` / `risk` / `kind` stay behind `/verbose`; `/ready` is always visible. The `ask_jev` tool row is hidden so the diamond is the only paint.
+
 **Scope.** Every Jev call the user should see appears in the transcript as `◇ jev`, with the question, the mode, and the answer. Use the mark that already exists ([`internal/tui/view.go`](../../internal/tui/view.go) 808–809). Agent `ask_jev` is user-facing, not a `/verbose` diagnostic.
 
 **Paint.**

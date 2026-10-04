@@ -31,6 +31,7 @@ type Query struct {
 // Answer is one typed result the model can act on.
 type Answer struct {
 	Mode          string             `json:"mode"`
+	Question      string             `json:"question,omitempty"`
 	Value         any                `json:"value,omitempty"`
 	Confidence    float64            `json:"confidence,omitempty"`
 	Probabilities map[string]float64 `json:"probabilities,omitempty"`
@@ -152,7 +153,7 @@ func (g Gates) Ask(ctx context.Context, state any, questions []Query) Result {
 	for _, q := range questions {
 		raw, ok := res.Answers[q.Name]
 		if !ok {
-			out.Answers[q.Name] = Answer{Mode: q.agentMode(), Detail: "Jev returned no answer"}
+			out.Answers[q.Name] = Answer{Mode: q.agentMode(), Question: q.Question, Detail: "Jev returned no answer"}
 			continue
 		}
 		out.Answers[q.Name] = decodeAsk(q, raw)
@@ -163,13 +164,13 @@ func (g Gates) Ask(ctx context.Context, state any, questions []Query) Result {
 func askFailed(questions []Query, err string) Result {
 	out := Result{Error: err, Answers: make(map[string]Answer, len(questions))}
 	for _, q := range questions {
-		out.Answers[q.Name] = Answer{Mode: q.agentMode(), Detail: FailedDetail}
+		out.Answers[q.Name] = Answer{Mode: q.agentMode(), Question: q.Question, Detail: FailedDetail}
 	}
 	return out
 }
 
 func decodeAsk(q Query, raw json.RawMessage) Answer {
-	a := Answer{Mode: q.agentMode(), Reason: extraReason(raw)}
+	a := Answer{Mode: q.agentMode(), Question: q.Question, Reason: extraReason(raw)}
 	switch q.agentMode() {
 	case ModeChoice:
 		ch, err := DecodeChoice(raw)
@@ -201,7 +202,9 @@ func decodeAsk(q Query, raw json.RawMessage) Answer {
 	return a
 }
 
-// Line is the shared EvJev text. Failed calls show error and no values.
+// Line is the shared EvJev text. One call is one block: a source line,
+// then each question on its own row (name, mode, question, answer).
+// Failed calls show error= and no name=value tokens.
 func (r Result) Line() string {
 	var b strings.Builder
 	if r.Source != "" {
@@ -220,19 +223,70 @@ func (r Result) Line() string {
 	sort.Strings(names)
 	for _, name := range names {
 		a := r.Answers[name]
-		b.WriteByte(' ')
-		b.WriteString(a.Mode)
-		b.WriteByte(' ')
+		b.WriteByte('\n')
+		if a.Mode != "" {
+			b.WriteString(a.Mode)
+			b.WriteByte(' ')
+		}
 		b.WriteString(name)
 		if a.Value != nil && r.Error == "" {
 			b.WriteByte('=')
 			fmt.Fprint(&b, a.Value)
+			if a.Mode == ModeChoice && a.Confidence > 0 {
+				fmt.Fprintf(&b, " %.2f", a.Confidence)
+			}
+			if a.Mode == ModeScore {
+				if label := scoreLegend(a); label != "" {
+					b.WriteByte(' ')
+					b.WriteString(label)
+				}
+			}
 		} else if a.Detail != "" {
 			b.WriteString(": ")
 			b.WriteString(a.Detail)
 		}
+		if q := strings.TrimSpace(a.Question); q != "" {
+			b.WriteString(" · ")
+			b.WriteString(oneLine(q))
+		}
 	}
 	return b.String()
+}
+
+func scoreLegend(a Answer) string {
+	if len(a.Legend) == 0 {
+		return ""
+	}
+	keys := []string{fmt.Sprint(a.Value)}
+	if n, ok := AnswerFloat(a); ok {
+		keys = append(keys, fmt.Sprintf("%.0f", n), fmt.Sprintf("%d", int(n)))
+	}
+	for _, k := range keys {
+		if s := strings.TrimSpace(a.Legend[k]); s != "" {
+			return s
+		}
+	}
+	names := make([]string, 0, len(a.Legend))
+	for k := range a.Legend {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	var parts []string
+	seen := map[string]bool{}
+	for _, k := range names {
+		s := strings.TrimSpace(a.Legend[k])
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		parts = append(parts, s)
+	}
+	return strings.Join(parts, "/")
+}
+
+func oneLine(s string) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	return strings.Join(strings.Fields(s), " ")
 }
 
 func AnswerString(a Answer) (string, bool) {
