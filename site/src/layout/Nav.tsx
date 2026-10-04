@@ -12,7 +12,7 @@ export function Nav() {
   const [open, setOpen] = useState(false)
 
   return (
-    <header className="sticky top-0 z-20 border-b border-[var(--topbar-border)] bg-[var(--topbar-bg)] shadow-[var(--topbar-shadow)] backdrop-blur">
+    <header className="fixed inset-x-0 top-0 z-20 border-b border-[var(--topbar-border)] bg-[var(--topbar-bg)] shadow-[var(--topbar-shadow)] backdrop-blur">
       <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-3 sm:px-6">
         <a href="#top" className="flex items-center gap-2 no-underline" aria-label="Rock, top">
           <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true">

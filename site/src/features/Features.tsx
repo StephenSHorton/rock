@@ -169,7 +169,7 @@ export function Features() {
       </p>
       <div className="mt-8 grid gap-6 lg:grid-cols-2">
         {ITEMS.map((item) => (
-          <article key={item.id} className="glass-hud rounded-2xl p-5">
+          <article key={item.id} className="glass-panel rounded-2xl p-5">
             <h3 className="mono text-[0.8rem] uppercase tracking-[0.08em] text-[var(--primary)]">{item.title}</h3>
             <p className="mt-2 text-[var(--ink-2)]">{item.body}</p>
             <DemoFrame id={item.id} title={item.title} theme={theme} reduced={reduced} />

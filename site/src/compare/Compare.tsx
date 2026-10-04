@@ -26,7 +26,7 @@ export function Compare() {
       </p>
       <ul className="mt-8 grid list-none gap-4 p-0 md:grid-cols-3">
         {POINTS.map((point) => (
-          <li key={point.title} className="glass-hud rounded-2xl p-5">
+          <li key={point.title} className="glass-panel rounded-2xl p-5">
             <h3 className="text-xl tracking-tight">{point.title}</h3>
             <p className="mt-2 text-[var(--ink-2)]">{point.body}</p>
           </li>

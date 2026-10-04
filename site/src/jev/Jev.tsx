@@ -35,7 +35,7 @@ export function Jev() {
       </p>
       <div className="mt-8 grid gap-4 md:grid-cols-2">
         {ITEMS.map((item) => (
-          <article key={item.title} className="glass-hud rounded-2xl p-5">
+          <article key={item.title} className="glass-panel rounded-2xl p-5">
             <h3 className="text-xl tracking-tight">{item.title}</h3>
             <p className="mt-2 text-[var(--ink-2)]">{item.body}</p>
           </article>
