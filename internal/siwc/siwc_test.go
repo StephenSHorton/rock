@@ -321,3 +321,199 @@ func TestAuthorizeQueryRefusesCodex(t *testing.T) {
 		t.Fatal("codex client")
 	}
 }
+
+type fakeAuth struct {
+	*httptest.Server
+	key         *rsa.PrivateKey
+	issued      string
+	codes       map[string]pending
+	refresh     map[string]int
+	mu          sync.Mutex
+	revoked     bool
+	tokenHits   int
+	slowRefresh time.Duration
+}
+
+type pending struct {
+	verifier string
+	nonce    string
+	client   string
+	redirect string
+}
+
+func newFakeAuth(t *testing.T) *fakeAuth {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeAuth{
+		key:     key,
+		issued:  "oaiapp_rock_test",
+		codes:   map[string]pending{},
+		refresh: map[string]int{"refresh-1": 1},
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"issuer":                 f.URL,
+			"jwks_uri":               f.URL + "/.well-known/jwks.json",
+			"revocation_endpoint":    f.URL + "/oauth/revoke",
+			"authorization_endpoint": f.URL + "/api/accounts/authorize",
+			"token_endpoint":         f.URL + "/api/accounts/oauth/token",
+		})
+	})
+	mux.HandleFunc("/.well-known/jwks.json", func(w http.ResponseWriter, r *http.Request) {
+		n := base64.RawURLEncoding.EncodeToString(f.key.N.Bytes())
+		e := base64.RawURLEncoding.EncodeToString([]byte{1, 0, 1})
+		_ = json.NewEncoder(w).Encode(jwks{Keys: []jwk{{
+			Kty: "RSA", Kid: "test", N: n, E: e, Alg: "RS256", Use: "sig",
+		}}})
+	})
+	mux.HandleFunc("/api/accounts/authorize", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("client_id") == CodexClientID {
+			http.Error(w, "codex client forbidden", 400)
+			return
+		}
+		if q.Get("redirect_uri") == "" || !strings.HasSuffix(q.Get("redirect_uri"), CallbackPath) {
+			http.Error(w, "bad redirect", 400)
+			return
+		}
+		if q.Get("code_challenge_method") != "S256" || q.Get("code_challenge") == "" {
+			http.Error(w, "pkce", 400)
+			return
+		}
+		if q.Get("ext_agent_host_id") == "" {
+			http.Error(w, "host", 400)
+			return
+		}
+		client := q.Get("client_id")
+		if client == FirstClientID && q.Get("agent_name_hint") != AgentNameHint {
+			http.Error(w, "hint", 400)
+			return
+		}
+		code := fmt.Sprintf("code-%d", time.Now().UnixNano())
+		f.mu.Lock()
+		f.codes[code] = pending{
+			verifier: q.Get("code_challenge"),
+			nonce:    q.Get("nonce"),
+			client:   client,
+			redirect: q.Get("redirect_uri"),
+		}
+		f.mu.Unlock()
+		u, _ := url.Parse(q.Get("redirect_uri"))
+		qq := u.Query()
+		qq.Set("code", code)
+		qq.Set("state", q.Get("state"))
+		qq.Set("scope", Scope())
+		if client == FirstClientID {
+			qq.Set("client_id", f.issued)
+		}
+		u.RawQuery = qq.Encode()
+		http.Redirect(w, r, u.String(), http.StatusFound)
+	})
+	mux.HandleFunc("/api/accounts/oauth/token", func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		f.mu.Lock()
+		f.tokenHits++
+		slow := f.slowRefresh
+		f.mu.Unlock()
+		if r.Form.Get("client_id") == CodexClientID || r.Form.Get("client_id") == FirstClientID {
+			http.Error(w, `{"error":"invalid_client"}`, 400)
+			return
+		}
+		switch r.Form.Get("grant_type") {
+		case "authorization_code":
+			f.mu.Lock()
+			p, ok := f.codes[r.Form.Get("code")]
+			delete(f.codes, r.Form.Get("code"))
+			f.mu.Unlock()
+			if !ok {
+				http.Error(w, `{"error":"invalid_grant"}`, 400)
+				return
+			}
+			if r.Form.Get("redirect_uri") != p.redirect {
+				http.Error(w, `{"error":"invalid_grant","error_description":"redirect"}`, 400)
+				return
+			}
+			if !pkceOK(r.Form.Get("code_verifier"), p.verifier) {
+				http.Error(w, `{"error":"invalid_grant","error_description":"pkce"}`, 400)
+				return
+			}
+			idTok, err := f.signID(p.nonce, r.Form.Get("client_id"))
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(tokenResponse{
+				AccessToken:  "access-1",
+				RefreshToken: "refresh-1",
+				IDToken:      idTok,
+				TokenType:    "Bearer",
+				ExpiresIn:    3600,
+				Scope:        Scope(),
+			})
+		case "refresh_token":
+			if slow > 0 {
+				time.Sleep(slow)
+			}
+			old := r.Form.Get("refresh_token")
+			f.mu.Lock()
+			n := f.refresh[old]
+			if n == 0 {
+				f.mu.Unlock()
+				http.Error(w, `{"error":"invalid_grant"}`, 400)
+				return
+			}
+			delete(f.refresh, old)
+			next := fmt.Sprintf("refresh-%d", n+1)
+			f.refresh[next] = n + 1
+			f.mu.Unlock()
+			_ = json.NewEncoder(w).Encode(tokenResponse{
+				AccessToken:  fmt.Sprintf("access-%d", n+1),
+				RefreshToken: next,
+				TokenType:    "Bearer",
+				ExpiresIn:    3600,
+				Scope:        Scope(),
+			})
+		default:
+			http.Error(w, `{"error":"unsupported_grant_type"}`, 400)
+		}
+	})
+	mux.HandleFunc("/oauth/revoke", func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		f.mu.Lock()
+		f.revoked = true
+		delete(f.refresh, r.Form.Get("token"))
+		f.mu.Unlock()
+		w.WriteHeader(200)
+	})
+	f.Server = httptest.NewServer(mux)
+	return f
+}
+
+func (f *fakeAuth) signID(nonce, aud string) (string, error) {
+	header, _ := json.Marshal(map[string]string{"alg": "RS256", "kid": "test", "typ": "JWT"})
+	payload, _ := json.Marshal(map[string]any{
+		"iss":   f.URL,
+		"sub":   "user-1",
+		"aud":   aud,
+		"email": "dev@example.com",
+		"nonce": nonce,
+		"exp":   time.Now().Add(time.Hour).Unix(),
+	})
+	h := base64.RawURLEncoding.EncodeToString(header)
+	p := base64.RawURLEncoding.EncodeToString(payload)
+	sum := sha256.Sum256([]byte(h + "." + p))
+	sig, err := rsa.SignPKCS1v15(rand.Reader, f.key, crypto.SHA256, sum[:])
+	if err != nil {
+		return "", err
+	}
+	return h + "." + p + "." + base64.RawURLEncoding.EncodeToString(sig), nil
+}
+
+func pkceOK(verifier, challenge string) bool {
+	sum := sha256.Sum256([]byte(verifier))
+	return base64.RawURLEncoding.EncodeToString(sum[:]) == challenge
+}
