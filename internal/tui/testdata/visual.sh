@@ -5,6 +5,7 @@
 #
 #   visual.sh up 140 36 [bg fg]   xterm + tmux at 140x36 (default: Rock panel)
 #   visual.sh llm                 build and start stubllm on 127.0.0.1:18080
+#   FONT_SIZE / STUB_DELAY        optional env for the xterm face and stub pause
 #   visual.sh offline             rock with no model key (offline provider)
 #   visual.sh stub                rock against stubllm in a fresh workspace
 #   visual.sh type "text"         type literally, then Enter
@@ -21,6 +22,8 @@ set -euo pipefail
 ROCK_BIN=${ROCK_BIN:-/tmp/rock}
 ART=${ART:-/opt/cursor/artifacts}
 WORK=${WORK:-/tmp/rock-visual}
+FONT_SIZE=${FONT_SIZE:-12}
+STUB_DELAY=${STUB_DELAY:-600ms}
 SOCK=rock-visual
 PANE=rock:0.0
 TITLE=rock-visual
@@ -57,7 +60,7 @@ up() {
 	EOF
 	t kill-server 2>/dev/null || true
 	env -u NO_COLOR tmux -L "$SOCK" -f "$WORK/tmux.conf" new-session -d -s rock -x "$cols" -y "$rows" -c "$WORK/project"
-	xterm -b 0 -geometry "${cols}x${rows}+16+16" -fa 'JetBrains Mono' -fs 12 \
+	xterm -b 0 -geometry "${cols}x${rows}+16+16" -fa 'JetBrains Mono' -fs "$FONT_SIZE" \
 		-bg "$bg" -fg "$fg" -cr '#7A9BFF' -T "$TITLE" -n "$TITLE" \
 		-e tmux -L "$SOCK" -f "$WORK/tmux.conf" attach -t rock >/dev/null 2>&1 &
 	for _ in $(seq 50); do
@@ -70,7 +73,7 @@ up() {
 llm() {
 	(cd "$REPO" && go build -o "$WORK/stubllm" ./internal/tui/testdata/stubllm)
 	tmux -L rock-llm has-session -t llm 2>/dev/null ||
-		tmux -L rock-llm new-session -d -s llm "$WORK/stubllm -addr 127.0.0.1:18080 2>&1 | tee $WORK/stubllm.log"
+		tmux -L rock-llm new-session -d -s llm "$WORK/stubllm -addr 127.0.0.1:18080 -delay $STUB_DELAY 2>&1 | tee $WORK/stubllm.log"
 }
 
 # run UNSETS ASSIGNMENTS starts rock in the pane with a fresh ROCK_HOME.

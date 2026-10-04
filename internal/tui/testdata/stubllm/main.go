@@ -1,13 +1,18 @@
 // Command stubllm is a deterministic OpenAI-compatible chat completions
-// server for driving the Rock TUI on a real screen. A fresh prompt gets one
-// tool call that asks by default. The tool result gets a short markdown
-// reply that says whether the call ran.
+// server for driving the Rock TUI on a real screen.
 //
 //	go run ./internal/tui/testdata/stubllm -addr 127.0.0.1:18080
 //
 // Point Rock at it with base_url = "http://127.0.0.1:18080/v1" and any
-// non-empty ROCK_API_KEY. A prompt that mentions "shell" gets a shell call.
-// Anything else gets an edit_file call that fixes greeting.txt.
+// non-empty ROCK_API_KEY.
+//
+// Prompt routing (first match):
+//   - tool result → a short markdown recap
+//   - the canned explore task → text only (the child subagent)
+//   - mentions "subagent" → spawn_subagent (explore)
+//   - "write a plan" / "draft a plan" → update_plan
+//   - mentions "shell" → shell ls
+//   - anything else → edit_file on greeting.txt
 package main
 
 import (
@@ -24,6 +29,13 @@ type message struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
+
+// childTask is the spawn_subagent prompt. The child harness sends it as
+// the user message; respond returns text so the explore agent does not
+// try a mutating tool that the child policy would deny.
+const childTask = "look at greeting.txt and say what it says"
+
+const planBody = "## Fix greeting.txt\n\n1. Read the file.\n2. Replace `helo wrold` with `hello world`.\n3. Re-read to confirm.\n"
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:18080", "listen address")
@@ -65,8 +77,19 @@ func respond(msgs []message) map[string]any {
 			break
 		}
 	}
+	if strings.Contains(prompt, childTask) {
+		return map[string]any{"role": "assistant", "content": "greeting.txt is one line: `helo wrold`."}
+	}
 	name, args := "edit_file", `{"path":"greeting.txt","old":"helo wrold","new":"hello world"}`
-	if strings.Contains(prompt, "shell") {
+	switch {
+	case strings.Contains(prompt, "subagent"):
+		name = "spawn_subagent"
+		args = `{"prompt":"` + childTask + `","kind":"explore"}`
+	case strings.Contains(prompt, "write a plan") || strings.Contains(prompt, "draft a plan"):
+		name = "update_plan"
+		raw, _ := json.Marshal(map[string]string{"content": planBody})
+		args = string(raw)
+	case strings.Contains(prompt, "shell"):
 		name, args = "shell", `{"command":"ls -la"}`
 	}
 	return map[string]any{
@@ -90,6 +113,10 @@ func afterTool(result string) string {
 		return "## Edited `greeting.txt`\n\nThe typo is gone:\n\n- **before** `helo wrold`\n- **after** `hello world`\n\n" +
 			"```go\nfmt.Println(\"hello world\") // what the file says now\n```\n\n" +
 			"> Allowed once. The next edit asks again."
+	case strings.HasPrefix(result, "updated plan"):
+		return "## Plan written\n\nThe plan is in the pane. `/ready` asks whether it is ready. That does not approve it."
+	case strings.Contains(result, "[explore]") || strings.Contains(result, "[plan]") || strings.Contains(result, "[general]"):
+		return "## Subagent finished\n\nThe explore agent returned:\n\n" + result
 	default:
 		return "## Ran it\n\nThe call returned:\n\n```\n" + firstLines(result, 6) + "\n```"
 	}
@@ -97,7 +124,7 @@ func afterTool(result string) string {
 
 func firstLines(s string, n int) string {
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
-	if len(lines) > n {
+	if n > 0 && len(lines) > n {
 		lines = append(lines[:n], "…")
 	}
 	return strings.Join(lines, "\n")
