@@ -45,6 +45,8 @@ type Result struct {
 	Answers map[string]Answer `json:"answers"`
 	Error   string            `json:"error,omitempty"`
 	Usage   *Usage            `json:"usage,omitempty"`
+	Clips   []FileClip        `json:"clips,omitempty"`
+	Filter  *FilterStats      `json:"filter,omitempty"`
 }
 
 // Usage is optional. The public API documents it; a missing field is not an error.

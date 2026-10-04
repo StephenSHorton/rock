@@ -194,6 +194,9 @@ func (a *App) Inspect(w io.Writer) {
 	} else {
 		fmt.Fprintf(w, "jev.nudge: every %d\n", n)
 	}
+	fmt.Fprintf(w, "jev.triage: %s\n", onOff(a.Loaded.File.Jev.TriageOn()))
+	fmt.Fprintf(w, "jev.filter: %s\n", onOff(a.Loaded.File.Jev.FilterOn()))
+	fmt.Fprintf(w, "jev.clip_bytes: %d\n", a.Loaded.File.Jev.ClipSize())
 	fmt.Fprintf(w, "git.checkpoint: %v\n", a.Checkpoint)
 	fmt.Fprintf(w, "allow: %s\n", strings.Join(a.Policy().Allow, ", "))
 	fmt.Fprintf(w, "ask: %s\n", strings.Join(a.Policy().Ask, ", "))
@@ -313,6 +316,8 @@ func (a *App) Headless(ctx context.Context, sess *session.Session, prompt, forma
 			fmt.Fprintf(stderr, "permission %s %s\n", ev.Name, ev.Text)
 		case "jev":
 			fmt.Fprintf(stderr, "jev %s %s\n", ev.Name, ev.Text)
+		case "filter", "classify":
+			fmt.Fprintf(stderr, "%s %s %s\n", ev.Kind, ev.Name, ev.Text)
 		case "status":
 			fmt.Fprintf(stderr, "%s\n", ev.Text)
 		case "done":
@@ -447,6 +452,13 @@ func openLog() *log.Logger {
 		return log.New(io.Discard)
 	}
 	return log.New(f)
+}
+
+func onOff(on bool) string {
+	if on {
+		return "on"
+	}
+	return "off"
 }
 
 func oneLine(s string) string {

@@ -35,6 +35,8 @@ func askJevSpec(obj func(map[string]any, []string) map[string]any, str func(stri
 		"range":     map[string]any{"description": "score [min, max] integers"},
 		"rubric":    str("score rubric; folded into the question"),
 		"questions": map[string]any{"type": "array", "description": "batch; one Decide call", "items": question},
+		"paths":     map[string]any{"description": "workspace files Rock reads into state. Jev does not open files."},
+		"filter":    map[string]any{"type": "boolean", "description": "keep only clips Jev marks relevant in the tool result"},
 	}, nil)
 }
 
@@ -43,6 +45,7 @@ func parseAsk(raw map[string]any) (state any, questions []jev.Query, err error) 
 		return nil, nil, fmt.Errorf("ask_jev needs at least one question")
 	}
 	state = mergeState(raw["state"], raw["context"])
+	hasPaths := raw["paths"] != nil
 	if list, ok := raw["questions"]; ok && list != nil {
 		arr, ok := list.([]any)
 		if !ok {
@@ -69,11 +72,13 @@ func parseAsk(raw map[string]any) (state any, questions []jev.Query, err error) 
 			return nil, nil, err
 		}
 		questions = []jev.Query{q}
-	} else {
+	} else if !hasPaths {
 		return nil, nil, fmt.Errorf("ask_jev needs at least one question")
 	}
-	if err := jev.ValidateQueries(questions); err != nil {
-		return nil, nil, err
+	if len(questions) > 0 {
+		if err := jev.ValidateQueries(questions); err != nil {
+			return nil, nil, err
+		}
 	}
 	return state, questions, nil
 }
@@ -323,6 +328,118 @@ func firstString(m map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func parsePathList(v any) ([]string, error) {
+	if v == nil {
+		return nil, nil
+	}
+	switch t := v.(type) {
+	case string:
+		s := strings.TrimSpace(t)
+		if s == "" {
+			return nil, nil
+		}
+		return []string{s}, nil
+	case []any:
+		out := make([]string, 0, len(t))
+		for i, item := range t {
+			s := strings.TrimSpace(fmt.Sprint(item))
+			if s == "" {
+				return nil, fmt.Errorf("paths[%d] is empty", i)
+			}
+			out = append(out, s)
+		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf("paths: want a string or list")
+	}
+}
+
+func filterFlag(raw map[string]any) bool {
+	if raw == nil {
+		return false
+	}
+	switch v := raw["filter"].(type) {
+	case bool:
+		return v
+	case string:
+		return strings.EqualFold(v, "true") || v == "1"
+	default:
+		return false
+	}
+}
+
+func keepQueriesForClips(clips []jev.FileClip, question string) []jev.Query {
+	if question == "" {
+		question = "Does this clip help with the task in state?"
+	}
+	out := make([]jev.Query, len(clips))
+	for i, c := range clips {
+		out[i] = jev.KeepQuery(jev.KeepName(i), question+" (path "+c.Path+")")
+	}
+	return out
+}
+
+func attachClips(state any, clips []jev.FileClip) any {
+	payload := make([]any, len(clips))
+	for i, c := range clips {
+		payload[i] = map[string]any{"path": c.Path, "text": c.Text}
+	}
+	return mergeState(state, map[string]any{"clips": payload})
+}
+
+func applyClipFilter(res jev.Result, clips []jev.FileClip, stats jev.FilterStats, min float64, includeKept bool) jev.Result {
+	stats.ClipsBefore = len(clips)
+	stats.BytesBefore = clipBytes(clips)
+	if res.Error != "" {
+		res.Filter = &stats
+		return res
+	}
+	var kept []jev.FileClip
+	matched := 0
+	for i, c := range clips {
+		keep, ok := jev.KeepValue(res.Answers[jev.KeepName(i)], min)
+		if ok {
+			matched++
+			if keep {
+				kept = append(kept, c)
+			}
+			continue
+		}
+		if a, ok := res.Answers[c.Path]; ok {
+			keep, ok = jev.KeepValue(a, min)
+			if ok {
+				matched++
+				if keep {
+					kept = append(kept, c)
+				}
+			}
+		}
+	}
+	if matched == 0 {
+		// Custom questions, not per-clip keep. Do not dump the pile back
+		// to the LLM — Jev already saw the clips.
+		stats.ClipsAfter = 0
+		stats.BytesAfter = 0
+		res.Filter = &stats
+		return res
+	}
+	stats.ClipsAfter = len(kept)
+	stats.BytesAfter = clipBytes(kept)
+	res.Filter = &stats
+	if includeKept || matched > 0 {
+		res.Clips = kept
+	}
+	return res
+}
+
+func clipBytes(clips []jev.FileClip) int {
+	n := 0
+	for _, c := range clips {
+		n += len(c.Text)
+	}
+	return n
 }
 
 func askSummary(raw map[string]any) string {

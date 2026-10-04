@@ -33,9 +33,13 @@ const (
 )
 
 type Event struct {
-	Kind EventKind `json:"kind"`
-	Name string    `json:"name,omitempty"`
-	Text string    `json:"text,omitempty"`
+	Kind        EventKind `json:"kind"`
+	Name        string    `json:"name,omitempty"`
+	Text        string    `json:"text,omitempty"`
+	ClipsBefore int       `json:"clips_before,omitempty"`
+	ClipsAfter  int       `json:"clips_after,omitempty"`
+	BytesBefore int       `json:"bytes_before,omitempty"`
+	BytesAfter  int       `json:"bytes_after,omitempty"`
 }
 
 type AskFunc func(ctx context.Context, tool, detail string) perms.Decision
@@ -56,6 +60,11 @@ type Options struct {
 	// successful edit/write or an allowed shell. 0 means the product
 	// default (2). Negative disables. Hints are text; they never call Jev.
 	NudgeEvery int
+	// TriageOff skips the failed-shell classification hint.
+	TriageOff bool
+	// FilterOff skips KeepSnippet / grep filtering.
+	FilterOff bool
+	ClipBytes int
 }
 
 type Harness struct {
@@ -71,8 +80,15 @@ func New(opt Options) *Harness {
 		opt.Tools.Env.Ask = func(ctx context.Context, state any, questions []jev.Query) (jev.Result, error) {
 			return opt.Gates.Ask(ctx, state, questions), nil
 		}
-		opt.Tools.Env.KeepGrep = func(query, snippet string) bool {
-			return opt.Gates.KeepSnippet(ctxBackground(), query, snippet)
+		opt.Tools.Env.ClipBytes = jev.ClipSize(opt.ClipBytes)
+		opt.Tools.Env.MinConfidence = opt.Gates.MinConfidence
+		if !opt.FilterOff {
+			opt.Tools.Env.FilterSnippets = func(query string, snippets []string) []string {
+				return opt.Gates.FilterSnippets(ctxBackground(), query, snippets)
+			}
+			opt.Tools.Env.KeepGrep = func(query, snippet string) bool {
+				return opt.Gates.KeepSnippet(ctxBackground(), query, snippet)
+			}
 		}
 	}
 	h := &Harness{Options: opt}
@@ -174,6 +190,16 @@ func (h *Harness) Run(ctx context.Context, sess *session.Session, prompt string,
 			if hint := h.takeNudge(nudgeFor(call.Name, err)); hint != "" {
 				text = appendHint(text, hint)
 			}
+			if call.Name == "shell" && err != nil {
+				if line, ev := h.classifyFailure(ctx, text); line != "" {
+					text = appendHint(text, line)
+					sink(ev)
+				}
+			}
+			if out.Filter != nil && !out.Filter.Zero() {
+				text = appendHint(text, "Jev filter: "+out.Filter.Text())
+				sink(filterEvent(call.Name, out.Filter))
+			}
 			sess.Append(provider.Message{Role: provider.RoleTool, ToolCallID: call.ID, Name: call.Name, Content: text})
 			sink(Event{Kind: EvToolResult, Name: call.Name, Text: text})
 			if call.Name == "ask_jev" && err == nil {
@@ -192,6 +218,8 @@ func (h *Harness) system(prompt string, chosen []string) string {
 	b.WriteString("Shell is not a sandbox. Hard gates still block destructive shell. ")
 	b.WriteString("Call ask_jev to classify, verify a fix, filter or triage, or check risk. ")
 	b.WriteString("After an edit or a proposed fix, and before a risky shell, consider ask_jev — is the failure type resolved? is the change too risky or too broad? You decide whether to call it. ")
+	b.WriteString("When a shell or test fails, classify the failure with ask_jev (type, likely area, retry?) from a short excerpt before dumping the whole log into the next completion. ")
+	b.WriteString("When grep, glob, or read returns many hits, pass paths to ask_jev so Rock clips the files into state — Jev does not open files — and filter against the task. Reason about the class or the kept clips, not the pile. ")
 	b.WriteString("Batch questions. Do not draft code with it.\n")
 	b.WriteString("Mode: " + string(h.Policy.Mode) + "\n")
 	if h.Tools != nil {
@@ -247,6 +275,9 @@ func (h *Harness) subagent(ctx context.Context, prompt, kind string, worktree bo
 		Ask:         func(context.Context, string, string) perms.Decision { return perms.Deny },
 		Depth:       h.Depth + 1,
 		NudgeEvery:  h.NudgeEvery,
+		TriageOff:   h.TriageOff,
+		FilterOff:   h.FilterOff,
+		ClipBytes:   h.ClipBytes,
 	})
 	sess, err := session.Create(root, "", "subagent "+kind)
 	if err != nil {

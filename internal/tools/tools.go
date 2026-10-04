@@ -22,11 +22,14 @@ type SubagentFunc func(ctx context.Context, prompt, kind string, worktree bool) 
 type AskFunc func(ctx context.Context, state any, questions []jev.Query) (jev.Result, error)
 
 type Env struct {
-	Root     string
-	PlanPath string
-	Subagent SubagentFunc
-	Ask      AskFunc
-	KeepGrep func(query, snippet string) bool
+	Root           string
+	PlanPath       string
+	Subagent       SubagentFunc
+	Ask            AskFunc
+	KeepGrep       func(query, snippet string) bool
+	FilterSnippets func(query string, snippets []string) []string
+	ClipBytes      int
+	MinConfidence  float64
 }
 
 // Extra is a tool supplied by an MCP server or another client. The name is
@@ -82,7 +85,7 @@ func (s *Set) Specs() []provider.ToolSpec {
 		{Name: "shell", Description: "Run a shell command in the workspace. Not a sandbox.", Parameters: obj(map[string]any{"command": str("command string")}, []string{"command"})},
 		{Name: "web_fetch", Description: "HTTP GET a URL and return text.", Parameters: obj(map[string]any{"url": str("http(s) URL")}, []string{"url"})},
 		{Name: "update_plan", Description: "Write the session plan. Allowed in plan mode.", Parameters: obj(map[string]any{"content": str("markdown plan")}, []string{"content"})},
-		{Name: "ask_jev", Description: "Ask Jev to classify, verify a fix, filter or triage, or check risk. Batch questions. Do not draft code. A failed call returns error and no invented answer.", Parameters: askJevSpec(obj, str)},
+		{Name: "ask_jev", Description: "Ask Jev to classify, verify a fix, filter or triage, or check risk. Batch questions. Do not draft code. Optional paths: Rock reads workspace clips into state — Jev has no filesystem. A failed call returns error and no invented answer.", Parameters: askJevSpec(obj, str)},
 		{Name: "spawn_subagent", Description: "Run a depth-1 subagent: explore, plan, or general. Optional git worktree.", Parameters: obj(map[string]any{"prompt": str("task"), "kind": str("explore, plan, or general"), "worktree": map[string]any{"type": "boolean"}}, []string{"prompt"})},
 	}
 	for _, e := range s.extra {
@@ -100,6 +103,7 @@ type Outcome struct {
 	Mutates bool
 	Path    string
 	Detail  string
+	Filter  *jev.FilterStats
 }
 
 func (s *Set) Run(ctx context.Context, name, args string) (Outcome, error) {
@@ -162,8 +166,8 @@ func (s *Set) Run(ctx context.Context, name, args string) (Outcome, error) {
 		}
 		return Outcome{Output: "wrote " + str("path"), Mutates: true, Path: str("path"), Detail: str("path")}, nil
 	case "grep":
-		out, err := s.grep(str("pattern"), str("path"))
-		return Outcome{Output: out, Detail: str("pattern")}, err
+		out, stats, err := s.grep(str("pattern"), str("path"))
+		return Outcome{Output: out, Detail: str("pattern"), Filter: stats}, err
 	case "glob":
 		out, err := s.glob(str("pattern"))
 		return Outcome{Output: out, Detail: str("pattern")}, err
@@ -193,9 +197,25 @@ func (s *Set) Run(ctx context.Context, name, args string) (Outcome, error) {
 		if err != nil {
 			return Outcome{}, err
 		}
+		clips, stats, err := s.readClips(raw)
+		if err != nil {
+			return Outcome{}, err
+		}
+		if len(clips) > 0 {
+			state = attachClips(state, clips)
+			if len(qs) == 0 {
+				qs = keepQueriesForClips(clips, strings.TrimSpace(asString(raw["question"])))
+			}
+		}
+		if err := jev.ValidateQueries(qs); err != nil {
+			return Outcome{}, err
+		}
 		res, err := s.Env.Ask(ctx, state, qs)
 		if err != nil {
 			return Outcome{}, err
+		}
+		if len(clips) > 0 {
+			res = applyClipFilter(res, clips, stats, s.keepAt(), filterFlag(raw))
 		}
 		body, err := json.Marshal(res)
 		if err != nil {
@@ -205,7 +225,7 @@ func (s *Set) Run(ctx context.Context, name, args string) (Outcome, error) {
 		if len(qs) > 0 {
 			detail = strings.TrimSpace(queryMode(qs[0]) + "  " + qs[0].Question)
 		}
-		return Outcome{Output: string(body), Detail: detail}, nil
+		return Outcome{Output: string(body), Detail: detail, Filter: res.Filter}, nil
 	case "spawn_subagent":
 		if s.Env.Subagent == nil {
 			return Outcome{}, fmt.Errorf("subagents are not wired")
@@ -225,6 +245,44 @@ func (s *Set) Run(ctx context.Context, name, args string) (Outcome, error) {
 	}
 }
 
+func (s *Set) keepAt() float64 {
+	if s.Env.MinConfidence > 0 {
+		return s.Env.MinConfidence
+	}
+	return jev.DefaultKeepAt
+}
+
+func (s *Set) readClips(raw map[string]any) ([]jev.FileClip, jev.FilterStats, error) {
+	paths, err := parsePathList(raw["paths"])
+	if err != nil {
+		return nil, jev.FilterStats{}, err
+	}
+	if len(paths) == 0 {
+		return nil, jev.FilterStats{}, nil
+	}
+	if len(paths) > jev.MaxScanPaths {
+		paths = paths[:jev.MaxScanPaths]
+	}
+	limit := jev.ClipSize(s.Env.ClipBytes)
+	out := make([]jev.FileClip, 0, len(paths))
+	for _, rel := range paths {
+		p, err := s.within(rel)
+		if err != nil {
+			return nil, jev.FilterStats{}, err
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return nil, jev.FilterStats{}, err
+		}
+		text := string(b)
+		if len(text) > limit {
+			text = jev.Clip(text, limit)
+		}
+		out = append(out, jev.FileClip{Path: rel, Text: text})
+	}
+	return out, jev.FilterStats{}, nil
+}
+
 func (s *Set) within(p string) (string, error) {
 	if strings.TrimSpace(p) == "" {
 		return "", fmt.Errorf("missing path")
@@ -242,20 +300,19 @@ func (s *Set) within(p string) (string, error) {
 	return p, nil
 }
 
-func (s *Set) grep(pattern, rel string) (string, error) {
+func (s *Set) grep(pattern, rel string) (string, *jev.FilterStats, error) {
 	re, err := regexp.Compile(pattern)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	root := s.Env.Root
 	if rel != "" {
 		root, err = s.within(rel)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 	}
-	var b strings.Builder
-	n := 0
+	var found []string
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			if d != nil && d.IsDir() && (d.Name() == ".git" || d.Name() == "node_modules" || d.Name() == "vendor") {
@@ -270,24 +327,56 @@ func (s *Set) grep(pattern, rel string) (string, error) {
 		relPath, _ := filepath.Rel(s.Env.Root, path)
 		for i, line := range strings.Split(string(raw), "\n") {
 			if re.MatchString(line) {
-				snip := fmt.Sprintf("%s:%d:%s", relPath, i+1, strings.TrimSpace(line))
-				if s.Env.KeepGrep != nil && !s.Env.KeepGrep(pattern, snip) {
-					continue
-				}
-				b.WriteString(snip)
-				b.WriteByte('\n')
-				n++
-				if n >= 40 {
+				found = append(found, fmt.Sprintf("%s:%d:%s", relPath, i+1, strings.TrimSpace(line)))
+				if len(found) >= 40 {
 					return fmt.Errorf("stop")
 				}
 			}
 		}
 		return nil
 	})
-	if b.Len() == 0 {
-		return "no matches", nil
+	if len(found) == 0 {
+		return "no matches", nil, nil
 	}
-	return b.String(), nil
+	kept := found
+	var stats *jev.FilterStats
+	if s.Env.FilterSnippets != nil || s.Env.KeepGrep != nil {
+		before := snippetStats(found)
+		if s.Env.FilterSnippets != nil {
+			kept = s.Env.FilterSnippets(pattern, found)
+		} else {
+			kept = kept[:0]
+			for _, sn := range found {
+				if s.Env.KeepGrep(pattern, sn) {
+					kept = append(kept, sn)
+				}
+			}
+		}
+		after := snippetStats(kept)
+		stats = &jev.FilterStats{
+			ClipsBefore: before.clips,
+			ClipsAfter:  after.clips,
+			BytesBefore: before.bytes,
+			BytesAfter:  after.bytes,
+		}
+	}
+	if len(kept) == 0 {
+		return "no matches", stats, nil
+	}
+	var b strings.Builder
+	for _, sn := range kept {
+		b.WriteString(sn)
+		b.WriteByte('\n')
+	}
+	return b.String(), stats, nil
+}
+
+func snippetStats(snips []string) struct{ clips, bytes int } {
+	n := 0
+	for _, s := range snips {
+		n += len(s)
+	}
+	return struct{ clips, bytes int }{len(snips), n}
 }
 
 func (s *Set) glob(pattern string) (string, error) {

@@ -75,7 +75,7 @@ Defaults ([`Default`](../../internal/config/config.go) lines 62–75): `Enabled:
 
 **`jev.enabled` is dead config.** `Open` never reads `File.Jev.Enabled`. `merge` copies `BaseURL`, `Model`, `MinConfidence`, `RiskBlock`, `AllowDestructive` — not `Enabled`. Live vs offline is key presence only.
 
-Slice (b) added `jev.nudge` (`*bool`, default on) and `jev.nudge_every` (default 2). Those are harness hint knobs, not Decide calls. See [ask-jev-plan.md](ask-jev-plan.md).
+Slice (b) added `jev.nudge` (`*bool`, default on) and `jev.nudge_every` (default 2). Those are harness hint knobs, not Decide calls. Slice (c) added `jev.triage`, `jev.filter`, and `jev.clip_bytes`. See [ask-jev-plan.md](ask-jev-plan.md).
 
 Keys ([`JevKey`](../../internal/config/config.go) lines 214–221):
 
