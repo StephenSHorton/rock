@@ -109,6 +109,7 @@ func root(args []string) error {
 	resume := fs.String("resume", "", "resume a session id")
 	sessionID := fs.String("session-id", "", "create or resume this session id")
 	yolo := fs.Bool("yolo", false, "skip asks; the destructive gate still blocks")
+	verbose := fs.Bool("verbose", false, "show Jev turn and risk diagnostics in the TUI")
 	mode := fs.String("mode", "", "default, plan, or yolo")
 	cwd := fs.String("cwd", "", "workspace")
 	fs.Usage = func() { fmt.Fprint(fs.Output(), usage) }
@@ -178,10 +179,21 @@ func root(args []string) error {
 	for _, r := range app.Policy().Deny {
 		rules = append(rules, "deny "+r)
 	}
-	return startTUI(app, sess, prompt, rules)
+	if envOn("ROCK_VERBOSE") {
+		*verbose = true
+	}
+	return startTUI(app, sess, prompt, rules, *verbose)
 }
 
-func startTUI(app *cli.App, sess *session.Session, initial string, rules []string) error {
+func envOn(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
+func startTUI(app *cli.App, sess *session.Session, initial string, rules []string, verbose bool) error {
 	model := tui.New(tui.Deps{
 		CWD:           app.CWD,
 		Session:       sess,
@@ -209,7 +221,8 @@ func startTUI(app *cli.App, sess *session.Session, initial string, rules []strin
 			app.Loaded.Policy.Mode = mode
 			app.Loaded.File.Mode = string(mode)
 		},
-		Output: os.Stdout,
+		Output:  os.Stdout,
+		Verbose: verbose,
 	})
 	return tui.Run(model)
 }
@@ -332,6 +345,7 @@ const usage = `rock is a coding agent.
   rock --session-id ID -- prompt
   rock --yolo -p "prompt"      skip asks; destructive commands still block
   rock --mode plan -p "prompt"
+  rock --verbose               TUI shows Jev turn/risk diagnostic lines
 
   rock inspect                 config, skills, MCP, Jev mode
   rock setup                   Huh form; does not write API keys
@@ -344,4 +358,5 @@ const usage = `rock is a coding agent.
 
 Sessions live under ~/.rock (ROCK_HOME). Config is ~/.config/rock/config.toml (ROCK_CONFIG).
 Model keys: ROCK_API_KEY or OPENAI_API_KEY. Jev keys: JEV_API_KEY or TYPESAFE_API_KEY.
+ROCK_VERBOSE=1 is the same as --verbose: Jev turn/risk lines stay in the TUI transcript.
 `
