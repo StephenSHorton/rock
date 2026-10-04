@@ -90,7 +90,7 @@ export function TuiFrame({
           <i />
           <i />
         </span>
-        <figcaption className="tui-title">rock · {active.label}</figcaption>
+        <figcaption className="tui-title">{states ? 'rock' : `rock · ${active.label}`}</figcaption>
         <div className="tui-tools">
           {states
             ? STATES.map((item) => (
@@ -107,11 +107,28 @@ export function TuiFrame({
             : null}
           <button
             type="button"
-            className="tui-chip"
+            className="tui-chip tui-theme"
             aria-pressed={theme === 'dark'}
+            aria-label={theme === 'dark' ? 'Dark' : 'Light'}
+            title={theme === 'dark' ? 'Dark' : 'Light'}
             onClick={toggle}
           >
-            {theme === 'dark' ? 'Dark' : 'Light'}
+            {theme === 'dark' ? (
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M13.2 10.4A6.2 6.2 0 0 1 5.6 2.8 6.3 6.3 0 1 0 13.2 10.4Z"
+                />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <circle cx="8" cy="8" r="2.4" fill="currentColor" />
+                <path
+                  fill="currentColor"
+                  d="M7.4 1.2h1.2v2.1H7.4zm0 11.5h1.2v2.1H7.4zM1.2 7.4h2.1v1.2H1.2zm11.5 0h2.1v1.2h-2.1zM3.2 2.8l1.5 1.5-.8.8-1.5-1.5zm8.1 8.1 1.5 1.5-.8.8-1.5-1.5zm1.5-8.1.8.8-1.5 1.5-.8-.8zM4.7 11.7l.8.8-1.5 1.5-.8-.8z"
+                />
+              </svg>
+            )}
           </button>
         </div>
       </div>
