@@ -31,7 +31,7 @@ One `rock` binary:
 - Repo map: ranked files plus a light symbol skim, injected into the system prompt.
 - `rock inspect` tells the truth about config, skills, MCP, Jev mode, permissions.
 - `rock setup` is a Huh form that writes config and never writes the API key.
-- BYOK OpenAI-compatible chat completions. No model key, no model network: an offline **model** provider so a turn can still complete. That is not Jev. The Jev key is separate and required — Rock will not run without it once the parallel onboarding-gate PR lands. See [subscription-auth.md](subscription-auth.md).
+- BYOK OpenAI-compatible chat completions. Sign in with ChatGPT (`rock login chatgpt`) is the first SANCTIONED in-process **model** subscription; it speaks the Responses API with `store: false` and `stream: true`. No model key and no ChatGPT session: an offline **model** provider so a turn can still complete. That is not Jev. The Jev key is separate and required — Rock will not run the agent without it (`rock setup jev`, TUI gate, headless fail-fast). See [subscription-auth.md](subscription-auth.md).
 
 ## Jev
 
@@ -87,7 +87,8 @@ Wish, Gum, Glow, Soft Serve, and Skate are other products. Importing them would 
 cmd/rock/            binary
 internal/cli/        flags and subcommands
 internal/harness/    loop
-internal/provider/   OpenAI-compatible + offline script
+internal/provider/   OpenAI-compatible + Responses (SIWC) + offline script
+internal/siwc/       Sign in with ChatGPT (OSS dynamic client)
 internal/tools/      workspace tools
 internal/perms/      allow / ask / deny / plan / review
 internal/jev/        decision client and gates
@@ -104,4 +105,4 @@ internal/config/     TOML
 
 ## Out of 1.0
 
-OS sandbox profiles, OTEL, plugin marketplace UI, memory/dream, ACP-as-provider, cloud handoff, LSP. In-process consumer-plan model OAuth (Sign in with ChatGPT, official `grok` / `claude` children). 1.0 model auth stays API-key BYOK; the sanctioned map is [subscription-auth.md](subscription-auth.md). Jev is a separate required key, not a model provider. Permissions are not a sandbox. `inspect` says that in a sentence.
+OS sandbox profiles, OTEL, plugin marketplace UI, memory/dream, ACP-as-provider, cloud handoff, LSP. Official `grok` / `claude` children. Sign in with ChatGPT is in-process (`rock login chatgpt`); API keys stay the fallback. The sanctioned map is [subscription-auth.md](subscription-auth.md). Jev is a separate required key, not a model provider. Permissions are not a sandbox. `inspect` says that in a sentence.
