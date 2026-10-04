@@ -73,8 +73,10 @@ go build -o rock ./cmd/rock
 | `rock fork` | Print Suzuri OSC 7880 (`brand=rock`) for a new host pane |
 | `rock serve` | Loopback HTTP and SSE |
 | `rock acp` | ACP v1 and v2 on stdio |
+| `rock update` | Install the latest GitHub release (checksum + atomic replace). `--check` prints current → latest |
+| `rock version` | Print the build version (`dev` unless a release injected one) |
 
-In the TUI: `/plan`, `/yolo`, `/default`, `/permissions`, `/agents` (subagents this session), `/ready` (Jev plan-readiness — **never approves**), `/verbose`, `/fork [prompt]`, `/sessions`, `/provider` (ChatGPT / SuperGrok / API key / offline model), `/help`, `/quit`. The TUI asks for a Jev key before any turn. SuperGrok needs the official `grok` binary and `grok login`; Rock does not sign you in.
+In the TUI: `/plan`, `/yolo`, `/default`, `/permissions`, `/agents` (subagents this session), `/ready` (Jev plan-readiness — **never approves**), `/verbose`, `/fork [prompt]`, `/sessions`, `/provider` (ChatGPT / SuperGrok / API key / offline model), `/update`, `/help`, `/quit`. The TUI asks for a Jev key before any turn. SuperGrok needs the official `grok` binary and `grok login`; Rock does not sign you in.
 
 The public page is [stephenshorton.github.io/rock](https://stephenshorton.github.io/rock/). Source for it is [`site/`](site/), a Vite app. The page swaps one install command by operating system. macOS and Linux:
 
@@ -84,11 +86,15 @@ curl -fsSL https://stephenshorton.github.io/rock/install.sh | bash
 
 Windows PowerShell: `irm https://stephenshorton.github.io/rock/install.ps1 | iex`
 
-Both need Go 1.27 or newer and install from `main` with `go install github.com/StephenSHorton/rock/cmd/rock@main`. A **Jev key is required**. After install:
+`install.sh` / `install.ps1` download the latest GitHub release for your OS/arch, verify `checksums.txt`, and put `rock` on `~/.local/bin` (or `%LOCALAPPDATA%\Programs\rock` on Windows). If no asset matches, they fall back to `go install github.com/StephenSHorton/rock/cmd/rock@latest` (needs [Go 1.27](https://go.dev/dl/)). `rock update` does the same replace for a release binary. A `go install` tree is left alone and prints that module command instead.
+
+A **Jev key is required**. After install:
 
 ```bash
 rock setup jev
 ```
+
+Opt out of the once-a-day “Rock vX available” notice with `ROCK_NO_UPDATE=1` or `[update] check = false` in `config.toml`. The check is off in CI and under `ROCK_TEST_FAKE_JEV`.
 
 The TUI asks on first launch if no working key is stored. `JEV_API_KEY` and `TYPESAFE_API_KEY` still count as configured; they still have to validate. Headless `-p`, `rock serve`, and `rock acp` fail without a valid key. `site/` builds with Vite (`base: /rock/`). `.github/workflows/pages.yml` deploys `site/dist` on push to `main` once Pages is set to GitHub Actions in the repo settings. Until then the live copy stays on [StephenSHorton/StephenSHorton.github.io](https://github.com/StephenSHorton/StephenSHorton.github.io/tree/main/rock).
 

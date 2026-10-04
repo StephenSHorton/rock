@@ -17,6 +17,8 @@ export const helpText = `rock is a coding agent.
   rock fork                    print a Suzuri OSC 7880 sequence
   rock serve                   loopback HTTP and SSE
   rock acp                     ACP v1 and v2 on stdio
+  rock update                  install the latest GitHub release
+  rock update --check          print current -> latest
   rock version
 
 Sessions live under ~/.rock (ROCK_HOME). Config is ~/.config/rock/config.toml (ROCK_CONFIG).
@@ -87,7 +89,9 @@ export const commands = [
   { cmd: 'rock setup jev', detail: 'Validate a Jev key and save it. Required before the agent starts.' },
   { cmd: 'rock login chatgpt', detail: 'Sign in with ChatGPT (OSS SIWC). Model credentials only. Not Jev.' },
   { cmd: 'rock fork', detail: 'Prints OSC 7880 so Suzuri can split a pane.' },
-  { cmd: 'rock version', detail: 'Prints 1.0.0.' },
+  { cmd: 'rock update', detail: 'Install the latest GitHub release. Checksum, then atomic replace. go install trees get the module command.' },
+  { cmd: 'rock update --check', detail: 'Print current -> latest without installing.' },
+  { cmd: 'rock version', detail: 'Prints the build version (dev unless a tagged release injected one).' },
   { cmd: 'rock sessions', detail: 'List sessions for this folder.' },
   { cmd: 'rock permissions', detail: 'allow / ask / deny. Permissions are not a sandbox.' },
 ]
@@ -102,5 +106,6 @@ export const slash = [
   { cmd: '/agents', detail: 'subagents spawned this session' },
   { cmd: '/ready', detail: 'is the plan ready? never approves' },
   { cmd: '/fork', detail: 'new Rock pane in Suzuri (OSC 7880)' },
+  { cmd: '/update', detail: 'install the latest Rock release' },
   { cmd: '/quit', detail: 'quit' },
 ]

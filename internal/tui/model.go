@@ -11,6 +11,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -32,6 +33,8 @@ import (
 	"github.com/StephenSHorton/rock/internal/perms"
 	"github.com/StephenSHorton/rock/internal/provider"
 	"github.com/StephenSHorton/rock/internal/session"
+	"github.com/StephenSHorton/rock/internal/update"
+	"github.com/StephenSHorton/rock/internal/version"
 )
 
 const (
@@ -93,6 +96,8 @@ type Deps struct {
 	JevGate  bool
 	CheckJev func(ctx context.Context, key string) error
 	SaveJev  func(key string) (store string, err error)
+	// UpdateCheck starts the 24h background release check. Tests leave this false.
+	UpdateCheck bool
 }
 
 type line struct {
@@ -142,7 +147,19 @@ const (
 	agentsOverlay
 	paletteOverlay
 	providerOverlay
+	updateOverlay
 )
+
+type updateNoticeMsg struct {
+	notice update.Notice
+	err    error
+	asked  bool
+}
+
+type updateDoneMsg struct {
+	ver string
+	err error
+}
 
 type askMsg struct {
 	tool   string
@@ -282,9 +299,12 @@ type Model struct {
 	quitArmed       time.Time
 	gate            *jevGate
 
-	palette   list.Model
-	slashSel  int
-	slashHide bool
+	palette         list.Model
+	slashSel        int
+	slashHide       bool
+	avail           update.Notice
+	updateDismissed bool
+	updating        bool
 
 	pending   *askMsg
 	lastCall  harness.Event
@@ -435,10 +455,24 @@ func Run(m *Model) error {
 }
 
 func (m *Model) Init() tea.Cmd {
-	if m.gating() {
-		return tea.Batch(m.gate.input.Focus(), m.gate.spin.Tick, tea.RequestBackgroundColor)
+	cmds := []tea.Cmd{tea.RequestBackgroundColor}
+	if m.deps.UpdateCheck {
+		if n, ok := update.CachedNotice(version.Version); ok {
+			if n.Newer {
+				m.avail = n
+				if !m.gating() {
+					m.overlay = updateOverlay
+					m.input.Blur()
+				}
+			}
+		} else {
+			cmds = append(cmds, m.pollUpdate(false))
+		}
 	}
-	cmds := []tea.Cmd{m.input.Focus(), tea.RequestBackgroundColor, m.retarget()}
+	if m.gating() {
+		return tea.Batch(append(cmds, m.gate.input.Focus(), m.gate.spin.Tick)...)
+	}
+	cmds = append(cmds, m.input.Focus(), m.retarget())
 	if prompt := strings.TrimSpace(m.deps.InitialPrompt); prompt != "" {
 		m.deps.InitialPrompt = ""
 		m.lines = append(m.lines, line{kind: "user", text: prompt})
@@ -516,6 +550,10 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	case forkNote:
 		m.status, m.alert = msg.text, false
 		return nil
+	case updateNoticeMsg:
+		return m.onUpdateNotice(msg)
+	case updateDoneMsg:
+		return m.onUpdateDone(msg)
 	case tea.MouseMsg:
 		m.onMouse(msg)
 		return nil
@@ -788,6 +826,7 @@ func slashCommands() []rowItem {
 		{title: "/verbose", desc: "show or hide Jev turn/risk diagnostics", id: "cmd:/verbose"},
 		{title: "/fork", desc: "new Rock pane in Suzuri (OSC 7880)", id: "cmd:/fork"},
 		{title: "/provider", desc: "ChatGPT, SuperGrok, API key, or offline model", id: "cmd:/provider"},
+		{title: "/update", desc: "install the latest Rock release", id: "cmd:/update"},
 		{title: "/quit", desc: "quit", id: "cmd:/quit"},
 	}
 }
@@ -925,6 +964,9 @@ func (m *Model) askKey(msg tea.KeyPressMsg) tea.Cmd {
 }
 
 func (m *Model) overlayKey(msg tea.KeyPressMsg) tea.Cmd {
+	if m.overlay == updateOverlay {
+		return m.updateKey(msg)
+	}
 	if m.overlay == paletteOverlay {
 		if msg.String() == "esc" {
 			return m.closeOverlay()
@@ -1067,6 +1109,8 @@ func (m *Model) slash(text string) tea.Cmd {
 	case "/provider":
 		m.refreshProviders()
 		m.openOverlay(providerOverlay)
+	case "/update":
+		return m.askUpdate()
 	case "/quit":
 		return m.quit()
 	default:
@@ -1077,6 +1121,96 @@ func (m *Model) slash(text string) tea.Cmd {
 
 func (m *Model) setAlert(text string) {
 	m.status, m.alert = text, true
+}
+
+func (m *Model) pollUpdate(asked bool) tea.Cmd {
+	return func() tea.Msg {
+		n, err := update.Refresh(context.Background(), version.Version, nil)
+		return updateNoticeMsg{notice: n, err: err, asked: asked}
+	}
+}
+
+func (m *Model) askUpdate() tea.Cmd {
+	if m.avail.Newer {
+		m.openOverlay(updateOverlay)
+		return nil
+	}
+	m.status, m.alert = "checking for a Rock release…", false
+	return m.pollUpdate(true)
+}
+
+func (m *Model) onUpdateNotice(msg updateNoticeMsg) tea.Cmd {
+	if msg.err != nil {
+		if msg.asked {
+			m.setAlert(msg.err.Error())
+		}
+		return nil
+	}
+	m.avail = msg.notice
+	if msg.notice.Newer {
+		if !m.gating() && !m.updateDismissed && m.overlay == noOverlay {
+			m.openOverlay(updateOverlay)
+		} else if msg.asked && !m.gating() {
+			m.openOverlay(updateOverlay)
+		} else if m.status == "ready" || strings.HasPrefix(m.status, "checking for a Rock") {
+			m.status, m.alert = msg.notice.Line(), false
+		}
+		return nil
+	}
+	if msg.asked {
+		m.status, m.alert = "already on "+version.Version, false
+	}
+	return nil
+}
+
+func (m *Model) updateKey(msg tea.KeyPressMsg) tea.Cmd {
+	if m.updating {
+		return nil
+	}
+	switch msg.String() {
+	case "y", "enter":
+		return m.applyUpdate()
+	case "n", "esc":
+		m.updateDismissed = true
+		if m.avail.Newer {
+			m.status, m.alert = m.avail.Line(), false
+		}
+		return m.closeOverlay()
+	}
+	return nil
+}
+
+func (m *Model) applyUpdate() tea.Cmd {
+	exe, err := os.Executable()
+	if err != nil {
+		m.setAlert(err.Error())
+		return m.closeOverlay()
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	if update.InstalledByGo(exe) {
+		m.status, m.alert = "this binary is from go install. run: "+update.GoInstallHint(), false
+		m.updateDismissed = true
+		return m.closeOverlay()
+	}
+	m.updating = true
+	m.status, m.alert = "updating…", false
+	return func() tea.Msg {
+		ver, err := (&update.Client{}).Apply(context.Background(), exe)
+		return updateDoneMsg{ver: ver, err: err}
+	}
+}
+
+func (m *Model) onUpdateDone(msg updateDoneMsg) tea.Cmd {
+	m.updating = false
+	if msg.err != nil {
+		m.setAlert(msg.err.Error())
+		return m.closeOverlay()
+	}
+	m.avail = update.Notice{}
+	m.status, m.alert = "updated to v"+msg.ver+". Restart Rock.", false
+	return m.closeOverlay()
 }
 
 func (m *Model) setMode(mode perms.Mode) {

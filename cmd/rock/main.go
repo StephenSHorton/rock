@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"golang.org/x/term"
@@ -20,6 +21,7 @@ import (
 	"github.com/StephenSHorton/rock/internal/session"
 	"github.com/StephenSHorton/rock/internal/siwc"
 	"github.com/StephenSHorton/rock/internal/tui"
+	"github.com/StephenSHorton/rock/internal/update"
 	"github.com/StephenSHorton/rock/internal/version"
 )
 
@@ -82,6 +84,8 @@ func run(args []string) error {
 			return serveCmd(args[1:])
 		case "acp":
 			return acpCmd(args[1:])
+		case "update":
+			return updateCmd(args[1:])
 		case "login":
 			return loginCmd(args[1:])
 		case "logout":
@@ -184,6 +188,7 @@ func root(args []string) error {
 		if err := app.RequireJev(context.Background()); err != nil {
 			return err
 		}
+		noticeIfQuiet(app.Loaded.File)
 		return app.Headless(context.Background(), sess, prompt, format, os.Stdout, os.Stderr, askHeadless)
 	}
 	rules := append([]string{}, app.Policy().Allow...)
@@ -243,14 +248,15 @@ func startTUI(app *cli.App, sess *session.Session, initial string, rules []strin
 			}
 			return app.Provider.Name(), app.Auth, nil
 		},
-		HasAPIKey:  config.APIKey() != "",
-		HasSIWC:    siwc.LoggedIn(),
-		HasGrokCLI: grokcli.Look(app.Loaded.File.GrokBin).Found,
-		Output:     os.Stdout,
-		Verbose:    verbose,
-		JevGate:    needGate,
-		CheckJev:   app.CheckJevKey,
-		SaveJev:    config.SaveJevKey,
+		HasAPIKey:   config.APIKey() != "",
+		HasSIWC:     siwc.LoggedIn(),
+		HasGrokCLI:  grokcli.Look(app.Loaded.File.GrokBin).Found,
+		Output:      os.Stdout,
+		Verbose:     verbose,
+		JevGate:     needGate,
+		CheckJev:    app.CheckJevKey,
+		SaveJev:     config.SaveJevKey,
+		UpdateCheck: app.Loaded.File.Update.CheckOn() && update.AutoCheck(),
 	})
 	return tui.Run(model)
 }
@@ -297,6 +303,7 @@ func serveCmd(args []string) error {
 		return err
 	}
 	app.ConnectMCP(context.Background())
+	noticeIfQuiet(app.Loaded.File)
 	fmt.Fprintf(os.Stderr, "rock serve %s\n", *addr)
 	srv := serve.New(app.Factory)
 	return serve.Listen(context.Background(), *addr, srv.Handler())
@@ -329,6 +336,7 @@ func acpCmd(args []string) error {
 		return err
 	}
 	app.ConnectMCP(context.Background())
+	noticeIfQuiet(app.Loaded.File)
 	agent := &acp.Agent{Factory: app.Factory, CWD: app.CWD, In: os.Stdin, Out: os.Stdout}
 	return agent.Serve(context.Background())
 }
@@ -434,6 +442,64 @@ func logoutCmd(args []string) error {
 	return app.LogoutChatGPT(context.Background(), os.Stdout)
 }
 
+func noticeIfQuiet(file config.File) {
+	if !file.Update.CheckOn() {
+		return
+	}
+	update.MaybeStderr(os.Stderr, version.Version)
+}
+
+func runningExe() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		return resolved, nil
+	}
+	return exe, nil
+}
+
+func updateCmd(args []string) error {
+	fs := flag.NewFlagSet("update", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	check := fs.Bool("check", false, "print current and latest without installing")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	ctx := context.Background()
+	c := &update.Client{}
+	n, err := update.Refresh(ctx, version.Version, c)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s -> %s\n", version.Version, n.Latest)
+	if *check {
+		return nil
+	}
+	if !n.Newer {
+		return nil
+	}
+	exe, err := runningExe()
+	if err != nil {
+		return err
+	}
+	if update.InstalledByGo(exe) {
+		fmt.Fprintln(os.Stderr, "this binary was installed with go install; it is not replaced")
+		fmt.Println(update.GoInstallHint())
+		return nil
+	}
+	got, err := c.Apply(ctx, exe)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "updated to v%s\n", got)
+	return nil
+}
+
 func clipTitle(s string) string {
 	s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
 	if len(s) > 48 {
@@ -466,6 +532,8 @@ const usage = `rock is a coding agent.
   rock fork                    print a Suzuri OSC 7880 sequence
   rock serve                   loopback HTTP and SSE
   rock acp                     ACP v1 and v2 on stdio
+  rock update                  install the latest GitHub release
+  rock update --check          print current -> latest
   rock version
 
 A working Jev key is required to run the agent. The TUI asks on first launch. Scripts use rock setup jev.
@@ -478,4 +546,10 @@ Model keys: ROCK_API_KEY or OPENAI_API_KEY. ChatGPT plan: rock login chatgpt.
 SuperGrok: official grok on PATH, then grok login. Config: auth = "grok-cli" (or provider = "grok-cli").
 Jev keys: JEV_API_KEY, TYPESAFE_API_KEY, the OS keychain, or ROCK_HOME/jev.key.
 ROCK_VERBOSE=1 is the same as --verbose: Jev turn/risk lines stay in the TUI transcript.
+
+rock update replaces a release binary after checksum verification. A go install
+tree (GOPATH/bin, or a module-versioned build) prints:
+  go install github.com/StephenSHorton/rock/cmd/rock@latest
+and is not overwritten. Opt out of the once-a-day notice with ROCK_NO_UPDATE=1
+or [update] check = false. The check is off in CI and under ROCK_TEST_FAKE_JEV.
 `
