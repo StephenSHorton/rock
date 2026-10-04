@@ -73,7 +73,9 @@ type Jev struct {
 
 Defaults ([`Default`](../../internal/config/config.go) lines 62–75): `Enabled: true`, `MinConfidence: 0.55`, `RiskBlock: 0.72`. `jev_decide` is on the default allow list (line 71).
 
-**`jev.enabled` is dead config.** `Open` never reads `File.Jev.Enabled`. `merge` (lines 164–178) copies `BaseURL`, `Model`, `MinConfidence`, `RiskBlock`, `AllowDestructive` — not `Enabled`. Live vs offline is key presence only.
+**`jev.enabled` is dead config.** `Open` never reads `File.Jev.Enabled`. `merge` copies `BaseURL`, `Model`, `MinConfidence`, `RiskBlock`, `AllowDestructive` — not `Enabled`. Live vs offline is key presence only.
+
+Slice (b) added `jev.nudge` (`*bool`, default on) and `jev.nudge_every` (default 2). Those are harness hint knobs, not Decide calls. See [ask-jev-plan.md](ask-jev-plan.md).
 
 Keys ([`JevKey`](../../internal/config/config.go) lines 214–221):
 

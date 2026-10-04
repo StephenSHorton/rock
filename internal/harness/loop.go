@@ -52,10 +52,15 @@ type Options struct {
 	Checkpoint  bool
 	Ask         AskFunc
 	Depth       int
+	// NudgeEvery is how often a validation hint is appended after a
+	// successful edit/write or an allowed shell. 0 means the product
+	// default (2). Negative disables. Hints are text; they never call Jev.
+	NudgeEvery int
 }
 
 type Harness struct {
 	Options
+	nudgeCount int
 }
 
 func New(opt Options) *Harness {
@@ -166,6 +171,9 @@ func (h *Harness) Run(ctx context.Context, sess *session.Session, prompt string,
 			if out.Mutates && err == nil {
 				mutated = true
 			}
+			if hint := h.takeNudge(nudgeFor(call.Name, err)); hint != "" {
+				text = appendHint(text, hint)
+			}
 			sess.Append(provider.Message{Role: provider.RoleTool, ToolCallID: call.ID, Name: call.Name, Content: text})
 			sink(Event{Kind: EvToolResult, Name: call.Name, Text: text})
 			if call.Name == "ask_jev" && err == nil {
@@ -182,7 +190,9 @@ func (h *Harness) system(prompt string, chosen []string) string {
 	b.WriteString("You are Rock, a coding agent in this workspace. Use tools to read and change files. ")
 	b.WriteString("Prefer a small patch. In plan mode, write the plan with update_plan and do not edit other files. ")
 	b.WriteString("Shell is not a sandbox. Hard gates still block destructive shell. ")
-	b.WriteString("Call ask_jev to classify, verify a fix, filter or triage, or check risk. Batch questions. Do not draft code with it.\n")
+	b.WriteString("Call ask_jev to classify, verify a fix, filter or triage, or check risk. ")
+	b.WriteString("After an edit or a proposed fix, and before a risky shell, consider ask_jev — is the failure type resolved? is the change too risky or too broad? You decide whether to call it. ")
+	b.WriteString("Batch questions. Do not draft code with it.\n")
 	b.WriteString("Mode: " + string(h.Policy.Mode) + "\n")
 	if h.Tools != nil {
 		b.WriteString("Workspace: " + h.Tools.Env.Root + "\n")
@@ -236,6 +246,7 @@ func (h *Harness) subagent(ctx context.Context, prompt, kind string, worktree bo
 		MaxSteps:    h.MaxSteps,
 		Ask:         func(context.Context, string, string) perms.Decision { return perms.Deny },
 		Depth:       h.Depth + 1,
+		NudgeEvery:  h.NudgeEvery,
 	})
 	sess, err := session.Create(root, "", "subagent "+kind)
 	if err != nil {

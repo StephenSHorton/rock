@@ -37,6 +37,27 @@ type Jev struct {
 	MinConfidence    float64 `toml:"min_confidence"`
 	RiskBlock        float64 `toml:"risk_block"`
 	AllowDestructive bool    `toml:"allow_destructive"`
+	// Nudge is the soft validation hint after edit/write and allowed
+	// shell. nil means on (the product default). false or nudge_every
+	// < 0 disables. The hint is text; it never calls Jev.
+	Nudge      *bool `toml:"nudge"`
+	NudgeEvery int   `toml:"nudge_every"`
+}
+
+// NudgeInterval is how often the harness appends a validation hint.
+// 2 is the default: first qualifying event, then every second one.
+// -1 means off.
+func (j Jev) NudgeInterval() int {
+	if j.Nudge != nil && !*j.Nudge {
+		return -1
+	}
+	if j.NudgeEvery < 0 {
+		return -1
+	}
+	if j.NudgeEvery == 0 {
+		return 2
+	}
+	return j.NudgeEvery
 }
 
 type Git struct {
@@ -175,6 +196,12 @@ func merge(dst *File, src File) {
 	}
 	if src.Jev.AllowDestructive {
 		dst.Jev.AllowDestructive = true
+	}
+	if src.Jev.Nudge != nil {
+		dst.Jev.Nudge = src.Jev.Nudge
+	}
+	if src.Jev.NudgeEvery != 0 {
+		dst.Jev.NudgeEvery = src.Jev.NudgeEvery
 	}
 	if len(src.MCP) > 0 && dst.MCP == nil {
 		dst.MCP = map[string]MCPServer{}
