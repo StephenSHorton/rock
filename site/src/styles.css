@@ -1,0 +1,235 @@
+@import "tailwindcss";
+@import "mokei/theme/preset.css";
+
+/*
+ * Quarry theme — sandstone, slate, hard-hat orange, a little teal.
+ * The kit has no [data-theme='quarry'] block yet; this is the host override.
+ */
+html[data-theme='quarry'],
+[data-theme='quarry'] {
+  color-scheme: light;
+  --ink: #1c1915;
+  --ink-2: #2a241f;
+  --muted: #6b6258;
+  --muted-2: #8a8074;
+  --hair: rgba(90, 78, 64, 0.28);
+  --blue: #2a9d8f;
+  --blue-deep: #1d7a70;
+
+  --glass-bg: rgba(255, 250, 242, 0.88);
+  --glass-border: rgba(255, 255, 255, 0.92);
+  --glass-shadow: 0 1px 2px rgba(62, 44, 28, 0.05), 0 10px 28px rgba(62, 44, 28, 0.1);
+  --glass-blur: 20px;
+  --glass-saturate: 1.25;
+  --topbar-bg: rgba(250, 243, 232, 0.78);
+  --topbar-border: rgba(196, 165, 116, 0.45);
+  --topbar-shadow: 0 6px 20px rgba(62, 44, 28, 0.05);
+
+  --background: #e6d5b8;
+  --foreground: #1c1915;
+  --card: rgba(255, 250, 242, 0.9);
+  --card-foreground: #1c1915;
+  --popover: rgba(255, 250, 242, 0.96);
+  --popover-foreground: #1c1915;
+  --primary: #e85d04;
+  --primary-foreground: #fff7ed;
+  --secondary: #efe4d2;
+  --secondary-foreground: #3f2f22;
+  --muted-surface: #eadcc6;
+  --muted-foreground: #6b6258;
+  --accent: #d5efe9;
+  --accent-foreground: #1d7a70;
+  --destructive: #b42318;
+  --border: rgba(90, 78, 64, 0.28);
+  --input: #ddd0b8;
+  --ring: #e85d04;
+
+  --success: #1d7a70;
+  --success-foreground: #d5efe9;
+  --warning: #c2410c;
+  --warning-foreground: #ffedd5;
+  --info: #1d7a70;
+  --info-foreground: #d5efe9;
+
+  --chart-1: #e85d04;
+  --chart-2: #2a9d8f;
+  --chart-3: #5c6670;
+  --chart-4: #c4a574;
+  --chart-5: #3d4650;
+
+  --sidebar: rgba(250, 243, 232, 0.78);
+  --sidebar-foreground: #1c1915;
+  --sidebar-primary: #e85d04;
+  --sidebar-primary-foreground: #fff7ed;
+  --sidebar-accent: #efe4d2;
+  --sidebar-accent-foreground: #3f2f22;
+  --sidebar-border: rgba(196, 165, 116, 0.45);
+  --sidebar-ring: #e85d04;
+
+  --clay-ground: #e6d5b8;
+  --clay-road: #c4a574;
+  --clay-grass: #c9d4b0;
+  --clay-wall: #f3eadc;
+  --clay-roof: #5c6670;
+  --clay-accent: #e85d04;
+  --clay-yellow: #f07a2a;
+  --clay-cardboard: #c4a07a;
+  --clay-tree: #2a9d8f;
+  --clay-tire: #2a241f;
+  --clay-ao: #4a3728;
+  --clay-sky: #d8e4ea;
+}
+
+html {
+  font-family: "SF Pro Text", "SF Pro Display", Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: calc(16px * var(--fs, 0.92));
+  letter-spacing: var(--track, -0.012em);
+  background: var(--background);
+  color: var(--foreground);
+}
+
+html.is-apple {
+  --fs: 1;
+  --track: -0.003em;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(240, 122, 42, 0.14), transparent 60%),
+    radial-gradient(900px 500px at -10% 20%, rgba(42, 157, 143, 0.1), transparent 55%),
+    var(--background);
+  color: var(--foreground);
+  text-rendering: optimizeLegibility;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+code,
+.mono,
+pre {
+  font-family: ui-monospace, "SF Mono", "IBM Plex Mono", Menlo, Consolas, monospace;
+  letter-spacing: 0;
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+
+.skip {
+  position: absolute;
+  left: 1rem;
+  top: -4rem;
+  z-index: 40;
+  padding: 0.5rem 0.8rem;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+}
+
+.skip:focus {
+  top: 1rem;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.glass-hud {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+}
+
+.term {
+  background: #0c0b0a;
+  color: #f4ece3;
+  border: 1px solid #3a322a;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 24px 60px rgba(28, 18, 8, 0.18);
+}
+
+.term-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.7rem 0.9rem;
+  background: #161311;
+  border-bottom: 1px solid #2c261f;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9c8f82;
+}
+
+.term-bar .live {
+  margin-left: auto;
+  color: #e7a15a;
+}
+
+.term pre {
+  margin: 0;
+  padding: 1rem 1.05rem 1.15rem;
+  overflow-x: auto;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  font-weight: 400;
+  white-space: pre;
+}
+
+.term .you { color: #f4ece3; }
+.term .rock { color: #e7a15a; }
+.term .mute { color: #9c8f82; }
+.term .warn { color: #ff7a3c; }
+.term .ok { color: #7ddecc; }
+
+.hud-btn {
+  min-width: 2.2rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--secondary);
+  color: var(--foreground);
+  padding: 0.4rem 0.7rem;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+}
+
+.hud-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.os-tab[aria-selected='true'] {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: var(--primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

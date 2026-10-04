@@ -47,7 +47,7 @@ go build -o rock ./cmd/rock
 ./rock -p "Say hello in one sentence"
 ```
 
-The public page is [stephenshorton.github.io/rock](https://stephenshorton.github.io/rock/). Source for it is [`site/`](site/): dark ground, copper type, Fraunces and IBM Plex Mono. The page swaps one install command by operating system. macOS and Linux:
+The public page is [stephenshorton.github.io/rock](https://stephenshorton.github.io/rock/). Source for it is [`site/`](site/), a Vite app with a Mokei clay-quarry hero and the real CLI. The page swaps one install command by operating system. macOS and Linux:
 
 ```bash
 curl -fsSL https://stephenshorton.github.io/rock/install.sh | bash
@@ -55,7 +55,7 @@ curl -fsSL https://stephenshorton.github.io/rock/install.sh | bash
 
 Windows PowerShell: `irm https://stephenshorton.github.io/rock/install.ps1 | iex`
 
-Both need Go 1.27 or newer and install from `main` with `go install github.com/StephenSHorton/rock/cmd/rock@main`. The live site is served from [StephenSHorton/StephenSHorton.github.io](https://github.com/StephenSHorton/StephenSHorton.github.io/tree/main/rock); Pages is not enabled on this repo.
+Both need Go 1.27 or newer and install from `main` with `go install github.com/StephenSHorton/rock/cmd/rock@main`. `site/` builds with Vite (`base: /rock/`). `.github/workflows/pages.yml` deploys `site/dist` on push to `main` once Pages is set to GitHub Actions in the repo settings. Until then the live copy stays on [StephenSHorton/StephenSHorton.github.io](https://github.com/StephenSHorton/StephenSHorton.github.io/tree/main/rock).
 
 Cloud agents can run the `rock-docs` reader on port 4173 to serve the tree as HTML and link-check the docs. Build the product binary with `go build ./cmd/rock`.
 

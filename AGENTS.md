@@ -28,7 +28,7 @@ docs/README.md            raid process + index
 docs/_template.md         dissection skeleton
 docs/clis/<tool>.md       one page per peer
 docs/synthesis/           steal priorities + architecture sketch
-site/                     static public page (dark ground, copper type)
+site/                     Vite public page (Mokei clay quarry + CLI)
 .github/workflows/ci.yml  build, vet, race tests
 ```
 

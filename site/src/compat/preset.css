@@ -1,0 +1,82 @@
+/*
+ * Fallback preset used when github:StephenSHorton/mokei cannot be fetched.
+ * Same semantic token names as the kit README. Quarry overrides live in styles.css.
+ */
+:root {
+  color-scheme: light;
+  --fs: 0.92;
+  --track: -0.012em;
+  --ink: #0f172a;
+  --ink-2: #1e293b;
+  --muted: #64748b;
+  --muted-2: #94a3b8;
+  --hair: rgba(203, 213, 225, 0.6);
+  --blue: #2563eb;
+  --blue-deep: #1d4ed8;
+  --glass-bg: rgba(255, 255, 255, 0.9);
+  --glass-border: rgba(255, 255, 255, 0.95);
+  --glass-shadow: 0 1px 2px rgba(30, 41, 90, 0.04), 0 8px 24px rgba(30, 41, 90, 0.08);
+  --glass-blur: 20px;
+  --glass-saturate: 1.35;
+  --topbar-bg: rgba(248, 250, 255, 0.78);
+  --topbar-border: rgba(214, 222, 238, 0.7);
+  --topbar-shadow: 0 6px 20px rgba(30, 41, 90, 0.04);
+  --background: #e9eef8;
+  --foreground: #0f172a;
+  --card: rgba(255, 255, 255, 0.9);
+  --card-foreground: #0f172a;
+  --popover: rgba(255, 255, 255, 0.96);
+  --popover-foreground: #0f172a;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --secondary: #e9eefc;
+  --secondary-foreground: #1e293b;
+  --muted-surface: #eef1f5;
+  --muted-foreground: #64748b;
+  --accent: #dbeafe;
+  --accent-foreground: #1d4ed8;
+  --destructive: #ef4444;
+  --border: rgba(203, 213, 225, 0.6);
+  --input: #dde3ee;
+  --ring: #2563eb;
+  --radius: 0.75rem;
+  --success: #15803d;
+  --success-foreground: #dcf5e3;
+  --warning: #c2620a;
+  --warning-foreground: #fdefd3;
+  --info: #1d4ed8;
+  --info-foreground: #d9e5fe;
+  --clay-ground: #e9eef8;
+  --clay-road: #c4d0f2;
+  --clay-grass: #dcf4e6;
+  --clay-wall: #f7f9fd;
+  --clay-roof: #2f63e6;
+  --clay-accent: #2563eb;
+  --clay-yellow: #f2c14e;
+  --clay-cardboard: #e0b17a;
+  --clay-tree: #72d39c;
+  --clay-tire: #1f2533;
+  --clay-ao: #25335a;
+  --clay-sky: #e9efff;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-muted: var(--muted-surface);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-border: var(--border);
+  --color-clay-ground: var(--clay-ground);
+  --radius-lg: var(--radius);
+}
+
+@utility glass-panel {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+}
