@@ -43,9 +43,11 @@ export default defineConfig({
   plugins: [react(), tailwindcss(), copyRootFiles(), previewNotFound()],
   resolve: {
     alias: [
-      // mokei/scene's barrel re-exports activateScene, which imports mokei/clay.
-      // Registering a host scene should not pull three.js into the first paint.
-      { find: /^mokei\/scene$/, replacement: resolve(__dirname, 'node_modules/mokei/pkg/kit/scene/registry.js') },
+      // kit export points at pkg/kit/themes; 8c44d1e ships the CSS under src/kit/themes.
+      {
+        find: 'mokei/themes/quarry.css',
+        replacement: resolve(__dirname, 'node_modules/mokei/src/kit/themes/quarry.css'),
+      },
     ],
   },
   optimizeDeps: {
