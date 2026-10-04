@@ -48,13 +48,14 @@ const (
 	// compactAt is the height at which outer padding drops and the
 	// composer shrinks, matching Grok's auto-compact cut.
 	compactAt = 20
-	// shortAt is the height that also drops the composer info line so
-	// the transcript keeps a floor.
+	// shortAt is the height that also drops outer padding so the
+	// transcript keeps a floor.
 	shortAt = 16
 	fps     = 30
 
-	readyText   = "Ask Rock to start. /help lists the keys and commands."
-	placeholder = "Ask Rock. /help /plan /yolo /default /sessions /permissions /agents /ready /verbose /fork /provider /quit"
+	readyText   = "Ask Rock to start."
+	placeholder = "Ask Rock"
+	slashHint   = "/ for commands"
 )
 
 // RunFunc executes one turn against the session the screen is showing.
@@ -281,7 +282,9 @@ type Model struct {
 	quitArmed       time.Time
 	gate            *jevGate
 
-	palette list.Model
+	palette   list.Model
+	slashSel  int
+	slashHide bool
 
 	pending   *askMsg
 	lastCall  harness.Event
@@ -555,19 +558,40 @@ func (m *Model) onKey(msg tea.KeyPressMsg) tea.Cmd {
 	case key.Matches(msg, m.keys.cycle):
 		return m.cycleMode()
 	case key.Matches(msg, m.keys.focus):
+		if m.slashVisible() {
+			m.slashComplete()
+			return nil
+		}
 		return m.toggleFocus()
 	case msg.String() == "esc" && m.busy:
 		return m.cancelTurn()
+	case msg.String() == "esc" && m.slashVisible():
+		m.slashHide = true
+		return nil
+	case m.slashVisible() && (msg.String() == "up" || msg.String() == "down"):
+		if msg.String() == "up" {
+			m.slashMove(-1)
+		} else {
+			m.slashMove(1)
+		}
+		return nil
 	case key.Matches(msg, m.keys.up), key.Matches(msg, m.keys.down):
 		m.scrollKey(msg)
 		return nil
 	case m.focusTranscript:
 		return m.scrollbackKey(msg)
+	case msg.String() == "?" && strings.TrimSpace(m.input.Value()) == "":
+		m.openOverlay(helpOverlay)
+		return nil
 	case key.Matches(msg, m.keys.submit):
+		if m.slashVisible() {
+			m.slashComplete()
+		}
 		return m.submit()
 	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
+	m.syncSlash()
 	return cmd
 }
 
@@ -751,29 +775,93 @@ func (m *Model) openPalette() tea.Cmd {
 	return nil
 }
 
+func slashCommands() []rowItem {
+	return []rowItem{
+		{title: "/help", desc: "keys and slash commands", id: "cmd:/help"},
+		{title: "/plan", desc: "plan mode; edits and shell blocked", id: "cmd:/plan"},
+		{title: "/yolo", desc: "skip asks; destructive gate stays", id: "cmd:/yolo"},
+		{title: "/default", desc: "back to the default policy", id: "cmd:/default"},
+		{title: "/sessions", desc: "resume a session from this folder", id: "cmd:/sessions"},
+		{title: "/permissions", desc: "allow, ask, and deny rules", id: "cmd:/permissions"},
+		{title: "/agents", desc: "subagents spawned this session", id: "cmd:/agents"},
+		{title: "/ready", desc: "is the plan ready? never approves", id: "cmd:/ready"},
+		{title: "/verbose", desc: "show or hide Jev turn/risk diagnostics", id: "cmd:/verbose"},
+		{title: "/fork", desc: "new Rock pane in Suzuri (OSC 7880)", id: "cmd:/fork"},
+		{title: "/provider", desc: "ChatGPT, SuperGrok, API key, or offline model", id: "cmd:/provider"},
+		{title: "/quit", desc: "quit", id: "cmd:/quit"},
+	}
+}
+
 func (m *Model) refreshPalette() {
-	items := []list.Item{
-		rowItem{title: "/help", desc: "keys and slash commands", id: "cmd:/help"},
-		rowItem{title: "/plan", desc: "plan mode; edits and shell blocked", id: "cmd:/plan"},
-		rowItem{title: "/yolo", desc: "skip asks; destructive gate stays", id: "cmd:/yolo"},
-		rowItem{title: "/default", desc: "back to the default policy", id: "cmd:/default"},
-		rowItem{title: "/sessions", desc: "resume a session from this folder", id: "cmd:/sessions"},
-		rowItem{title: "/permissions", desc: "allow, ask, and deny rules", id: "cmd:/permissions"},
-		rowItem{title: "/agents", desc: "subagents spawned this session", id: "cmd:/agents"},
-		rowItem{title: "/ready", desc: "is the plan ready? never approves", id: "cmd:/ready"},
-		rowItem{title: "/verbose", desc: "show or hide Jev turn/risk diagnostics", id: "cmd:/verbose"},
-		rowItem{title: "/fork", desc: "new Rock pane in Suzuri (OSC 7880)", id: "cmd:/fork"},
-		rowItem{title: "/provider", desc: "ChatGPT, SuperGrok, API key, or offline model", id: "cmd:/provider"},
-		rowItem{title: "/quit", desc: "quit", id: "cmd:/quit"},
+	items := make([]list.Item, 0, 20)
+	for _, it := range slashCommands() {
+		items = append(items, it)
+	}
+	items = append(items,
 		rowItem{title: "tab", desc: "focus composer ↔ transcript", id: "key:focus"},
 		rowItem{title: "shift+tab", desc: "cycle default / plan / yolo", id: "key:cycle"},
 		rowItem{title: "ctrl+s", desc: "sessions", id: "key:sessions"},
 		rowItem{title: "ctrl+o", desc: "toggle yolo", id: "key:yolo"},
 		rowItem{title: "v", desc: "toggle Jev diagnostics (transcript focus)", id: "key:verbose"},
 		rowItem{title: "ctrl+.", desc: "help", id: "key:help"},
-	}
+	)
 	_ = m.palette.SetItems(items)
 	m.palette.Select(0)
+}
+
+func (m *Model) slashVisible() bool {
+	if m.slashHide || m.focusTranscript || m.overlay != noOverlay || m.pending != nil {
+		return false
+	}
+	v := m.input.Value()
+	return strings.HasPrefix(v, "/") && !strings.ContainsAny(v, " \t\n")
+}
+
+func (m *Model) slashMatches() []rowItem {
+	q := strings.ToLower(strings.TrimPrefix(m.input.Value(), "/"))
+	all := slashCommands()
+	if q == "" {
+		return all
+	}
+	var prefix, rest []rowItem
+	for _, it := range all {
+		name := strings.ToLower(strings.TrimPrefix(it.title, "/"))
+		switch {
+		case strings.HasPrefix(name, q):
+			prefix = append(prefix, it)
+		case len(q) >= 2 && strings.Contains(name, q):
+			rest = append(rest, it)
+		}
+	}
+	return append(prefix, rest...)
+}
+
+func (m *Model) syncSlash() {
+	if !strings.HasPrefix(m.input.Value(), "/") {
+		m.slashHide = false
+	}
+	if n := len(m.slashMatches()); n == 0 {
+		m.slashSel = 0
+	} else if m.slashSel >= n {
+		m.slashSel = n - 1
+	}
+}
+
+func (m *Model) slashMove(delta int) {
+	n := len(m.slashMatches())
+	if n == 0 {
+		return
+	}
+	m.slashSel = (m.slashSel + delta%n + n) % n
+}
+
+func (m *Model) slashComplete() {
+	items := m.slashMatches()
+	if m.slashSel < 0 || m.slashSel >= len(items) {
+		return
+	}
+	m.input.SetValue(items[m.slashSel].title)
+	m.slashHide = true
 }
 
 func (m *Model) runPalette() tea.Cmd {

@@ -27,18 +27,20 @@ const sandboxNote = "Permissions are not a sandbox. Plan mode blocks every shell
 
 // layout sizes every component for the window and the current state. Rows
 // are handed out top-down from a fixed budget, so the body is what shrinks
-// and the composer, status line, and shortcuts bar always stay on screen.
-// The live session row sits under the composer, above the shortcuts, matching
-// Grok's [ui.status_line] slot. There is no branded header.
+// the composer, and the status line always stay on screen. The shortcuts
+// bar is gone unless a permission card is asking. There is no branded header.
 func (m *Model) layout() {
 	w, h := max(m.width, 20), max(m.height, 6)
-	g := geometry{w: w, h: h, composerRows: 3, infoRows: 1, helpRows: 1}
+	g := geometry{w: w, h: h, composerRows: 3}
 	g.compact = h <= compactAt
 	if !g.compact && h > shortAt {
 		g.padT, g.padB, g.padL, g.padR = 1, 1, 1, 1
 	}
 	g.innerW = max(1, w-g.padL-g.padR)
 	g.bodyY = g.padT
+	if m.pending != nil {
+		g.helpRows = 1
+	}
 
 	chrome := func() int {
 		return g.padT + 1 + g.composerRows + g.infoRows + g.helpRows + g.padB
@@ -46,10 +48,7 @@ func (m *Model) layout() {
 	for g.composerRows > 1 && h-chrome() < 4 {
 		g.composerRows--
 	}
-	if g.infoRows > 0 && h-chrome() < 3 {
-		g.infoRows = 0
-	}
-	if h-chrome() < 1 {
+	if g.helpRows > 0 && h-chrome() < 1 {
 		g.helpRows = 0
 	}
 	g.bodyH = max(1, h-chrome())
@@ -216,7 +215,11 @@ func (m *Model) bodyView() string {
 	if g.askH > 0 {
 		rows = append(rows, m.askView(g.innerW, g.askH))
 	}
-	return strings.Join(rows, "\n")
+	out := strings.Join(rows, "\n")
+	if menu := m.slashMenuView(g.innerW); menu != "" {
+		return overlayBottom(out, menu, g.bodyH, g.innerW)
+	}
+	return out
 }
 
 // transcriptView is the viewport with one column of air on the left and the
@@ -382,19 +385,9 @@ func (m *Model) helpText(w int) string {
 		{"esc", "close; deny; cancel a running turn"},
 		{"ctrl+c twice", "quit"},
 	}
-	cmds := [][2]string{
-		{"/help", "this help"},
-		{"/plan", "plan mode: edits and shell blocked"},
-		{"/yolo", "skip asks; destructive gate stays"},
-		{"/default", "back to the default policy"},
-		{"/sessions", "resume a session from this folder"},
-		{"/permissions", "allow, ask, and deny rules"},
-		{"/agents", "subagents spawned this session"},
-		{"/ready", "is the plan ready? never approves"},
-		{"/verbose", "show or hide Jev turn/risk diagnostics"},
-		{"/fork", "new Rock pane in Suzuri (OSC 7880)"},
-		{"/provider", "ChatGPT (SIWC), API key, or offline model"},
-		{"/quit", "quit"},
+	var cmds [][2]string
+	for _, it := range slashCommands() {
+		cmds = append(cmds, [2]string{it.title, it.desc})
 	}
 	section := func(title string, rows [][2]string, width int) string {
 		keyW := 0
@@ -660,27 +653,70 @@ func (m *Model) composerView() string {
 	if m.input.Focused() {
 		accent = t.accent.Render("┃")
 	}
-	rows := strings.Split(block(m.input.View(), max(1, g.innerW-2), g.composerRows), "\n")
+	inner := max(1, g.innerW-2)
+	rows := strings.Split(block(m.input.View(), inner, g.composerRows), "\n")
+	if strings.TrimSpace(m.input.Value()) == "" && !m.slashVisible() && len(rows) > 0 {
+		rows[0] = overlayRight(rows[0], t.faint.Render(slashHint), inner)
+	}
 	for i := range rows {
 		rows[i] = accent + " " + rows[i]
 	}
 	if g.infoRows > 0 {
-		rows = append(rows, "  "+m.composerInfo(max(1, g.innerW-2)))
+		rows = append(rows, "  "+strings.Repeat(" ", max(0, inner)))
 	}
 	return strings.Join(rows, "\n")
 }
 
-func (m *Model) composerInfo(w int) string {
+const slashMenuCap = 8
+
+func (m *Model) slashMenuView(w int) string {
+	if !m.slashVisible() {
+		return ""
+	}
+	items := m.slashMatches()
+	if len(items) == 0 {
+		return ""
+	}
 	t := m.th
-	name := m.deps.FastModel
-	if m.turnModel != "" {
-		name = m.turnModel
+	from := 0
+	if m.slashSel >= slashMenuCap {
+		from = m.slashSel - slashMenuCap + 1
 	}
-	if name == "" {
-		name = "no model"
+	to := min(len(items), from+slashMenuCap)
+	var rows []string
+	for i := from; i < to; i++ {
+		it := items[i]
+		mark, titleSt := "  ", t.plain
+		if i == m.slashSel {
+			mark, titleSt = t.accent.Render("▸ "), t.strong
+		}
+		title := titleSt.Render(it.title)
+		desc := t.faint.Render(it.desc)
+		row := ansi.Truncate(mark+title+"  "+desc, w, "…")
+		rows = append(rows, t.bar.Width(w).Render(row))
 	}
-	mode := string(m.deps.Mode)
-	return ansi.Truncate(t.plain.Render(name)+t.faint.Render(" · "+mode), w, "…")
+	return strings.Join(rows, "\n")
+}
+
+func overlayRight(row, right string, w int) string {
+	rw := ansi.StringWidth(right)
+	if rw+2 >= w {
+		return ansi.Truncate(row, w, "")
+	}
+	left := ansi.Cut(row, 0, w-rw-1)
+	return padRight(left, w-rw-1) + right
+}
+
+func overlayBottom(base, overlay string, h, w int) string {
+	baseRows := strings.Split(block(base, w, h), "\n")
+	overRows := strings.Split(overlay, "\n")
+	start := max(0, len(baseRows)-len(overRows))
+	for i, row := range overRows {
+		if start+i < len(baseRows) {
+			baseRows[start+i] = padRight(row, w)
+		}
+	}
+	return strings.Join(baseRows, "\n")
 }
 
 func (m *Model) helpLineView() string {

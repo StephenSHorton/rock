@@ -55,11 +55,8 @@ func testModel(t *testing.T) *Model {
 func TestViewRendersSession(t *testing.T) {
 	m := testModel(t)
 	view := m.View().Content
-	if !strings.Contains(view, "Rock") || !strings.Contains(view, "jev:offline") {
+	if !strings.Contains(view, "Ask Rock") || !strings.Contains(view, "jev:offline") {
 		t.Fatalf("view:\n%s", view)
-	}
-	if !strings.Contains(view, "ready") {
-		t.Fatal(view)
 	}
 }
 
@@ -76,9 +73,15 @@ func TestLayoutHasNoWordmarkHeader(t *testing.T) {
 	if compact.geo.padT != 0 || !compact.geo.compact {
 		t.Fatalf("height 20 should compact: %+v", compact.geo)
 	}
-	info := screen(m)[m.geo.composerY()+m.geo.composerRows]
-	if !strings.Contains(info, "gpt-4o-mini") || !strings.Contains(info, "default") {
-		t.Fatalf("composer info line: %q", info)
+	if m.geo.infoRows != 0 {
+		t.Fatalf("idle chrome should not keep a model · mode info line: %+v", m.geo)
+	}
+	composer := flat(strings.Join(screen(m)[m.geo.composerY():m.geo.statusY()], " "))
+	if !strings.Contains(composer, "Ask Rock") || !strings.Contains(composer, "/ for commands") {
+		t.Fatalf("quiet placeholder: %q", composer)
+	}
+	if strings.Contains(composer, "/help") || strings.Contains(composer, "/plan") {
+		t.Fatalf("placeholder still lists commands: %q", composer)
 	}
 }
 
@@ -317,8 +320,8 @@ func TestShortHeightKeepsStatusComposerAndHelp(t *testing.T) {
 			if strings.Contains(rows[g.composerY()], "╭") {
 				t.Fatalf("%dx%d: composer still has a rounded box: %q", w, h, rows[g.composerY()])
 			}
-			if g.helpRows > 0 && !strings.Contains(rows[h-1], "send") && !strings.Contains(rows[h-1], "allow") {
-				t.Fatalf("%dx%d: help row %q", w, h, rows[h-1])
+			if g.helpRows != 0 {
+				t.Fatalf("%dx%d: idle help row should stay off: %+v %q", w, h, g, rows[h-1])
 			}
 		}
 	}
@@ -476,7 +479,7 @@ func TestOverlaysOpenReadableAndCloseBackToTheTranscript(t *testing.T) {
 		cmd, title string
 		want       []string
 	}{
-		{"/help", "Help", []string{"Slash commands", "/default", "/quit", "/permissions", "/provider"}},
+		{"/help", "Help", []string{"Slash commands", "/help", "/plan"}},
 		{"/provider", "Provider", []string{"ChatGPT", "SuperGrok", "API key", "Offline model"}},
 		{"/sessions", "Sessions", []string{"demo", "this session"}},
 		{"/permissions", "Permissions", []string{"Permissions are not a sandbox.", "read_file", "shell", "default"}},
@@ -490,7 +493,11 @@ func TestOverlaysOpenReadableAndCloseBackToTheTranscript(t *testing.T) {
 				t.Fatalf("%s at %d: overlay did not take focus", tc.cmd, w)
 			}
 			view := flat(strings.Join(assertFrame(t, m, w, h), "\n"))
-			for _, want := range append([]string{tc.title}, tc.want...) {
+			want := append([]string{tc.title}, tc.want...)
+			if tc.cmd == "/help" && w >= 140 {
+				want = append(want, "/default", "/quit", "/permissions", "/provider")
+			}
+			for _, want := range want {
 				if !strings.Contains(view, want) {
 					t.Fatalf("%s at %d cols lacks %q:\n%s", tc.cmd, w, want, strings.Join(screen(m), "\n"))
 				}
@@ -699,14 +706,17 @@ func TestCodeBlocksFollowTheThemeInTruecolor(t *testing.T) {
 	}
 }
 
-func TestPlaceholderListsEverySlashCommandAndTheyAllWork(t *testing.T) {
+func TestPlaceholderIsQuietAndEverySlashCommandWorks(t *testing.T) {
 	all := []string{"/help", "/plan", "/yolo", "/default", "/sessions", "/permissions", "/agents", "/ready", "/verbose", "/fork", "/provider", "/quit"}
 	m := sized(t, 80, 24)
 	g := m.geo
 	composer := flat(strings.Join(screen(m)[g.composerY():g.composerY()+g.composerRows+g.infoRows], " "))
+	if placeholder != "Ask Rock" || !strings.Contains(composer, "Ask Rock") {
+		t.Fatalf("placeholder should be Ask Rock: %q %q", placeholder, composer)
+	}
 	for _, c := range all {
-		if !strings.Contains(placeholder, c) || !strings.Contains(composer, c) {
-			t.Fatalf("placeholder lacks %s: %q", c, composer)
+		if strings.Contains(composer, c) {
+			t.Fatalf("composer still lists %s: %q", c, composer)
 		}
 	}
 	for _, c := range all {
@@ -1312,4 +1322,90 @@ func TestAskJevVisibilityRules(t *testing.T) {
 	if !strings.Contains(got, "◇ jev turn") || !strings.Contains(got, "◇ jev risk") || !strings.Contains(got, "stuck=false") {
 		t.Fatalf("verbose should show gate calls:\n%s", got)
 	}
+}
+
+func TestSlashMenuOpensFiltersSelectsCompletesAndEscapes(t *testing.T) {
+	m := sized(t, 100, 28)
+	if m.slashVisible() {
+		t.Fatal("slash menu should start closed")
+	}
+	m.input.SetValue("/")
+	if !m.slashVisible() {
+		t.Fatal("a leading / should open the slash menu")
+	}
+	view := flat(strings.Join(screen(m), "\n"))
+	if !strings.Contains(view, "/plan") || !strings.Contains(view, "plan mode") {
+		t.Fatalf("open menu should list commands with descriptions:\n%s", view)
+	}
+	if strings.Contains(view, "enter send") {
+		t.Fatalf("idle shortcuts bar leaked back in:\n%s", view)
+	}
+
+	m.input.SetValue("/p")
+	if m.input.Value() != "/p" {
+		t.Fatalf("typed %q", m.input.Value())
+	}
+	got := titles(m.slashMatches())
+	for _, want := range []string{"/plan", "/permissions", "/provider"} {
+		if !contains(got, want) {
+			t.Fatalf("/p filter missing %s: %v", want, got)
+		}
+	}
+	if contains(got, "/help") || contains(got, "/yolo") {
+		t.Fatalf("/p should drop unrelated commands: %v", got)
+	}
+	view = flat(strings.Join(screen(m), "\n"))
+	if strings.Contains(view, "/help") || strings.Contains(view, "/yolo") {
+		t.Fatalf("filtered frame still shows dropped commands:\n%s", view)
+	}
+
+	m.Update(tea.KeyPressMsg{Text: "down"})
+	if m.slashMatches()[m.slashSel].title != "/permissions" {
+		t.Fatalf("down should move to /permissions, got %s", m.slashMatches()[m.slashSel].title)
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyTab, Text: "tab"})
+	if m.input.Value() != "/permissions" || m.overlay != noOverlay {
+		t.Fatalf("tab should complete without running: value=%q overlay=%d", m.input.Value(), m.overlay)
+	}
+	if m.slashVisible() {
+		t.Fatal("tab should close the menu")
+	}
+
+	m = sized(t, 100, 28)
+	m.input.SetValue("/p")
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+	if m.deps.Mode != perms.ModePlan {
+		t.Fatalf("enter should complete and run /plan, mode=%s", m.deps.Mode)
+	}
+
+	m = sized(t, 100, 28)
+	m.input.SetValue("/p")
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if m.slashVisible() {
+		t.Fatal("esc should close the menu")
+	}
+	if m.input.Value() != "/p" {
+		t.Fatalf("esc should keep the draft: %q", m.input.Value())
+	}
+	view = flat(strings.Join(screen(m), "\n"))
+	if strings.Contains(view, "plan mode; edits and shell blocked") {
+		t.Fatalf("esc should hide the menu:\n%s", view)
+	}
+}
+
+func titles(items []rowItem) []string {
+	out := make([]string, len(items))
+	for i, it := range items {
+		out[i] = it.title
+	}
+	return out
+}
+
+func contains(list []string, want string) bool {
+	for _, s := range list {
+		if s == want {
+			return true
+		}
+	}
+	return false
 }
