@@ -12,10 +12,10 @@ export function Hero() {
             <p className="mono text-[0.72rem] tracking-[0.16em] uppercase text-[var(--muted)]">
               <span className="text-[var(--primary)]">rock</span> 1.0 · MIT · Go
             </p>
-            <h1 className="mt-2 text-3xl leading-[1.05] tracking-tight lg:mt-3 lg:text-5xl">
+            <h1 className="mt-2 text-[1.65rem] leading-[1.05] tracking-tight lg:mt-3 lg:text-5xl">
               An AI coding CLI in Go.
             </h1>
-            <p className="mt-2 text-base text-[var(--ink-2)] lg:mt-4 lg:text-lg">
+            <p className="mt-2 text-sm text-[var(--ink-2)] lg:mt-4 lg:text-lg">
               A fullscreen Charm TUI, <code>rock -p</code>, <code>rock acp</code>, and{' '}
               <code>rock serve</code> share the same harness.
             </p>
