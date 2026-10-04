@@ -15,7 +15,7 @@ export const quarryScene = {
   themeId: 'quarry',
   World: QuarryWorld,
   camera: {
-    zoom: quarryLook.cameraZoom ?? 38,
+    zoom: quarryLook.cameraZoom ?? 52,
     azimuth: quarryLook.cameraAzimuth ?? 32,
     elevation: quarryLook.cameraElevation ?? 36,
     target: { x: 0.6, z: 0.15 },

@@ -1,6 +1,6 @@
 export function StaticQuarry() {
   return (
-    <svg viewBox="0 0 960 540" role="img" aria-label="Static clay quarry: a drill rig, two ore carts on rails, tool stations, a permission gate, and crates on a dock.">
+    <svg className="h-full w-full" viewBox="0 0 960 540" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Static clay quarry: a drill rig, two ore carts on rails, tool stations, a permission gate, and crates on a dock.">
       <rect width="960" height="540" fill="#d8e4ea" />
       <path d="M0 360h960v180H0z" fill="#e6d5b8" />
       <path d="M40 300h520l80 80H0z" fill="#c4a574" />
