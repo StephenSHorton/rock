@@ -202,6 +202,7 @@ Typed at the composer. A leading `/` opens the shared modal; prefix match, then 
 | `/default` | Back to the default policy |
 | `/sessions` | Resume picker (composer modal) for this folder |
 | `/provider` | Model/provider picker (composer modal) |
+| `/update` | Install the latest GitHub release |
 | `/permissions` | Loaded allow / ask / deny rules + sandbox honesty note |
 | `/agents` | Table of `spawn_subagent` rows this session (kind / status / detail) |
 | `/ready` | Jev (or offline policy) plan-readiness verdict — **never approves** |
