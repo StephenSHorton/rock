@@ -24,6 +24,7 @@ import (
 	"github.com/StephenSHorton/rock/internal/provider"
 	"github.com/StephenSHorton/rock/internal/session"
 	"github.com/StephenSHorton/rock/internal/tools"
+	"github.com/StephenSHorton/rock/internal/update"
 )
 
 func testModel(t *testing.T) *Model {
@@ -707,7 +708,7 @@ func TestCodeBlocksFollowTheThemeInTruecolor(t *testing.T) {
 }
 
 func TestPlaceholderIsQuietAndEverySlashCommandWorks(t *testing.T) {
-	all := []string{"/help", "/plan", "/yolo", "/default", "/sessions", "/permissions", "/agents", "/ready", "/verbose", "/fork", "/provider", "/quit"}
+	all := []string{"/help", "/plan", "/yolo", "/default", "/sessions", "/permissions", "/agents", "/ready", "/verbose", "/fork", "/provider", "/update", "/quit"}
 	m := sized(t, 80, 24)
 	g := m.geo
 	composer := flat(strings.Join(screen(m)[g.composerY():g.composerY()+g.composerRows+g.infoRows], " "))
@@ -747,6 +748,32 @@ func TestPlaceholderIsQuietAndEverySlashCommandWorks(t *testing.T) {
 	m = sized(t, 100, 24)
 	submit(m, "/nope")
 	if !m.alert || !strings.Contains(m.status, "unknown command /nope") {
+		t.Fatal(m.status)
+	}
+}
+
+func TestUpdateOverlayAndStatusNotice(t *testing.T) {
+	m := sized(t, 100, 24)
+	m.avail = update.Notice{Current: "1.0.0", Latest: "1.0.2", Newer: true}
+	m.status = "ready"
+	m.layout()
+	m.syncView()
+	status := screen(m)[m.geo.statusY()]
+	if !strings.Contains(status, "Rock v1.0.2 available, run rock update") {
+		t.Fatalf("status %q", status)
+	}
+	m.openOverlay(updateOverlay)
+	view := strings.Join(screen(m), "\n")
+	for _, want := range []string{"Update", "Rock v1.0.2 is available", "y update"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("missing %q\n%s", want, view)
+		}
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if m.overlay != noOverlay || !m.updateDismissed {
+		t.Fatal("esc should dismiss")
+	}
+	if !strings.Contains(m.status, "Rock v1.0.2 available") {
 		t.Fatal(m.status)
 	}
 }

@@ -185,3 +185,28 @@ func TestTriageFilterConfig(t *testing.T) {
 		t.Fatalf("%#v", got.File.Jev)
 	}
 }
+
+func TestUpdateCheckOn(t *testing.T) {
+	if !Default().Update.CheckOn() {
+		t.Fatal("default update check is on")
+	}
+	off := false
+	if (Update{Check: &off}).CheckOn() {
+		t.Fatal("check=false")
+	}
+	dir := t.TempDir()
+	t.Setenv("ROCK_CONFIG", filepath.Join(t.TempDir(), "none.toml"))
+	if err := os.MkdirAll(filepath.Join(dir, ".rock"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".rock", "trusted"), []byte("ok\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".rock", "config.toml"), []byte("[update]\ncheck = false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(dir)
+	if err != nil || got.File.Update.CheckOn() {
+		t.Fatalf("%v %#v", err, got.File.Update)
+	}
+}

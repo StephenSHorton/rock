@@ -21,6 +21,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/StephenSHorton/rock/internal/perms"
+	"github.com/StephenSHorton/rock/internal/update"
 )
 
 const sandboxNote = "Permissions are not a sandbox. Plan mode blocks every shell command because redirections are not inspected."
@@ -363,6 +364,11 @@ func (m *Model) overlayView(w, h int) string {
 	case paletteOverlay:
 		title, sub = "Commands", "slash commands and keys"
 		body = m.palette.View()
+	case updateOverlay:
+		title, sub = "Update", "latest GitHub release"
+		ver := update.Normalize(m.avail.Latest)
+		body = t.plain.Render(wrapText("Rock v"+ver+" is available. Update now?", innerW)) + "\n\n" +
+			t.faint.Render(wrapText("y update · n later · esc dismiss. A go install tree prints the module command instead of overwriting.", innerW))
 	}
 	head := t.accentBold.Render(title) + t.faint.Render("  "+clip(sub, max(0, innerW-ansi.StringWidth(title)-2)))
 	content := head + "\n\n" + body
@@ -617,6 +623,9 @@ func (m *Model) statusView() string {
 	left = ansi.Truncate(left, w, "…")
 
 	status := sanitize(m.status)
+	if (status == "" || status == "ready") && m.avail.Newer && m.overlay != updateOverlay {
+		status = m.avail.Line()
+	}
 	statusStyle := t.faint
 	if m.alert {
 		statusStyle = t.danger

@@ -30,7 +30,20 @@ type File struct {
 	Permissions Perms                `toml:"permissions"`
 	Jev         Jev                  `toml:"jev"`
 	Git         Git                  `toml:"git"`
+	Update      Update               `toml:"update"`
 	MCP         map[string]MCPServer `toml:"mcp"`
+}
+
+// Update is the optional auto-update check. nil Check means on.
+type Update struct {
+	Check *bool `toml:"check"`
+}
+
+func (u Update) CheckOn() bool {
+	if u.Check != nil {
+		return *u.Check
+	}
+	return true
 }
 
 type Perms struct {
@@ -259,6 +272,9 @@ func merge(dst *File, src File) {
 	}
 	if src.Jev.ClipBytes != 0 {
 		dst.Jev.ClipBytes = src.Jev.ClipBytes
+	}
+	if src.Update.Check != nil {
+		dst.Update.Check = src.Update.Check
 	}
 	if len(src.MCP) > 0 && dst.MCP == nil {
 		dst.MCP = map[string]MCPServer{}

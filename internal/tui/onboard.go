@@ -122,6 +122,9 @@ func (m *Model) clearJevGate() tea.Cmd {
 	m.gate = nil
 	m.status = "Jev is live"
 	cmds := []tea.Cmd{m.input.Focus(), m.retarget()}
+	if m.avail.Newer && !m.updateDismissed {
+		m.openOverlay(updateOverlay)
+	}
 	if prompt := strings.TrimSpace(m.deps.InitialPrompt); prompt != "" {
 		m.deps.InitialPrompt = ""
 		m.lines = append(m.lines, line{kind: "user", text: prompt})

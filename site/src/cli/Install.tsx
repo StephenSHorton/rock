@@ -103,9 +103,11 @@ export function Install() {
         </li>
       </ul>
       <p className="mt-2 text-[var(--muted)]">
-        Needs <a className="text-[var(--primary)] underline-offset-2 hover:underline" href="https://go.dev/dl/">Go 1.27</a> or
-        newer. The command installs the current 1.0 build of <code>rock</code> with{' '}
-        <code>go install github.com/StephenSHorton/rock/cmd/rock@main</code>.
+        Downloads the latest GitHub release and verifies the SHA-256 in{' '}
+        <code>checksums.txt</code>. If no asset matches your OS/arch, it falls back to{' '}
+        <code>go install github.com/StephenSHorton/rock/cmd/rock@latest</code> (needs{' '}
+        <a className="text-[var(--primary)] underline-offset-2 hover:underline" href="https://go.dev/dl/">Go 1.27</a>
+        ). After that, <code>rock update</code> keeps a release binary current.
       </p>
     </section>
   )
