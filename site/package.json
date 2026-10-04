@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Rock public page — the Go AI coding CLI, with a Mokei quarry diagram.",
+  "description": "Rock public page — the coding CLI with a System One.",
   "license": "MIT",
   "scripts": {
     "dev": "vite",
@@ -14,7 +14,7 @@
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.1",
     "@react-three/postprocessing": "^3.1.3",
-    "mokei": "github:StephenSHorton/mokei#b93934b",
+    "mokei": "github:StephenSHorton/mokei#b93934bc1e81c429518f90da3fc94ec3d1820d55",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "three": "^0.186.1",
