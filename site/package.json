@@ -14,7 +14,7 @@
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.1",
     "@react-three/postprocessing": "^3.1.3",
-    "mokei": "github:StephenSHorton/mokei#899b0a9",
+    "mokei": "github:StephenSHorton/mokei#8c44d1e",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "three": "^0.186.1",

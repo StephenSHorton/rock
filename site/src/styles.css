@@ -1,5 +1,18 @@
 @import "tailwindcss";
 @import "mokei/theme/preset.css";
+@import "mokei/themes/quarry.css";
+
+/* Site-only dark terminal mock. Kit quarry tokens stay on the page. */
+html[data-theme='quarry'] {
+  --term-bg: #1e2228;
+  --term-bar: #181c22;
+  --term-fg: #eceae4;
+  --term-brand: #7a9bff;
+  --term-trim: #9aa4b2;
+  --term-attention: var(--mokei-accent-2);
+  --term-error: #c0362c;
+  --term-ok: #2e7d4f;
+}
 
 html {
   font-family: "SF Pro Text", "SF Pro Display", Inter, ui-sans-serif, system-ui, sans-serif;

@@ -1,7 +1,9 @@
+import 'mokei/theme/quarry'
+import { applyTheme, setDefaultThemeId } from 'mokei/theme'
+import { registerScene, setDefaultSceneId } from 'mokei/scene'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { applyTheme } from 'mokei/theme'
-import { applyPagePalette } from './quarry/palette'
+import { quarryScene } from './quarry/scene'
 import { StaticQuarry } from './quarry/StaticQuarry'
 import './styles.css'
 
@@ -9,8 +11,10 @@ if (typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platfor
   document.documentElement.classList.add('is-apple')
 }
 
+setDefaultSceneId('quarry')
+setDefaultThemeId('quarry')
+registerScene(quarryScene)
 applyTheme('quarry')
-applyPagePalette()
 
 function NotFound() {
   return (
