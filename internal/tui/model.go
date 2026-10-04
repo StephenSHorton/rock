@@ -45,7 +45,13 @@ const (
 	splitMin = 64
 	// gutter is the speaker column of the transcript.
 	gutter = 6
-	fps    = 30
+	// compactAt is the height at which outer padding drops and the
+	// composer shrinks, matching Grok's auto-compact cut.
+	compactAt = 20
+	// shortAt is the height that also drops the composer info line so
+	// the transcript keeps a floor.
+	shortAt = 16
+	fps     = 30
 
 	readyText   = "Rock is ready. The transcript lives in the session store, not in this screen."
 	placeholder = "Ask Rock. /help /plan /yolo /default /sessions /permissions /agents /ready /fork /quit"
@@ -177,15 +183,25 @@ func (k keyMap) FullHelp() [][]key.Binding {
 // state. layout computes it; View only reads it.
 type geometry struct {
 	w, h         int
+	padT, padB   int
+	padL, padR   int
+	innerW       int
 	bodyY, bodyH int
 	composerRows int
+	infoRows     int
 	helpRows     int
 	transcriptW  int
 	planW        int
 	planH        int
 	askH         int
 	vpY, vpH     int
+	barX         int
+	compact      bool
 }
+
+func (g geometry) statusY() int    { return g.bodyY + g.bodyH }
+func (g geometry) composerY() int  { return g.statusY() + 1 }
+func (g geometry) contentLeft() int { return g.padL }
 
 // Model is the Bubble Tea program.
 type Model struct {
@@ -257,7 +273,7 @@ func New(deps Deps) *Model {
 	ta.CharLimit = 8000
 	ta.SetPromptFunc(2, func(info textarea.PromptInfo) string {
 		if info.LineNumber == 0 {
-			return "› "
+			return "❯ "
 		}
 		return "  "
 	})
@@ -1043,9 +1059,9 @@ func (m *Model) inPlan(x, y int) bool {
 	g := m.geo
 	switch {
 	case g.planW > 0:
-		return x >= g.transcriptW && y >= g.vpY && y < g.vpY+g.vpH
+		return x >= g.padL+g.transcriptW && y >= g.vpY && y < g.vpY+g.vpH
 	case g.planH > 0:
-		return y >= g.bodyY && y < g.bodyY+g.planH
+		return y >= g.bodyY && y < g.bodyY+g.planH && x >= g.padL
 	}
 	return false
 }
@@ -1056,7 +1072,7 @@ func (m *Model) overflowing() bool {
 
 func (m *Model) onScrollbar(x, y int) bool {
 	g := m.geo
-	return m.overflowing() && x == g.transcriptW-1 && y >= g.vpY && y < g.vpY+g.vpH
+	return m.overflowing() && x == g.barX && y >= g.vpY && y < g.vpY+g.vpH
 }
 
 // scrollTo maps a row on the scrollbar track to a transcript offset.

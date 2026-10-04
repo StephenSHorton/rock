@@ -25,45 +25,62 @@ const sandboxNote = "Permissions are not a sandbox. Plan mode blocks every shell
 
 // layout sizes every component for the window and the current state. Rows
 // are handed out top-down from a fixed budget, so the body is what shrinks
-// and the status line, composer, and help line always stay on screen.
+// and the status line, composer, and shortcuts bar always stay on screen.
+// There is no branded header: Grok's agent view keeps the prompt flush
+// against the hint bar and lets the scrollback take the leftover rows.
 func (m *Model) layout() {
 	w, h := max(m.width, 20), max(m.height, 6)
-	g := geometry{w: w, h: h, bodyY: 1, composerRows: 3, helpRows: 1}
-	chrome := func() int { return 1 + 1 + g.composerRows + 2 + g.helpRows }
+	g := geometry{w: w, h: h, composerRows: 3, infoRows: 1, helpRows: 1}
+	g.compact = h <= compactAt
+	if !g.compact && h > shortAt {
+		g.padT, g.padB, g.padL, g.padR = 1, 1, 1, 1
+	}
+	g.innerW = max(1, w-g.padL-g.padR)
+	g.bodyY = g.padT
+
+	chrome := func() int {
+		return g.padT + 1 + g.composerRows + g.infoRows + g.helpRows + g.padB
+	}
 	for g.composerRows > 1 && h-chrome() < 4 {
 		g.composerRows--
+	}
+	if g.infoRows > 0 && h-chrome() < 3 {
+		g.infoRows = 0
 	}
 	if h-chrome() < 1 {
 		g.helpRows = 0
 	}
 	g.bodyH = max(1, h-chrome())
 
-	g.transcriptW = w
+	g.transcriptW = g.innerW
 	switch {
-	case (m.showPlan || w >= wideAt) && w >= splitMin:
-		g.planW = min(max(w*32/100, 28), 46)
-		g.transcriptW = w - g.planW - 1
+	case (m.showPlan || w >= wideAt) && g.innerW >= splitMin:
+		g.planW = min(max(g.innerW*32/100, 28), 46)
+		g.transcriptW = g.innerW - g.planW - 1
 	case m.showPlan:
-		innerW := max(1, w-4)
-		m.planContent(innerW)
-		want := 2 + lipgloss.Height(m.planHeader(innerW, true)) + m.planVP.TotalLineCount()
+		inner := max(1, g.innerW-4)
+		m.planContent(inner)
+		want := 2 + lipgloss.Height(m.planHeader(inner, true)) + m.planVP.TotalLineCount()
 		g.planH = min(max(want, 5), max(5, g.bodyH/2))
 	}
 	if m.pending != nil {
-		g.askH = min(m.askHeight(w), g.bodyH)
+		g.askH = min(m.askHeight(g.innerW), g.bodyH)
 	}
 	if g.planH > 0 && g.bodyH-g.askH-g.planH < 3 {
 		g.planH = 0
 	}
 	g.vpY = g.bodyY + g.planH
 	g.vpH = max(0, g.bodyH-g.planH-g.askH)
+	g.barX = g.padL + g.transcriptW - 1
 	m.geo = g
 
-	m.input.SetWidth(max(1, w-4))
+	// Accent column + prompt leave innerW-2 for the textarea.
+	m.input.SetWidth(max(1, g.innerW-2))
 	m.input.SetHeight(g.composerRows)
-	m.help.SetWidth(max(1, w-1))
-	m.meter.SetWidth(meterWidth(w))
+	m.help.SetWidth(max(1, g.innerW-1))
+	m.meter.SetWidth(meterWidth(g.innerW))
 
+	// Reserved scrollbar gutter: last column of the transcript.
 	contentW := max(1, g.transcriptW-2)
 	m.vp.SetWidth(contentW)
 	m.vp.SetHeight(g.vpH)
@@ -77,13 +94,18 @@ func (m *Model) layout() {
 	}
 
 	if pw, ph, stacked := m.planBox(); pw > 0 {
-		innerW := max(1, pw-4)
-		m.planContent(innerW)
-		m.planVP.SetWidth(innerW)
-		m.planVP.SetHeight(max(0, ph-2-lipgloss.Height(m.planHeader(innerW, stacked))))
+		inner := max(1, pw-4)
+		m.planContent(inner)
+		headH := lipgloss.Height(m.planHeader(inner, stacked))
+		footH := 0
+		if !stacked {
+			footH = lipgloss.Height(m.planFooter(inner))
+		}
+		m.planVP.SetWidth(inner)
+		m.planVP.SetHeight(max(0, ph-2-headH-footH))
 	}
 
-	innerW, innerH := max(1, w-4), max(1, g.bodyH-2)
+	innerW, innerH := max(1, g.innerW-4), max(1, g.bodyH-2)
 	listH := max(1, innerH-2)
 	m.sessions.SetSize(innerW, listH)
 	m.perms.SetSize(innerW, max(1, listH-lipgloss.Height(wrapText(sandboxNote, innerW))-1))
@@ -117,7 +139,7 @@ func (m *Model) planBox() (w, h int, stacked bool) {
 	case g.planW > 0:
 		return g.planW, g.vpH, false
 	case g.planH > 0:
-		return g.w, g.planH, true
+		return g.innerW, g.planH, true
 	}
 	return 0, 0, false
 }
@@ -130,14 +152,20 @@ func (m *Model) View() tea.View {
 		return v
 	}
 	g := m.geo
-	parts := []string{
-		block(m.headerView(), g.w, 1),
-		block(m.bodyView(), g.w, g.bodyH),
-		block(m.statusView(), g.w, 1),
-		block(m.composerView(), g.w, g.composerRows+2),
+	var parts []string
+	if g.padT > 0 {
+		parts = append(parts, strings.Repeat("\n", g.padT-1))
 	}
+	parts = append(parts,
+		m.inset(m.bodyView(), g.bodyH),
+		m.inset(m.statusView(), 1),
+		m.inset(m.composerView(), g.composerRows+g.infoRows),
+	)
 	if g.helpRows > 0 {
-		parts = append(parts, block(m.helpLineView(), g.w, 1))
+		parts = append(parts, m.inset(m.helpLineView(), 1))
+	}
+	if g.padB > 0 {
+		parts = append(parts, "")
 	}
 	v := tea.NewView(strings.Join(parts, "\n"))
 	v.AltScreen = true
@@ -146,45 +174,30 @@ func (m *Model) View() tea.View {
 	return v
 }
 
-func (m *Model) headerView() string {
-	t, w := m.th, m.geo.w
-	brand := " rock  "
-	id, title := "", ""
-	if s := m.deps.Session; s != nil {
-		id, title = s.Meta.ID, s.Meta.Title
+// inset places one band of content in the horizontal padding so the
+// scrollback, composer, and shortcuts share one gutter.
+func (m *Model) inset(s string, h int) string {
+	g := m.geo
+	inner := block(s, g.innerW, h)
+	if g.padL == 0 && g.padR == 0 {
+		return inner
 	}
-	if title == "rock" || title == id {
-		title = ""
+	left, right := strings.Repeat(" ", g.padL), strings.Repeat(" ", g.padR)
+	rows := strings.Split(inner, "\n")
+	for i := range rows {
+		rows[i] = left + rows[i] + right
 	}
-	cwd := shortPath(m.deps.CWD)
-	avail := w - ansi.StringWidth(brand) - 1
-	mid := id
-	if title != "" {
-		mid = title + " · " + id
-	}
-	if ansi.StringWidth(mid)+2+ansi.StringWidth(cwd) > avail {
-		cwd = clipLeft(cwd, max(12, avail-ansi.StringWidth(mid)-2))
-	}
-	if ansi.StringWidth(mid)+2+ansi.StringWidth(cwd) > avail {
-		mid = clip(mid, max(0, avail-2-ansi.StringWidth(cwd)))
-	}
-	midStyled := t.barMute.Render(mid)
-	if title != "" && strings.HasPrefix(mid, title) {
-		midStyled = t.barText.Render(title) + t.barMute.Render(strings.TrimPrefix(mid, title))
-	}
-	fill := max(0, avail-ansi.StringWidth(mid)-ansi.StringWidth(cwd))
-	return t.barBrand.Render(brand) + midStyled + t.bar.Render(strings.Repeat(" ", fill)) +
-		t.barMute.Render(cwd) + t.bar.Render(" ")
+	return strings.Join(rows, "\n")
 }
 
 func (m *Model) bodyView() string {
 	g := m.geo
 	if m.overlay != noOverlay {
-		return m.overlayView(g.w, g.bodyH)
+		return m.overlayView(g.innerW, g.bodyH)
 	}
 	var rows []string
 	if g.planH > 0 {
-		rows = append(rows, m.planView(g.w, g.planH, true))
+		rows = append(rows, m.planView(g.innerW, g.planH, true))
 	}
 	if g.vpH > 0 {
 		t := m.transcriptView(g.transcriptW, g.vpH)
@@ -194,7 +207,7 @@ func (m *Model) bodyView() string {
 		rows = append(rows, t)
 	}
 	if g.askH > 0 {
-		rows = append(rows, m.askView(g.w, g.askH))
+		rows = append(rows, m.askView(g.innerW, g.askH))
 	}
 	return strings.Join(rows, "\n")
 }
@@ -280,13 +293,21 @@ func (m *Model) planBody(innerW int) string {
 	return m.markdown(sanitize(m.plan), innerW)
 }
 
+func (m *Model) planFooter(innerW int) string {
+	return m.th.faint.Render(clip(m.verdict, innerW))
+}
+
 func (m *Model) planView(w, h int, stacked bool) string {
 	innerW := max(1, w-4)
 	box := m.th.box
 	if m.deps.Mode == perms.ModePlan {
 		box = m.th.boxFocus
 	}
-	return boxed(box, w, h, m.planHeader(innerW, stacked)+"\n"+m.planVP.View())
+	content := m.planHeader(innerW, stacked) + "\n" + m.planVP.View()
+	if !stacked {
+		content += "\n" + m.planFooter(innerW)
+	}
+	return boxed(box, w, h, content)
 }
 
 func (m *Model) overlayView(w, h int) string {
@@ -481,7 +502,7 @@ func (m *Model) preview(tool, detail string, w int) []string {
 }
 
 func (m *Model) statusView() string {
-	t, w := m.th, m.geo.w
+	t, w := m.th, m.geo.innerW
 	mode := string(m.deps.Mode)
 	badges := t.badge(mode).Render(strings.ToUpper(mode))
 	if m.deps.ReviewOnly {
@@ -558,11 +579,39 @@ func (m *Model) statusView() string {
 }
 
 func (m *Model) composerView() string {
-	box := m.th.box
+	g, t := m.geo, m.th
+	accent := t.faint.Render("│")
 	if m.input.Focused() {
-		box = m.th.boxFocus
+		accent = t.accent.Render("┃")
 	}
-	return box.Width(m.geo.w).Render(block(m.input.View(), max(1, m.geo.w-4), m.geo.composerRows))
+	rows := strings.Split(block(m.input.View(), max(1, g.innerW-2), g.composerRows), "\n")
+	for i := range rows {
+		rows[i] = accent + " " + rows[i]
+	}
+	if g.infoRows > 0 {
+		rows = append(rows, "  "+m.composerInfo(max(1, g.innerW-2)))
+	}
+	return strings.Join(rows, "\n")
+}
+
+func (m *Model) composerInfo(w int) string {
+	t := m.th
+	name := m.deps.FastModel
+	if m.turnModel != "" {
+		name = m.turnModel
+	}
+	if name == "" {
+		name = "no model"
+	}
+	mode := string(m.deps.Mode)
+	left := t.plain.Render(name) + t.faint.Render(" · "+mode)
+	cwd := shortPath(m.deps.CWD)
+	if ansi.StringWidth(name+" · "+mode+"  "+cwd) > w {
+		cwd = clipLeft(cwd, max(8, w-ansi.StringWidth(name+" · "+mode)-2))
+	}
+	right := t.faint.Render(cwd)
+	gap := max(1, w-ansi.StringWidth(name+" · "+mode)-ansi.StringWidth(cwd))
+	return ansi.Truncate(left+strings.Repeat(" ", gap)+right, w, "…")
 }
 
 func (m *Model) helpLineView() string {
@@ -570,13 +619,19 @@ func (m *Model) helpLineView() string {
 	var bindings []key.Binding
 	switch {
 	case m.pending != nil:
-		bindings = []key.Binding{k.allow, k.deny, key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "deny")), k.move}
+		bindings = []key.Binding{
+			k.allow, k.deny,
+			key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "deny")),
+			k.move,
+		}
 	case m.overlay == sessionsOverlay:
 		bindings = []key.Binding{k.move, k.pick, k.close}
 	case m.overlay == helpOverlay:
 		bindings = []key.Binding{key.NewBinding(key.WithKeys("pgdown"), key.WithHelp("↑/↓ pgup pgdn", "scroll")), k.close}
 	case m.overlay != noOverlay:
 		bindings = []key.Binding{k.move, k.close}
+	case m.busy:
+		bindings = []key.Binding{k.newline, k.scroll, k.help, k.quit}
 	default:
 		bindings = k.ShortHelp()
 	}
