@@ -668,7 +668,7 @@ func diagnosticJev(ln line) bool {
 		return false
 	}
 	switch ln.name {
-	case "turn", "risk":
+	case "turn", "risk", "kind":
 		return true
 	}
 	return false
@@ -927,8 +927,9 @@ func (m *Model) slash(text string) tea.Cmd {
 		m.openOverlay(agentsOverlay)
 	case "/ready":
 		m.refreshPlan()
-		m.reportReady()
+		res := m.reportReady()
 		m.status = m.verdict
+		m.apply(harness.Event{Kind: harness.EvJev, Name: "ready", Text: readyEventText(res, m.verdict)})
 	case "/verbose":
 		return m.toggleVerbose()
 	case "/fork":
@@ -1314,13 +1315,22 @@ func (m *Model) refreshPlan() {
 	m.planW = 0
 }
 
-func (m *Model) reportReady() {
-	ready, p := m.deps.Gates.PlanReady(context.Background(), m.plan, "")
+func (m *Model) reportReady() jev.Result {
+	d := m.deps.Gates.DecideReady(context.Background(), m.plan, "")
 	word := "not ready"
-	if ready {
+	if d.Ready {
 		word = "ready"
 	}
-	m.verdict = fmt.Sprintf("plan %s (%.2f, %s). This does not approve the plan.", word, p, m.deps.Gates.Mode())
+	m.verdict = fmt.Sprintf("plan %s (%.2f, %s). This does not approve the plan.", word, d.P, m.deps.Gates.Mode())
+	return d.Result
+}
+
+func readyEventText(res jev.Result, verdict string) string {
+	line := res.Line()
+	if line == "" || line == "jev" {
+		return verdict
+	}
+	return line + " " + verdict
 }
 
 func (m *Model) onMouse(msg tea.MouseMsg) {

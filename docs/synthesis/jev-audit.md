@@ -2,9 +2,9 @@
 
 Dated 2026-10-04 against this tree. File and line numbers are for that checkout. This page is a reading of the Go, not a design. The intended `ask_jev` work is [ask-jev-plan.md](ask-jev-plan.md).
 
-**Headline:** Jev gates are still hard-coded. The agent tool is now `ask_jev` (slice (a)); `jev_decide` is gone. That is not yet Level 10 — the model can ask, but Go still calls Jev at fixed moments. See [ask-jev-plan.md](ask-jev-plan.md).
+**Headline:** One Ask primitive, two callers. The agent tool is `ask_jev`. Go still calls Jev at fixed safety moments (`Risk`, `BeforeTurn` stuck-stop, subagent kind, grep filter). Those Go calls now share `Gates.Ask` and `Result.Line()` with the agent tool. A failed Ask sets `error` and never invents a value. Offline policy is local and labeled — it is not Jev. See [ask-jev-plan.md](ask-jev-plan.md).
 
-Jev is not an LLM. Official docs describe a System One decision API: send `state` plus typed questions (`choice`, `score`, `noul`), get typed answers with probabilities. Rock already speaks that API. It does not yet let the agent drive it.
+Jev is not an LLM. Official docs describe a System One decision API: send `state` plus typed questions (`choice`, `score`, `noul`), get typed answers with probabilities. Rock speaks that API. The agent can drive it. Go still does not let the model skip Risk.
 
 ## Sources for the API (not for Rock)
 
@@ -24,18 +24,19 @@ cli.Open
   inspect prints Mode() live|offline
 
 harness.New
-  Tools.Env.Decide    → decideText → Client.Decide   (agent tool)
-  Tools.Env.KeepGrep  → Gates.KeepSnippet            (hard-coded, live only)
+  Tools.Env.Ask              → Gates.Ask              (agent ask_jev)
+  Tools.Env.FilterSnippets   → Gates.FilterSnippets   (Ask, live only)
+  Tools.Env.KeepGrep         → Gates.KeepSnippet      (Ask, live only)
 
 harness.Run
-  Gates.BeforeTurn    → EvJev name=turn              (every turn)
-  Gates.Risk          → EvJev name=risk              (shell / write / edit / mcp_*)
-  Gates.SubagentKind  (no EvJev)                     (spawn_subagent)
+  Gates.BeforeTurn     → Ask TurnQueries → EvJev name=turn
+  Gates.DecideRisk     → Ask RiskQuery   → EvJev name=risk   (mandatory)
+  Gates.DecideSubagent → Ask SubagentQuery → EvJev name=kind
+  ask_jev              → Ask + EvJev name=ask
 
 tui
-  Gates.PlanReady     (no EvJev)                     (/ready, plan pane)
-  EvJev rows          ◇ jev <name>                   (turn/risk hidden unless verbose)
-  ask_jev             tool row + EvJev name=ask      (diamonds refined in slice (d))
+  Gates.DecideReady    → Ask ReadyQuery → EvJev name=ready on /ready
+  EvJev rows           ◇ jev <name>     (turn/risk/kind hidden unless verbose)
 ```
 
 ## Client and API surface
@@ -60,22 +61,26 @@ Unknown from public docs, so this audit does not claim them: native file ingest,
 
 [`internal/config/config.go`](../../internal/config/config.go).
 
-```33:40:internal/config/config.go
+```33:48:internal/config/config.go
 type Jev struct {
-	Enabled          bool    `toml:"enabled"`
 	BaseURL          string  `toml:"base_url"`
 	Model            string  `toml:"model"`
 	MinConfidence    float64 `toml:"min_confidence"`
 	RiskBlock        float64 `toml:"risk_block"`
 	AllowDestructive bool    `toml:"allow_destructive"`
+	Nudge            *bool   `toml:"nudge"`
+	NudgeEvery       int     `toml:"nudge_every"`
+	Triage           *bool   `toml:"triage"`
+	Filter           *bool   `toml:"filter"`
+	ClipBytes        int     `toml:"clip_bytes"`
 }
 ```
 
-Defaults ([`Default`](../../internal/config/config.go) lines 62–75): `Enabled: true`, `MinConfidence: 0.55`, `RiskBlock: 0.72`. `jev_decide` is on the default allow list (line 71).
+Defaults ([`Default`](../../internal/config/config.go)): `MinConfidence: 0.55`, `RiskBlock: 0.72`. `ask_jev` is on the default allow list. There is no `jev.enabled` field and no user offline switch.
 
-**`jev.enabled` is dead config.** `Open` never reads `File.Jev.Enabled`. `merge` copies `BaseURL`, `Model`, `MinConfidence`, `RiskBlock`, `AllowDestructive` — not `Enabled`. Live vs offline is key presence only.
+Project `.rock/config.toml` cannot supply a Jev key or `jev.base_url`. Keys are env-only (`JEV_API_KEY` / `TYPESAFE_API_KEY`). The endpoint may come from the user-level 0600 file. `Load` clears project `jev.base_url` before merge. See [jev-integration-notes.md](../jev-integration-notes.md).
 
-Slice (b) added `jev.nudge` (`*bool`, default on) and `jev.nudge_every` (default 2). Those are harness hint knobs, not Decide calls. Slice (c) added `jev.triage`, `jev.filter`, and `jev.clip_bytes`. See [ask-jev-plan.md](ask-jev-plan.md).
+Slice (b) added `jev.nudge` and `jev.nudge_every`. Slice (c) added `jev.triage`, `jev.filter`, and `jev.clip_bytes`. Slice (e) shares the Ask encoder across gates. See [ask-jev-plan.md](ask-jev-plan.md).
 
 Keys ([`JevKey`](../../internal/config/config.go) lines 214–221):
 
@@ -93,7 +98,7 @@ Process wiring ([`cli.Open`](../../internal/cli/app.go) lines 59–70): build a 
 
 [`Gates.Mode`](../../internal/jev/gates.go) lines 18–23: live if `Client.Live()`, else `offline`. The comment on the package is explicit: *“Offline is not Jev.”*
 
-Every gate function tries live Jev first, then falls through to a local rule. Live errors also fall through (and `BeforeTurn` / `Risk` relabel `Source` to `offline`).
+Live gates call `Gates.Ask`. A failed Ask sets `Result.Error` and leaves every `value` empty — that is the shared failure rule. Go may still apply a **local** offline rule so the process can choose a model or block `rm -rf`. That local rule is labeled `offline`. It is not written into `Result.Answers`.
 
 | Gate | Offline rule |
 |---|---|
@@ -104,19 +109,19 @@ Every gate function tries live Jev first, then falls through to a local rule. Li
 | Risk | Substring list (`rm -rf`, `sudo `, `curl \|`, `wget \|`, `chmod 777`, `mkfs`, `dd if=`, `:(){`, `> /dev/`) → 0.95. Else shell 0.20, write/edit/mcp 0.15, other 0.05 ([`offlineRisk`](../../internal/jev/gates.go) 169–184) |
 | Destructive block | `p >= RiskBlock` (default 0.72) **and** `AllowDestructive` is false. Yolo does not skip this. |
 | Subagent kind | Honor a valid requested kind; else keyword guess on the prompt ([`SubagentKind`](../../internal/jev/gates.go) 210–221) |
-| Keep snippet | **Always keep.** Live-only filter ([`KeepSnippet`](../../internal/jev/gates.go) 225–228) |
-| Plan ready | Plan longer than 80 characters and contains `step` ([`PlanReady`](../../internal/jev/gates.go) 260–265) |
-| `jev_decide` | Returns a string, not an error: `offline: no Jev key, so this question was not sent.` ([`decideText`](../../internal/harness/loop.go) 317–320) |
+| Keep snippet | **Always keep.** Live-only filter via Ask |
+| Plan ready | Plan longer than 80 characters and contains `step` |
+| Failed Ask | `error` set, no values. Never a fabricated class, kind, or score. |
 
 ## Hard-coded call sites
 
-These run whether or not the model asked. The agent cannot skip them. They are the current product.
+These still run whether or not the model asked. They now share `Ask` / `Query` / `Result` with `ask_jev`. The agent cannot skip Risk or the BeforeTurn stuck-stop.
 
 ### 1. Before every turn — `◇ jev turn`
 
 [`Gates.BeforeTurn`](../../internal/jev/gates.go) 50–109, called from [`Harness.Run`](../../internal/harness/loop.go) 88–99.
 
-One batched live call (when a key is set) with up to four questions:
+One batched live `Ask` (when a key is set) with `TurnQueries`: same keys as before (`model`, `stuck`, `weight`, optional `skill`). Decoded from `Result`, not a raw `Decide` map.
 
 | Key | Type | Question |
 |---|---|---|
@@ -140,7 +145,7 @@ Always emits `Event{Kind: EvJev, Name: "turn", …}`.
 
 [`Gates.Risk`](../../internal/jev/gates.go) 149–167, called from [`Harness.Run`](../../internal/harness/loop.go) 143–149 **after** the allow/ask/deny decision, and only if that decision is not already deny.
 
-Live question: noul *“Is this tool call destructive or hard to undo?”* State is `{tool, args}` (args clipped to 1 500). Block when `noul >= RiskBlock` and `AllowDestructive` is false.
+Live question still noul *“Is this tool call destructive or hard to undo?”* via `RiskQuery` + `Ask`. State is `{tool, args}` (args clipped to 1 500). Block when `noul >= RiskBlock` and `AllowDestructive` is false. **Go always calls `DecideRisk`.** The agent’s `ask_jev` cannot replace this.
 
 Who is checked: [`riskyCall`](../../internal/harness/loop.go) 279–286 — `shell`, `write_file`, `edit_file`, or any `mcp_*` name.
 
@@ -152,40 +157,25 @@ Always emits `Event{Kind: EvJev, Name: "risk", …}` with `p=` and `block=`.
 
 [`Gates.SubagentKind`](../../internal/jev/gates.go) 186–222, called from [`Harness.subagent`](../../internal/harness/loop.go) 203.
 
-Live choice `explore` / `plan` / `general`. Offline honors a valid requested kind, else keywords. Sets the child’s policy (explore → review-only, plan → plan mode). **No `EvJev` event.** The TUI never paints a `◇ jev` mark for this call.
+Live choice `explore` / `plan` / `general` via `SubagentQuery` + `Ask`. Offline honors a valid requested kind, else keywords. Sets the child’s policy. Emits `EvJev` name `kind` (diagnostic until verbose). On Ask failure: no invented kind; local fallback.
 
 ### 4. Grep snippet filter
 
 [`Gates.KeepSnippet`](../../internal/jev/gates.go) 224–244, wired in [`harness.New`](../../internal/harness/loop.go) 68–70 as `Tools.Env.KeepGrep`, used per match in [`Set.grep`](../../internal/tools/tools.go) 271–273.
 
-Live noul *“Does this snippet help answer the query?”* Keep if `noul >= MinConfidence`. Errors and missing answers keep the snippet. Offline keeps everything. The grep walk uses `context.Background()` ([`ctxBackground`](../../internal/harness/loop.go) 79), not the turn context. **No `EvJev` event.**
+Live noul via `KeepQuery` / batched `FilterSnippets` on `Ask`. Keep if noul ≥ `MinConfidence`. Errors and missing answers keep the snippet. Offline keeps everything. Filter events record measured clip/byte counts.
 
 ### 5. Plan readiness — TUI only
 
 [`Gates.PlanReady`](../../internal/jev/gates.go) 246–266, called from [`Model.reportReady`](../../internal/tui/model.go) 1317–1324.
 
-Live noul *“Is this plan specific enough to implement?”* Ready if `noul >= MinConfidence`. `/ready` ([`runSlash`](../../internal/tui/model.go) 928–931) and plan-pane refresh ([`refreshPlan`](../../internal/tui/model.go) 1302–1314) both call it. The verdict string says this does **not** approve the plan. **No `EvJev` event.** Headless / ACP / `rock serve` never call `PlanReady`.
+Live noul via `ReadyQuery` + `Ask`. Ready if noul ≥ `MinConfidence`. `/ready` emits `EvJev` name `ready` (visible, not diagnostic). Plan-pane refresh still computes the verdict and does not spam a diamond. The verdict does **not** approve the plan. Headless / ACP / `rock serve` do not call PlanReady.
 
-## Agent-driven surface today: `jev_decide`
+## Agent-driven surface: `ask_jev`
 
-Registered on every tool set ([`tools.New`](../../internal/tools/tools.go) 63–66, spec at line 84):
+Registered on every tool set. Batched boolean / choice / score, optional `paths` (Rock reads clips). Failed calls return `error` and no values. Same `Ask` the gates use. Permissions: default allow, plan mode does not block.
 
-- Name: `jev_decide`
-- Description: *“Ask Jev a bounded choice, score, or yes/no. Do not use it to write code.”*
-- Parameters: `state` (string), `question` (string), `type` (`choice`, `score`, or `noul`), optional `criteria` as a **comma-separated string** (`k=v` or bare token)
-- Required: `state`, `question`, `type`
-
-Run path ([`Set.Run`](../../internal/tools/tools.go) 187–205) parses criteria and calls `Env.Decide`. `harness.New` (lines 65–67) sets that to [`decideText`](../../internal/harness/loop.go) 317–346.
-
-`decideText` sends **one** question named `q`. Default type is noul. Choice with empty criteria becomes `yes`/`no`. Score with empty criteria becomes `low`/`medium`/`high`. Score with criteria uses map keys as levels — **iteration order is randomized**. Offline returns the “question was not sent” string. Live returns the raw JSON of `answers["q"]`.
-
-The system prompt ([`system`](../../internal/harness/loop.go) 181) adds one sentence: *“Call jev_decide for an extra bounded question. Do not use it to draft code.”* It also tells the model that *“Hard gates already judge risk, model size, and skills.”*
-
-Permissions treat `jev_decide` as read-only: default allow, and plan mode does not block it ([`internal/perms/policy.go`](../../internal/perms/policy.go) 56, 74). Default config allow-lists it.
-
-The TUI renders a `jev_decide` call as an ordinary tool row. The one-line summary is the `question` field ([`internal/tui/view.go`](../../internal/tui/view.go) 1269–1270). It is **not** a `◇ jev` mark.
-
-There is **no test** that runs `jev_decide` or `decideText`.
+The system prompt tells the model to classify, verify, filter, and check risk with `ask_jev`, and that hard gates still block destructive shell. There is no “hard gates already judged everything, relax” line.
 
 ## TUI visibility (`◇ jev`)
 
@@ -194,8 +184,9 @@ There is **no test** that runs `jev_decide` or `decideText`.
 | Status `jev:offline` / `jev:live` | [`statusView`](../../internal/tui/view.go) 514 | Always |
 | `◇ jev turn` | `EvJev` name `turn` | Hidden until `/verbose`, `--verbose`, or `ROCK_VERBOSE` ([`diagnosticJev`](../../internal/tui/model.go) 664–675) |
 | `◇ jev risk` | `EvJev` name `risk` | Same — hidden until verbose |
-| `◇ jev ready` | only if something emitted `EvJev` name `ready` | Would paint (tests cover this), **but nothing in the harness emits `ready`**. `/ready` writes the plan-pane verdict and status line instead. |
-| Subagent / grep / `jev_decide` | not `EvJev` | No diamond |
+| `◇ jev ready` | `EvJev` name `ready` from `/ready` | Visible (not diagnostic) |
+| `◇ jev kind` | `EvJev` name `kind` | Hidden until verbose |
+| `◇ jev ask` | agent `ask_jev` | Visible; diamond paint is slice (d) |
 
 Headless text mode prints Jev events to stderr as `jev <name> <text>` ([`App.Headless`](../../internal/cli/app.go) 309–310). Streaming-json includes them as `{"kind":"jev",…}`.
 
@@ -215,11 +206,11 @@ Headless text mode prints Jev events to stderr as `jev <name> <text>` ([`App.Hea
 | `TestHeadlessOfflineAndInspect` | same 13–48 | `inspect` says `jev: offline` with keys unset |
 | `TestJevDiagnosticsStayHiddenUntilVerbose` and neighbors | [`internal/tui/model_test.go`](../../internal/tui/model_test.go) 347–405 | `◇ jev turn` / `risk` hidden; a `ready` event would show |
 
-Not tested: `jev_decide`, `decideText`, `KeepSnippet`, `PlanReady`, `SubagentKind`, `jev.enabled`, live `Risk`, live plan-ready, criteria parsing (`k=v` vs bare), offline `jev_decide` string.
+Covered in slice (e) tests: live BeforeTurn question keys, Ask failure invents nothing, SubagentKind / PlanReady / Risk on Ask, project overlay cannot inject `jev.base_url` or a key, ask_jev + Risk in one turn without mixed answers.
 
 ## How agent-driven is Jev today?
 
-**Almost not at all.**
+**The agent can ask. The safety gates still run in Go.**
 
 | Behavior | Hard-coded in Go | Agent chooses |
 |---|---|---|
@@ -231,8 +222,6 @@ Not tested: `jev_decide`, `decideText`, `KeepSnippet`, `PlanReady`, `SubagentKin
 | Subagent explore/plan/general | every spawn | requested kind is an input, Jev (or offline) may override when live |
 | Grep hit drop | every live grep match | no |
 | Plan ready | every `/ready` / plan refresh | human typed `/ready`; model cannot |
-| Extra bounded question | — | `jev_decide`, if the model bothers, one question, weak schema |
+| Extra bounded question | — | `ask_jev`, batched, typed |
 
-The Level 10 shape — an `ask_jev` tool, multi-parameter queries, boolean / choice / score picked in the moment, self-validation after a fix, cheap triage before the LLM spends tokens — is not what this tree does. The client can already batch questions. The gates already use that. The agent is not given that primitive.
-
-That is the gap [ask-jev-plan.md](ask-jev-plan.md) cuts into PRs.
+The Level 10 shape is present: the agent has `ask_jev`. Safety gates still run in Go. That split is the product, not a leftover. Details: [ask-jev-plan.md](ask-jev-plan.md).

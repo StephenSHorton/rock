@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/StephenSHorton/rock/internal/jev"
@@ -70,6 +69,7 @@ type Options struct {
 type Harness struct {
 	Options
 	nudgeCount int
+	emit       func(Event)
 }
 
 func New(opt Options) *Harness {
@@ -104,11 +104,13 @@ func (h *Harness) Run(ctx context.Context, sess *session.Session, prompt string,
 	if sink == nil {
 		sink = func(Event) {}
 	}
+	h.emit = sink
+	defer func() { h.emit = nil }()
 	if strings.TrimSpace(prompt) != "" {
 		sess.Append(provider.Message{Role: provider.RoleUser, Content: prompt})
 	}
 	turn := h.Gates.BeforeTurn(ctx, prompt, skillNames(h.Skills), sess.RecentTools(), sess.Bytes())
-	sink(Event{Kind: EvJev, Name: "turn", Text: fmt.Sprintf("%s model=%s stuck=%v compact=%v skills=%s (%s)", turn.Source, turn.Model, turn.Stuck, turn.Compact, strings.Join(turn.Skills, ","), turn.Detail)})
+	sink(jevEvent("turn", turn.Result, fmt.Sprintf("%s model=%s stuck=%v compact=%v skills=%s (%s)", turn.Source, turn.Model, turn.Stuck, turn.Compact, strings.Join(turn.Skills, ","), turn.Detail)))
 	if turn.Stuck {
 		sess.Append(provider.Message{Role: provider.RoleAssistant, Content: "Stopping. The last tool calls repeated without progress."})
 		sink(Event{Kind: EvAssistant, Text: sess.LastAssistant()})
@@ -163,9 +165,9 @@ func (h *Harness) Run(ctx context.Context, sess *session.Session, prompt string,
 			}
 			sink(Event{Kind: EvPermission, Name: call.Name, Text: string(decision) + ": " + why})
 			if decision != perms.Deny && riskyCall(call.Name) {
-				block, p, source := h.Gates.Risk(ctx, call.Name, call.Arguments)
-				sink(Event{Kind: EvJev, Name: "risk", Text: fmt.Sprintf("%s p=%.2f block=%v", source, p, block)})
-				if block {
+				risk := h.Gates.DecideRisk(ctx, call.Name, call.Arguments)
+				sink(jevEvent("risk", risk.Result, fmt.Sprintf("%s p=%.2f block=%v", risk.Source, risk.P, risk.Block)))
+				if risk.Block {
 					decision = perms.Deny
 					why = "destructive-action gate"
 				}
@@ -242,7 +244,11 @@ func (h *Harness) subagent(ctx context.Context, prompt, kind string, worktree bo
 	if h.Depth >= 1 {
 		return "", fmt.Errorf("subagent depth is 1")
 	}
-	kind = h.Gates.SubagentKind(ctx, prompt, kind)
+	picked := h.Gates.DecideSubagent(ctx, prompt, kind)
+	kind = picked.Kind
+	if h.emit != nil {
+		h.emit(jevEvent("kind", picked.Result, "kind="+kind))
+	}
 	root := h.Tools.Env.Root
 	cleanup := func() {}
 	if worktree {
@@ -376,41 +382,24 @@ func rawMap(v any) (map[string]any, bool) {
 	return m, ok
 }
 
+func jevEvent(name string, res jev.Result, extra string) Event {
+	text := res.Line()
+	if extra != "" {
+		if text == "" || text == "jev" {
+			text = extra
+		} else {
+			text = strings.TrimSpace(text + " " + extra)
+		}
+	}
+	return Event{Kind: EvJev, Name: name, Text: text}
+}
+
 func askEventText(output string) string {
 	var res jev.Result
 	if err := json.Unmarshal([]byte(output), &res); err != nil {
 		return strings.TrimSpace(output)
 	}
-	var b strings.Builder
-	if res.Source != "" {
-		b.WriteString(res.Source)
-	} else {
-		b.WriteString("jev")
-	}
-	if res.Error != "" {
-		b.WriteString(" error=")
-		b.WriteString(res.Error)
-	}
-	names := make([]string, 0, len(res.Answers))
-	for name := range res.Answers {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		a := res.Answers[name]
-		b.WriteByte(' ')
-		b.WriteString(a.Mode)
-		b.WriteByte(' ')
-		b.WriteString(name)
-		if a.Value != nil {
-			b.WriteByte('=')
-			fmt.Fprint(&b, a.Value)
-		} else if a.Detail != "" {
-			b.WriteString(": ")
-			b.WriteString(a.Detail)
-		}
-	}
-	return b.String()
+	return res.Line()
 }
 
 func addWorktree(ctx context.Context, root string) (string, error) {

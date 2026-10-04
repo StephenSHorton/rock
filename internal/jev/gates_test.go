@@ -57,11 +57,16 @@ func TestLiveDecide(t *testing.T) {
 		if !strings.Contains(string(body), "jev-latest") {
 			t.Errorf("body %s", body)
 		}
+		for _, key := range []string{`"model"`, `"stuck"`, `"weight"`} {
+			if !strings.Contains(string(body), key) {
+				t.Errorf("missing question %s in %s", key, body)
+			}
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"model": "jev-1.13.0",
 			"answers": map[string]any{
-				"model": map[string]any{"type": "choice", "choice": "strong", "confidence": 0.9, "probabilities": map[string]float64{"strong": 0.9, "fast": 0.1}},
-				"stuck": map[string]any{"type": "noul", "noul": 0.1},
+				"model":  map[string]any{"type": "choice", "choice": "strong", "confidence": 0.9, "probabilities": map[string]float64{"strong": 0.9, "fast": 0.1}},
+				"stuck":  map[string]any{"type": "noul", "noul": 0.1},
 				"weight": map[string]any{"type": "score", "score": 3.0, "confidence": 0.8},
 			},
 		})
@@ -71,6 +76,84 @@ func TestLiveDecide(t *testing.T) {
 	turn := g.BeforeTurn(context.Background(), "hi", nil, nil, 10)
 	if turn.Model != "strong" || turn.Source != "live" || !turn.Compact || turn.Stuck {
 		t.Fatalf("%#v", turn)
+	}
+	if turn.Result.Error != "" || turn.Result.Answers["model"].Value != "strong" {
+		t.Fatalf("result %#v", turn.Result)
+	}
+}
+
+func TestBeforeTurnAskFailureDoesNotInvent(t *testing.T) {
+	g := Gates{Client: fakeClient(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "nope", http.StatusBadGateway)
+	})}
+	turn := g.BeforeTurn(context.Background(), "short", nil, nil, 10)
+	if turn.Result.Error == "" {
+		t.Fatal("expected error")
+	}
+	for _, a := range turn.Result.Answers {
+		if a.Value != nil {
+			t.Fatalf("invented %#v", a)
+		}
+	}
+	if turn.Source != "offline" || turn.Model != "fast" {
+		t.Fatalf("offline fallback %#v", turn)
+	}
+	if !strings.Contains(turn.Result.Line(), "error=") {
+		t.Fatal(turn.Result.Line())
+	}
+}
+
+func TestSubagentKindAndPlanReadyUseAsk(t *testing.T) {
+	var bodies []string
+	g := Gates{Client: fakeClient(t, func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(b))
+		if strings.Contains(string(b), `"kind"`) {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"model": "fake",
+				"answers": map[string]any{
+					"kind": map[string]any{"type": "choice", "choice": "explore", "confidence": 0.9},
+				},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"model": "fake",
+			"answers": map[string]any{
+				"ready": map[string]any{"type": "noul", "noul": 0.8},
+			},
+		})
+	}), MinConfidence: 0.55}
+	kind := g.DecideSubagent(context.Background(), "find the bug", "general")
+	if kind.Kind != "explore" || kind.Result.Error != "" {
+		t.Fatalf("%#v", kind)
+	}
+	ready := g.DecideReady(context.Background(), "step 1 do it", "ship")
+	if !ready.Ready || ready.P != 0.8 || ready.Result.Error != "" {
+		t.Fatalf("%#v", ready)
+	}
+	joined := strings.Join(bodies, "\n")
+	if !strings.Contains(joined, `"kind"`) || !strings.Contains(joined, `"ready"`) {
+		t.Fatal(joined)
+	}
+}
+
+func TestLiveRiskUsesAsk(t *testing.T) {
+	g := Gates{Client: fakeClient(t, func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(body), `"risk"`) || !strings.Contains(string(body), `"type":"noul"`) {
+			t.Errorf("body %s", body)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"model": "fake",
+			"answers": map[string]any{
+				"risk": map[string]any{"type": "noul", "noul": 0.95},
+			},
+		})
+	}), RiskBlock: 0.72}
+	d := g.DecideRisk(context.Background(), "shell", "echo hi")
+	if !d.Block || d.Source != "live" || d.P != 0.95 || d.Result.Error != "" {
+		t.Fatalf("%#v", d)
 	}
 }
 

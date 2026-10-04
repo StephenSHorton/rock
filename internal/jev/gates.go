@@ -45,66 +45,42 @@ type Turn struct {
 	Compact bool
 	Source  string
 	Detail  string
+	Result  Result
 }
 
 func (g Gates) BeforeTurn(ctx context.Context, prompt string, skillNames []string, recentTools []string, transcriptBytes int) Turn {
 	out := Turn{Model: "fast", Source: g.Mode()}
+	state := map[string]any{
+		"prompt":           Clip(prompt, 2000),
+		"recent_tools":     recentTools,
+		"transcript_bytes": transcriptBytes,
+	}
 	if g.Mode() == "live" {
-		qs := map[string]Question{
-			"model": ChoiceQ("Which model should complete this coding turn?", map[string]string{
-				"fast":   "small edit, lookup, or a narrow question",
-				"strong": "design, multi-file change, or ambiguous debugging",
-			}),
-			"stuck":  NoulQ("Are these recent tool calls repeating without progress?"),
-			"weight": ScoreQ("How heavy is this transcript?", []string{"light", "fine", "tight", "compact now"}),
-		}
-		if len(skillNames) > 0 {
-			crit := map[string]string{"none": "no skill applies"}
-			for _, name := range skillNames {
-				if len(crit) >= 12 {
-					break
-				}
-				crit[name] = "a discovered skill"
-			}
-			qs["skill"] = ChoiceQ("Which single skill is most relevant? Prefer none when unsure.", crit)
-		}
-		state := map[string]any{
-			"prompt":           Clip(prompt, 2000),
-			"recent_tools":     recentTools,
-			"transcript_bytes": transcriptBytes,
-		}
-		res, err := g.Client.Decide(ctx, state, qs)
-		if err == nil {
-			if raw, ok := res.Answers["model"]; ok {
-				if ch, err := DecodeChoice(raw); err == nil && ch.Confidence >= g.minConf() && (ch.Choice == "fast" || ch.Choice == "strong") {
-					out.Model = ch.Choice
-				}
-			}
-			if raw, ok := res.Answers["stuck"]; ok {
-				if n, err := DecodeNoul(raw); err == nil {
-					out.Stuck = n.Noul >= g.riskAt()
-				}
-			}
-			if raw, ok := res.Answers["weight"]; ok {
-				if s, err := DecodeScore(raw); err == nil {
-					out.Compact = s.Score >= 2.5
-				}
-			}
-			if raw, ok := res.Answers["skill"]; ok {
-				if ch, err := DecodeChoice(raw); err == nil && ch.Choice != "" && ch.Choice != "none" && ch.Confidence >= g.minConf() {
-					out.Skills = []string{ch.Choice}
-				}
-			}
-			out.Detail = "jev " + res.Model
+		res := g.Ask(ctx, state, TurnQueries(skillNames))
+		out.Result = res
+		if res.Error != "" {
+			out.Source = "offline"
+			out.Detail = "jev error: " + res.Error
+			out.Model, out.Skills, out.Stuck, out.Compact = offlineTurn(prompt, skillNames, recentTools, transcriptBytes)
 			return out
 		}
-		out.Detail = "jev error, offline policy: " + err.Error()
-		out.Source = "offline"
+		if v, ok := AnswerString(res.Answers["model"]); ok && res.Answers["model"].Confidence >= g.minConf() && (v == "fast" || v == "strong") {
+			out.Model = v
+		}
+		if n, ok := AnswerFloat(res.Answers["stuck"]); ok {
+			out.Stuck = n >= g.riskAt()
+		}
+		if n, ok := AnswerFloat(res.Answers["weight"]); ok {
+			out.Compact = n >= 2.5
+		}
+		if v, ok := AnswerString(res.Answers["skill"]); ok && v != "" && v != "none" && res.Answers["skill"].Confidence >= g.minConf() {
+			out.Skills = []string{v}
+		}
+		out.Detail = "jev " + res.Model
+		return out
 	}
 	out.Model, out.Skills, out.Stuck, out.Compact = offlineTurn(prompt, skillNames, recentTools, transcriptBytes)
-	if out.Detail == "" {
-		out.Detail = "offline policy"
-	}
+	out.Detail = "offline policy"
 	return out
 }
 
@@ -146,24 +122,36 @@ func repeating(tools []string) bool {
 	return same >= 3
 }
 
+type RiskDecision struct {
+	Block  bool
+	P      float64
+	Source string
+	Result Result
+}
+
 // Risk is the destructive-action gate. Yolo does not bypass a block.
+// Go always calls this; the agent cannot skip it.
 func (g Gates) Risk(ctx context.Context, tool, args string) (block bool, p float64, source string) {
-	source = g.Mode()
-	if source == "live" {
-		res, err := g.Client.Decide(ctx, map[string]string{"tool": tool, "args": Clip(args, 1500)}, map[string]Question{
-			"risk": NoulQ("Is this tool call destructive or hard to undo?"),
-		})
-		if err == nil {
-			if raw, ok := res.Answers["risk"]; ok {
-				if n, err := DecodeNoul(raw); err == nil {
-					return !g.AllowDestructive && n.Noul >= g.riskAt(), n.Noul, "live"
-				}
+	d := g.DecideRisk(ctx, tool, args)
+	return d.Block, d.P, d.Source
+}
+
+func (g Gates) DecideRisk(ctx context.Context, tool, args string) RiskDecision {
+	out := RiskDecision{Source: g.Mode()}
+	if out.Source == "live" {
+		out.Result = g.Ask(ctx, map[string]string{"tool": tool, "args": Clip(args, 1500)}, []Query{RiskQuery()})
+		if out.Result.Error == "" {
+			if n, ok := AnswerFloat(out.Result.Answers["risk"]); ok {
+				out.P = n
+				out.Block = !g.AllowDestructive && n >= g.riskAt()
+				return out
 			}
 		}
-		source = "offline"
+		out.Source = "offline"
 	}
-	p = offlineRisk(tool, args)
-	return !g.AllowDestructive && p >= g.riskAt(), p, source
+	out.P = offlineRisk(tool, args)
+	out.Block = !g.AllowDestructive && out.P >= g.riskAt()
+	return out
 }
 
 func offlineRisk(tool, args string) float64 {
@@ -183,30 +171,34 @@ func offlineRisk(tool, args string) float64 {
 	}
 }
 
-// SubagentKind picks explore, plan, or general.
+type KindDecision struct {
+	Kind   string
+	Result Result
+}
+
+// SubagentKind picks explore, plan, or general. Still called from Go.
 func (g Gates) SubagentKind(ctx context.Context, prompt, requested string) string {
+	return g.DecideSubagent(ctx, prompt, requested).Kind
+}
+
+func (g Gates) DecideSubagent(ctx context.Context, prompt, requested string) KindDecision {
 	req := strings.ToLower(strings.TrimSpace(requested))
-	if req == "explore" || req == "plan" || req == "general" {
-		if g.Mode() != "live" {
-			return req
-		}
-	}
 	if g.Mode() == "live" {
-		res, err := g.Client.Decide(ctx, map[string]string{"prompt": Clip(prompt, 1500), "requested": req}, map[string]Question{
-			"kind": ChoiceQ("What kind of subagent should run?", map[string]string{
-				"explore": "read-only search",
-				"plan":    "write a plan, do not edit the repo",
-				"general": "may edit and run commands",
-			}),
-		})
-		if err == nil {
-			if raw, ok := res.Answers["kind"]; ok {
-				if ch, err := DecodeChoice(raw); err == nil && ch.Confidence >= g.minConf() {
-					return ch.Choice
+		res := g.Ask(ctx, map[string]string{"prompt": Clip(prompt, 1500), "requested": req}, []Query{SubagentQuery()})
+		if res.Error == "" {
+			if v, ok := AnswerString(res.Answers["kind"]); ok && res.Answers["kind"].Confidence >= g.minConf() {
+				if v == "explore" || v == "plan" || v == "general" {
+					return KindDecision{Kind: v, Result: res}
 				}
 			}
+		} else {
+			return KindDecision{Kind: offlineKind(req, prompt), Result: res}
 		}
 	}
+	return KindDecision{Kind: offlineKind(req, prompt)}
+}
+
+func offlineKind(req, prompt string) string {
 	if req == "explore" || req == "plan" || req == "general" {
 		return req
 	}
@@ -221,24 +213,39 @@ func (g Gates) SubagentKind(ctx context.Context, prompt, requested string) strin
 	}
 }
 
+type ReadyDecision struct {
+	Ready  bool
+	P      float64
+	Result Result
+}
+
 // PlanReady is reported. It does not auto-approve.
 func (g Gates) PlanReady(ctx context.Context, plan, request string) (bool, float64) {
+	d := g.DecideReady(ctx, plan, request)
+	return d.Ready, d.P
+}
+
+func (g Gates) DecideReady(ctx context.Context, plan, request string) ReadyDecision {
 	if g.Mode() == "live" {
-		res, err := g.Client.Decide(ctx, map[string]string{"plan": Clip(plan, 2000), "request": Clip(request, 800)}, map[string]Question{
-			"ready": NoulQ("Is this plan specific enough to implement?"),
-		})
-		if err == nil {
-			if raw, ok := res.Answers["ready"]; ok {
-				if n, err := DecodeNoul(raw); err == nil {
-					return n.Noul >= g.minConf(), n.Noul
-				}
+		res := g.Ask(ctx, map[string]string{"plan": Clip(plan, 2000), "request": Clip(request, 800)}, []Query{ReadyQuery()})
+		if res.Error == "" {
+			if n, ok := AnswerFloat(res.Answers["ready"]); ok {
+				return ReadyDecision{Ready: n >= g.minConf(), P: n, Result: res}
 			}
+		} else {
+			d := offlineReady(plan)
+			d.Result = res
+			return d
 		}
 	}
+	return offlineReady(plan)
+}
+
+func offlineReady(plan string) ReadyDecision {
 	ready := len(strings.TrimSpace(plan)) > 80 && strings.Contains(strings.ToLower(plan), "step")
 	p := 0.3
 	if ready {
 		p = 0.8
 	}
-	return ready, p
+	return ReadyDecision{Ready: ready, P: p}
 }

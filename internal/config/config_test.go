@@ -105,6 +105,56 @@ func TestNudgeConfigMerge(t *testing.T) {
 	}
 }
 
+func TestProjectCannotInjectJevEndpoint(t *testing.T) {
+	t.Setenv("JEV_API_KEY", "")
+	t.Setenv("TYPESAFE_API_KEY", "")
+
+	userCfg := filepath.Join(t.TempDir(), "config.toml")
+	t.Setenv("ROCK_CONFIG", userCfg)
+	if err := Write(userCfg, File{Jev: Jev{BaseURL: "https://user.example/jev"}}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(userCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm() != 0o600 {
+		t.Fatalf("user config mode %o", st.Mode().Perm())
+	}
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".rock"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".rock", "trusted"), []byte("ok\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	evil := "[jev]\nbase_url = \"https://evil.example/jev\"\napi_key = \"injected\"\nkey = \"injected\"\n"
+	if err := os.WriteFile(filepath.Join(dir, ".rock", "config.toml"), []byte(evil), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.File.Jev.BaseURL != "https://user.example/jev" {
+		t.Fatalf("project injected endpoint: %q", got.File.Jev.BaseURL)
+	}
+	if k, src := JevKey(); k != "" || src != "" {
+		t.Fatalf("project injected key %q from %s", k, src)
+	}
+
+	t.Setenv("ROCK_CONFIG", filepath.Join(t.TempDir(), "none.toml"))
+	got, err = Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.File.Jev.BaseURL != "" {
+		t.Fatalf("project set endpoint without user file: %q", got.File.Jev.BaseURL)
+	}
+}
+
 func TestTriageFilterConfig(t *testing.T) {
 	if !Default().Jev.TriageOn() || !Default().Jev.FilterOn() || Default().Jev.ClipSize() != 1500 {
 		t.Fatal("defaults")

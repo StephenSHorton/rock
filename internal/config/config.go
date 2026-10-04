@@ -31,7 +31,6 @@ type Perms struct {
 }
 
 type Jev struct {
-	Enabled          bool    `toml:"enabled"`
 	BaseURL          string  `toml:"base_url"`
 	Model            string  `toml:"model"`
 	MinConfidence    float64 `toml:"min_confidence"`
@@ -121,7 +120,7 @@ func Default() File {
 			Allow: []string{"read_file", "grep", "glob", "web_fetch", "ask_jev", "update_plan"},
 			Ask:   []string{"edit_file", "write_file", "shell", "spawn_subagent"},
 		},
-		Jev: Jev{Enabled: true, MinConfidence: 0.55, RiskBlock: 0.72},
+		Jev: Jev{MinConfidence: 0.55, RiskBlock: 0.72},
 	}
 }
 
@@ -156,6 +155,9 @@ func Load(cwd string) (Loaded, error) {
 			ignored = append(ignored, extra.Permissions.Allow...)
 			extra.Permissions.Allow = nil
 		}
+		// Project overlays must not inject a Jev key or endpoint.
+		// Keys are env-only. jev.base_url stays on the user-level file.
+		extra.Jev.BaseURL = ""
 		merge(&file, extra)
 	}
 	if file.MaxSteps <= 0 {
@@ -211,9 +213,7 @@ func merge(dst *File, src File) {
 	if src.Git.ReviewOnly {
 		dst.Git.ReviewOnly = true
 	}
-	if src.Jev.BaseURL != "" {
-		dst.Jev.BaseURL = src.Jev.BaseURL
-	}
+	// merge is the project overlay. jev.base_url is user-level only.
 	if src.Jev.Model != "" {
 		dst.Jev.Model = src.Jev.Model
 	}
@@ -264,7 +264,7 @@ func Write(path string, file File) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, raw, 0o644)
+	return os.WriteFile(path, raw, 0o600)
 }
 
 func APIKey() string {
