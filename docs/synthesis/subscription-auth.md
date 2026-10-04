@@ -13,7 +13,7 @@ Fetched 2026-10-04 from official docs, official ToS / usage pages, and public CL
 ## Tiers
 
 | Tier | Meaning | Default in Rock? |
-|---|---|
+|---|---|---|
 | **SANCTIONED** | The provider documents this path for third parties, or it is the official CLI / API-key product used as published. | Yes, when we implement it. |
 | **GREY** | Technically possible. Undocumented for third parties, or it reuses another app's client id / tokens. | Never ship as a default. Do not offer it in `rock setup`. |
 | **PROHIBITED** | The provider's current public terms or legal page forbids it. | Never ship. |
