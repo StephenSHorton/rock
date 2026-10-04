@@ -45,9 +45,12 @@ func (m *Model) layout() {
 	if m.overlay != noOverlay {
 		g.composerRows = 1
 	}
+	if m.showUpdateNotice() {
+		g.noticeRows = 1
+	}
 
 	chrome := func() int {
-		return g.padT + 1 + g.composerRows + g.frameRows + g.infoRows + g.helpRows + g.padB
+		return g.padT + 1 + g.composerRows + g.frameRows + g.noticeRows + g.infoRows + g.helpRows + g.padB
 	}
 	for g.composerRows > 1 && h-chrome() < 4 {
 		g.composerRows--
@@ -167,8 +170,11 @@ func (m *Model) View() tea.View {
 	if g.padT > 0 {
 		parts = append(parts, strings.Repeat("\n", g.padT-1))
 	}
+	parts = append(parts, m.inset(m.bodyView(), g.bodyH))
+	if g.noticeRows > 0 {
+		parts = append(parts, m.inset(m.updateNoticeView(), g.noticeRows))
+	}
 	parts = append(parts,
-		m.inset(m.bodyView(), g.bodyH),
 		m.inset(m.composerView(), g.composerRows+g.frameRows+g.infoRows),
 		m.inset(m.statusView(), 1),
 	)
@@ -605,9 +611,6 @@ func (m *Model) statusView() string {
 	}
 
 	status := sanitize(m.status)
-	if (status == "" || status == "ready") && m.avail.Newer && m.overlay != updateOverlay {
-		status = m.avail.Line()
-	}
 	reserve := 0
 	if status != "" && status != "ready" {
 		reserve = min(ansi.StringWidth(status)+3, max(20, w/2))
@@ -640,8 +643,6 @@ func (m *Model) statusView() string {
 		statusStyle = t.danger
 	} else if m.busy {
 		statusStyle = t.alarm
-	} else if m.avail.Newer && status == m.avail.Line() {
-		statusStyle = t.alarm
 	}
 	right := ""
 	if m.busy {
@@ -665,6 +666,14 @@ func fmtDuration(d time.Duration) string {
 		return fmt.Sprintf("%ds", int(d.Seconds()))
 	}
 	return fmt.Sprintf("%d:%02d", int(d.Minutes()), int(d.Seconds())%60)
+}
+
+func (m *Model) showUpdateNotice() bool {
+	return m.avail.Newer && m.overlay != updateOverlay && strings.TrimSpace(m.avail.Line()) != ""
+}
+
+func (m *Model) updateNoticeView() string {
+	return m.th.faint.Render(clip(" "+m.avail.Line(), m.geo.innerW))
 }
 
 func (m *Model) composerView() string {
