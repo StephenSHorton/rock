@@ -1,6 +1,7 @@
 package grokcli
 
 import (
+	"bufio"
 	"context"
 	"os"
 	"path/filepath"
@@ -161,5 +162,45 @@ func TestCompleteMissingBinary(t *testing.T) {
 	_, err := p.Complete(context.Background(), "", nil, nil)
 	if err == nil || !strings.Contains(err.Error(), InstallURL) {
 		t.Fatalf("%v", err)
+	}
+}
+
+func TestStartExecScrubsJevKeys(t *testing.T) {
+	t.Setenv("JEV_API_KEY", "secret-jev")
+	t.Setenv("TYPESAFE_API_KEY", "secret-typesafe")
+	bin := filepath.Join(t.TempDir(), "grok")
+	script := "#!/bin/sh\nprintf 'JEV=%s\\n' \"$JEV_API_KEY\"\nprintf 'TYPESAFE=%s\\n' \"$TYPESAFE_API_KEY\"\ntest -n \"$PATH\" && printf 'PATH_OK\\n'\ncat >/dev/null\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stdin, stdout, stop, err := startExec(context.Background(), bin, ChildArgs())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stop()
+	_ = stdin
+	sc := bufio.NewScanner(stdout)
+	var lines []string
+	for sc.Scan() {
+		lines = append(lines, sc.Text())
+		if strings.Contains(sc.Text(), "PATH_OK") {
+			break
+		}
+	}
+	if err := sc.Err(); err != nil {
+		t.Fatal(err)
+	}
+	out := strings.Join(lines, "\n")
+	if strings.Contains(out, "secret-jev") || strings.Contains(out, "secret-typesafe") {
+		t.Fatalf("leaked keys: %q", out)
+	}
+	if !strings.Contains(out, "JEV=") || !strings.Contains(out, "TYPESAFE=") {
+		t.Fatalf("expected empty Jev keys: %q", out)
+	}
+	if strings.Contains(out, "JEV=secret") || strings.Contains(out, "TYPESAFE=secret") {
+		t.Fatalf("leaked keys: %q", out)
+	}
+	if !strings.Contains(out, "PATH_OK") {
+		t.Fatalf("PATH should still be inherited: %q", out)
 	}
 }

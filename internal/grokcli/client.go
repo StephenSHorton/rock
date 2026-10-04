@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/StephenSHorton/rock/internal/config"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,6 +35,7 @@ func startExec(ctx context.Context, bin string, args []string) (io.WriteCloser, 
 		return nil, nil, nil, err
 	}
 	cmd.Stderr = io.Discard
+	config.ScrubCmdEnv(cmd)
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()
