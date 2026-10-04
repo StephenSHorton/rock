@@ -273,7 +273,7 @@ Build the clean SANCTIONED **model** path first. Never enable GREY or PROHIBITED
 
 ### 2. First in-process subscription: OpenAI SIWC
 
-This is the only documented third-party subscription OAuth that Rock can implement in its own process.
+This is the only documented third-party subscription OAuth that Rock implements in its own process (`rock login chatgpt` / `rock logout chatgpt`).
 
 - Public OSS client. `agent_name_hint` is the product name. Own `ext_agent_host_id`. Own `~/.config/rock/` credential file, `0600`.
 - Authorize and token URLs from the SIWC docs above. Do **not** use Codex's `app_EMoamEEZ73f0CkXaXp7hrann` or `{issuer}/oauth/authorize`.

@@ -12,10 +12,13 @@ import (
 )
 
 type File struct {
-	Model       string               `toml:"model"`
-	FastModel   string               `toml:"fast_model"`
-	StrongModel string               `toml:"strong_model"`
-	BaseURL     string               `toml:"base_url"`
+	Model       string `toml:"model"`
+	FastModel   string `toml:"fast_model"`
+	StrongModel string `toml:"strong_model"`
+	BaseURL     string `toml:"base_url"`
+	// Auth is the model credential pick: siwc, api_key, or offline_model.
+	// Empty means SIWC when logged in, else an API key, else the offline model.
+	Auth        string               `toml:"auth"`
 	Mode        string               `toml:"mode"`
 	MaxSteps    int                  `toml:"max_steps"`
 	Permissions Perms                `toml:"permissions"`
@@ -195,6 +198,9 @@ func merge(dst *File, src File) {
 	}
 	if src.BaseURL != "" {
 		dst.BaseURL = src.BaseURL
+	}
+	if src.Auth != "" {
+		dst.Auth = src.Auth
 	}
 	if src.Mode != "" {
 		dst.Mode = src.Mode

@@ -13,9 +13,11 @@ import (
 
 	"github.com/StephenSHorton/rock/internal/acp"
 	"github.com/StephenSHorton/rock/internal/cli"
+	"github.com/StephenSHorton/rock/internal/config"
 	"github.com/StephenSHorton/rock/internal/perms"
 	"github.com/StephenSHorton/rock/internal/serve"
 	"github.com/StephenSHorton/rock/internal/session"
+	"github.com/StephenSHorton/rock/internal/siwc"
 	"github.com/StephenSHorton/rock/internal/tui"
 	"github.com/StephenSHorton/rock/internal/version"
 )
@@ -75,6 +77,10 @@ func run(args []string) error {
 			return serveCmd(args[1:])
 		case "acp":
 			return acpCmd(args[1:])
+		case "login":
+			return loginCmd(args[1:])
+		case "logout":
+			return logoutCmd(args[1:])
 		default:
 			return fmt.Errorf("unknown command %q\n%s", args[0], usage)
 		}
@@ -202,6 +208,7 @@ func startTUI(app *cli.App, sess *session.Session, initial string, rules []strin
 		JevMode:       app.Gates.Mode(),
 		Gates:         app.Gates,
 		Provider:      app.Provider.Name(),
+		Auth:          app.Auth,
 		FastModel:     app.FastModel(),
 		StrongModel:   app.StrongModel(),
 		InitialPrompt: initial,
@@ -221,8 +228,16 @@ func startTUI(app *cli.App, sess *session.Session, initial string, rules []strin
 			app.Loaded.Policy.Mode = mode
 			app.Loaded.File.Mode = string(mode)
 		},
-		Output:  os.Stdout,
-		Verbose: verbose,
+		SetAuth: func(class string) (string, string, error) {
+			if err := app.SetAuth(class); err != nil {
+				return "", "", err
+			}
+			return app.Provider.Name(), app.Auth, nil
+		},
+		HasAPIKey: config.APIKey() != "",
+		HasSIWC:   siwc.LoggedIn(),
+		Output:    os.Stdout,
+		Verbose:   verbose,
 	})
 	return tui.Run(model)
 }
@@ -325,6 +340,66 @@ func forkCmd(args []string) error {
 	return nil
 }
 
+func loginCmd(args []string) error {
+	fs := flag.NewFlagSet("login", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	cwd := fs.String("cwd", "", "workspace")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	rest := fs.Args()
+	if len(rest) != 1 || rest[0] != "chatgpt" {
+		return fmt.Errorf("usage: rock login chatgpt")
+	}
+	dir := *cwd
+	if dir == "" {
+		var err error
+		dir, err = os.Getwd()
+		if err != nil {
+			return err
+		}
+	}
+	app, err := cli.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer app.Close()
+	return app.LoginChatGPT(context.Background(), os.Stdout)
+}
+
+func logoutCmd(args []string) error {
+	fs := flag.NewFlagSet("logout", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	cwd := fs.String("cwd", "", "workspace")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	rest := fs.Args()
+	if len(rest) != 1 || rest[0] != "chatgpt" {
+		return fmt.Errorf("usage: rock logout chatgpt")
+	}
+	dir := *cwd
+	if dir == "" {
+		var err error
+		dir, err = os.Getwd()
+		if err != nil {
+			return err
+		}
+	}
+	app, err := cli.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer app.Close()
+	return app.LogoutChatGPT(context.Background(), os.Stdout)
+}
+
 func clipTitle(s string) string {
 	s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
 	if len(s) > 48 {
@@ -347,7 +422,9 @@ const usage = `rock is a coding agent.
   rock --mode plan -p "prompt"
   rock --verbose               TUI shows Jev turn/risk diagnostic lines
 
-  rock inspect                 config, skills, MCP, Jev mode
+  rock inspect                 config, skills, MCP, Jev mode, model auth class
+  rock login chatgpt           Sign in with ChatGPT (OSS SIWC). Not Jev.
+  rock logout chatgpt          revoke and clear the ChatGPT session
   rock setup                   Huh form; does not write API keys
   rock sessions                list sessions for this folder
   rock permissions             allow / ask / deny
@@ -357,6 +434,7 @@ const usage = `rock is a coding agent.
   rock version
 
 Sessions live under ~/.rock (ROCK_HOME). Config is ~/.config/rock/config.toml (ROCK_CONFIG).
-Model keys: ROCK_API_KEY or OPENAI_API_KEY. Jev keys: JEV_API_KEY or TYPESAFE_API_KEY.
+Model keys: ROCK_API_KEY or OPENAI_API_KEY. ChatGPT plan: rock login chatgpt.
+Jev keys: JEV_API_KEY or TYPESAFE_API_KEY. Jev is a separate required key.
 ROCK_VERBOSE=1 is the same as --verbose: Jev turn/risk lines stay in the TUI transcript.
 `

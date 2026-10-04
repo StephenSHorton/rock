@@ -54,7 +54,7 @@ const (
 	fps     = 30
 
 	readyText   = "Ask Rock to start. /help lists the keys and commands."
-	placeholder = "Ask Rock. /help /plan /yolo /default /sessions /permissions /agents /ready /verbose /fork /quit"
+	placeholder = "Ask Rock. /help /plan /yolo /default /sessions /permissions /agents /ready /verbose /fork /provider /quit"
 )
 
 // RunFunc executes one turn against the session the screen is showing.
@@ -69,6 +69,7 @@ type Deps struct {
 	JevMode       string
 	Gates         jev.Gates
 	Provider      string
+	Auth          string
 	FastModel     string
 	StrongModel   string
 	Run           RunFunc
@@ -77,6 +78,9 @@ type Deps struct {
 	Rules         []string
 	Fork          func(prompt string) (string, error)
 	SetMode       func(perms.Mode)
+	SetAuth       func(class string) (provider, auth string, err error)
+	HasAPIKey     bool
+	HasSIWC       bool
 	InitialPrompt string
 	Output        io.Writer
 	// Verbose starts the TUI with Jev turn/risk diagnostics in the
@@ -130,6 +134,7 @@ const (
 	permsOverlay
 	agentsOverlay
 	paletteOverlay
+	providerOverlay
 )
 
 type askMsg struct {
@@ -247,20 +252,21 @@ type Model struct {
 	height int
 	geo    geometry
 
-	lines    []line
-	selected int
-	spans    []entrySpan
-	vp       viewport.Model
-	planVP   viewport.Model
-	sheet    viewport.Model
-	input    textarea.Model
-	spin     spinner.Model
-	help     help.Model
-	sessions list.Model
-	choices  list.Model
-	perms    list.Model
-	agents   table.Model
-	meter    progress.Model
+	lines     []line
+	selected  int
+	spans     []entrySpan
+	vp        viewport.Model
+	planVP    viewport.Model
+	sheet     viewport.Model
+	input     textarea.Model
+	spin      spinner.Model
+	help      help.Model
+	sessions  list.Model
+	choices   list.Model
+	perms     list.Model
+	providers list.Model
+	agents    table.Model
+	meter     progress.Model
 
 	overlay         overlay
 	showPlan        bool
@@ -338,6 +344,7 @@ func New(deps Deps) *Model {
 	m.choices = newList(rowDelegate{th: &m.th, rows: 1})
 	m.choices.SetShowPagination(false)
 	m.perms = newList(rowDelegate{th: &m.th, rows: 1})
+	m.providers = newList(rowDelegate{th: &m.th, rows: 2})
 	m.palette = newList(rowDelegate{th: &m.th, rows: 1})
 	m.palette.SetFilteringEnabled(true)
 	m.palette.SetShowFilter(true)
@@ -377,7 +384,7 @@ func (m *Model) applyTheme(dark bool) {
 	m.help.Styles = m.th.keyHelp()
 	m.spin.Style = m.th.accent
 	m.agents.SetStyles(m.th.table())
-	for _, l := range []*list.Model{&m.sessions, &m.choices, &m.perms, &m.palette} {
+	for _, l := range []*list.Model{&m.sessions, &m.choices, &m.perms, &m.providers, &m.palette} {
 		l.Styles.ActivePaginationDot = m.th.accent.SetString("•")
 		l.Styles.InactivePaginationDot = m.th.faint.SetString("·")
 		l.Styles.NoItems = m.th.faint
@@ -727,6 +734,7 @@ func (m *Model) refreshPalette() {
 		rowItem{title: "/ready", desc: "is the plan ready? never approves", id: "cmd:/ready"},
 		rowItem{title: "/verbose", desc: "show or hide Jev turn/risk diagnostics", id: "cmd:/verbose"},
 		rowItem{title: "/fork", desc: "new Rock pane in Suzuri (OSC 7880)", id: "cmd:/fork"},
+		rowItem{title: "/provider", desc: "ChatGPT (SIWC), API key, or offline model", id: "cmd:/provider"},
 		rowItem{title: "/quit", desc: "quit", id: "cmd:/quit"},
 		rowItem{title: "tab", desc: "focus composer ↔ transcript", id: "key:focus"},
 		rowItem{title: "shift+tab", desc: "cycle default / plan / yolo", id: "key:cycle"},
@@ -823,6 +831,11 @@ func (m *Model) overlayKey(msg tea.KeyPressMsg) tea.Cmd {
 			return m.closeOverlay()
 		}
 		m.sessions, cmd = m.sessions.Update(msg)
+	case providerOverlay:
+		if enter {
+			return m.pickProvider()
+		}
+		m.providers, cmd = m.providers.Update(msg)
 	case permsOverlay:
 		if enter {
 			return m.closeOverlay()
@@ -933,6 +946,9 @@ func (m *Model) slash(text string) tea.Cmd {
 		return m.toggleVerbose()
 	case "/fork":
 		return m.emitFork(rest)
+	case "/provider":
+		m.refreshProviders()
+		m.openOverlay(providerOverlay)
 	case "/quit":
 		return m.quit()
 	default:
@@ -1254,6 +1270,100 @@ func (m *Model) refreshSessions() {
 
 // refreshPerms lists the rules the process loaded. It only describes the
 // policy; deciding stays in internal/perms.
+func (m *Model) refreshProviders() {
+	current := m.deps.Auth
+	if current == "" {
+		current = m.deps.Provider
+	}
+	items := []list.Item{
+		rowItem{
+			title: "ChatGPT",
+			desc:  providerDesc("siwc", m.deps.HasSIWC, "Sign in with ChatGPT. Run rock login chatgpt if this is disabled."),
+			id:    "siwc",
+			tag:   providerTag("siwc", current, m.deps.HasSIWC),
+		},
+		rowItem{
+			title: "API key",
+			desc:  providerDesc("api_key", m.deps.HasAPIKey, "ROCK_API_KEY or OPENAI_API_KEY. The fallback when ChatGPT is not signed in."),
+			id:    "api_key",
+			tag:   providerTag("api_key", current, m.deps.HasAPIKey),
+		},
+		rowItem{
+			title: "Offline model",
+			desc:  "Model-provider stub only. Completions stay local. Jev still runs and still requires its own key.",
+			id:    "offline_model",
+			tag:   providerTag("offline_model", current, true),
+		},
+	}
+	selected := 0
+	for i, it := range items {
+		if it.(rowItem).id == current {
+			selected = i
+		}
+	}
+	_ = m.providers.SetItems(items)
+	m.providers.Select(selected)
+}
+
+func providerDesc(id string, ready bool, readyText string) string {
+	if ready {
+		return readyText
+	}
+	switch id {
+	case "siwc":
+		return "not signed in. rock login chatgpt. API keys stay the fallback."
+	case "api_key":
+		return "no ROCK_API_KEY / OPENAI_API_KEY. Offline model is the fallback."
+	}
+	return readyText
+}
+
+func providerTag(id, current string, ready bool) string {
+	if id == current {
+		return "current"
+	}
+	if !ready && id != "offline_model" {
+		return "ask"
+	}
+	return ""
+}
+
+func (m *Model) pickProvider() tea.Cmd {
+	item, ok := m.providers.SelectedItem().(rowItem)
+	if !ok {
+		return m.closeOverlay()
+	}
+	if item.id == "siwc" && !m.deps.HasSIWC {
+		m.setAlert("ChatGPT: run rock login chatgpt first. API keys stay the fallback.")
+		return m.closeOverlay()
+	}
+	if item.id == "api_key" && !m.deps.HasAPIKey {
+		m.setAlert("no ROCK_API_KEY / OPENAI_API_KEY; offline model is the fallback")
+		return m.closeOverlay()
+	}
+	if m.deps.SetAuth != nil {
+		name, auth, err := m.deps.SetAuth(item.id)
+		if err != nil {
+			m.setAlert(err.Error())
+			return m.closeOverlay()
+		}
+		m.deps.Provider = name
+		m.deps.Auth = auth
+	} else {
+		m.deps.Auth = item.id
+		switch item.id {
+		case "siwc":
+			m.deps.Provider = "chatgpt"
+		case "api_key":
+			m.deps.Provider = "openai"
+		default:
+			m.deps.Provider = "offline"
+		}
+	}
+	m.status, m.alert = "model auth "+m.deps.Auth, false
+	return m.closeOverlay()
+}
+
 func (m *Model) refreshPerms() {
 	items := []list.Item{rowItem{title: string(m.deps.Mode), desc: modeMeaning(m.deps.Mode), tag: "mode"}}
 	if m.deps.ReviewOnly {
