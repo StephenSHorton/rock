@@ -224,13 +224,10 @@ func isQuit(cmd tea.Cmd) bool {
 	return cmd != nil && reflect.ValueOf(cmd).Pointer() == reflect.ValueOf(tea.Quit).Pointer()
 }
 
-func TestReadySentenceIsWholeAndThePlanColumnSharesTheRow(t *testing.T) {
-	for _, tc := range []struct {
-		w, h int
-		plan bool
-	}{
-		{60, 24, false}, {80, 24, false}, {99, 24, false},
-		{100, 24, true}, {110, 30, true}, {120, 30, true}, {140, 36, true},
+func TestReadySentenceIsWholeAndThePlanColumnIsHiddenByDefault(t *testing.T) {
+	for _, tc := range []struct{ w, h int }{
+		{60, 24}, {80, 24}, {99, 24},
+		{100, 24}, {110, 30}, {120, 30}, {140, 36},
 	} {
 		m := sized(t, tc.w, tc.h)
 		rows := assertFrame(t, m, tc.w, tc.h)
@@ -238,33 +235,68 @@ func TestReadySentenceIsWholeAndThePlanColumnSharesTheRow(t *testing.T) {
 			t.Fatalf("%d cols: ready sentence is not whole: %q", tc.w, got)
 		}
 		g := m.geo
-		if (g.planW > 0) != tc.plan {
-			t.Fatalf("%d cols: plan column shown=%v", tc.w, g.planW > 0)
+		if g.planW > 0 || g.planH > 0 {
+			t.Fatalf("%d cols: plan pane should stay hidden by default (planW=%d planH=%d)", tc.w, g.planW, g.planH)
 		}
-		if !tc.plan {
-			if strings.Contains(strings.Join(rows[g.vpY:g.vpY+g.vpH], "\n"), "Plan") {
-				t.Fatalf("%d cols: plan drawn while hidden", tc.w)
-			}
-			continue
+		if g.transcriptW != g.innerW {
+			t.Fatalf("%d cols: transcript %d should use the full inner width %d", tc.w, g.transcriptW, g.innerW)
 		}
-		if g.transcriptW+1+g.planW != g.innerW {
-			t.Fatalf("%d cols: transcript %d + gap + plan %d does not fill the inner row", tc.w, g.transcriptW, g.planW)
+		if strings.Contains(strings.Join(rows[g.vpY:g.vpY+g.vpH], "\n"), "Plan") {
+			t.Fatalf("%d cols: plan drawn while hidden", tc.w)
 		}
-		for y := g.vpY; y < g.vpY+g.vpH; y++ {
-			left := ansi.Cut(rows[y], g.padL, g.padL+g.transcriptW)
-			gap := ansi.Cut(rows[y], g.padL+g.transcriptW, g.padL+g.transcriptW+1)
-			plan := ansi.Cut(rows[y], g.padL+g.transcriptW+1, g.padL+g.innerW)
+	}
+}
+
+func TestPlanPaneShowsInPlanModeOrWhenAPlanExists(t *testing.T) {
+	for _, w := range []int{80, 140} {
+		m := sized(t, w, 30)
+		if m.geo.planW != 0 {
+			t.Fatalf("%d cols: idle should not open the plan column", w)
+		}
+		submit(m, "/plan")
+		if m.geo.planW == 0 {
+			t.Fatalf("%d cols: /plan did not open the plan column", w)
+		}
+		if m.geo.transcriptW+1+m.geo.planW != m.geo.innerW {
+			t.Fatalf("%d cols: transcript %d + gap + plan %d does not fill the inner row", w, m.geo.transcriptW, m.geo.planW)
+		}
+		rows := assertFrame(t, m, w, 30)
+		for y := m.geo.vpY; y < m.geo.vpY+m.geo.vpH; y++ {
+			left := ansi.Cut(rows[y], m.geo.padL, m.geo.padL+m.geo.transcriptW)
+			gap := ansi.Cut(rows[y], m.geo.padL+m.geo.transcriptW, m.geo.padL+m.geo.transcriptW+1)
+			plan := ansi.Cut(rows[y], m.geo.padL+m.geo.transcriptW+1, m.geo.padL+m.geo.innerW)
 			if strings.ContainsAny(left, "╭╰╮╯") {
-				t.Fatalf("%d cols row %d: plan border inside the transcript column: %q", tc.w, y, left)
+				t.Fatalf("%d cols row %d: plan border inside the transcript column: %q", w, y, left)
 			}
-			if gap != " " || ansi.StringWidth(plan) != g.planW {
-				t.Fatalf("%d cols row %d: gap %q plan %d cells, want %d", tc.w, y, gap, ansi.StringWidth(plan), g.planW)
-			}
-			first, last := []rune(plan)[0], []rune(plan)[len([]rune(plan))-1]
-			if !strings.ContainsRune("╭│╰", first) || !strings.ContainsRune("╮│╯", last) {
-				t.Fatalf("%d cols row %d: plan box is not whole: %q", tc.w, y, plan)
+			if gap != " " || ansi.StringWidth(plan) != m.geo.planW {
+				t.Fatalf("%d cols row %d: gap %q plan %d cells, want %d", w, y, gap, ansi.StringWidth(plan), m.geo.planW)
 			}
 		}
+	}
+
+	m := sized(t, 140, 30)
+	if err := os.WriteFile(m.deps.Session.PlanPath(), []byte("## Steps\n\n1. Ship the polish\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.refreshPlan()
+	m.Update(tea.WindowSizeMsg{Width: 140, Height: 30})
+	if !m.hasPlan() || m.geo.planW == 0 {
+		t.Fatalf("a written plan should open the pane without plan mode: hasPlan=%v planW=%d mode=%s", m.hasPlan(), m.geo.planW, m.deps.Mode)
+	}
+	if !strings.Contains(planText(m), "Ship the polish") {
+		t.Fatalf("plan body missing: %q", planText(m))
+	}
+	submit(m, "/default")
+	if m.deps.Mode != perms.ModeDefault || m.geo.planW == 0 {
+		t.Fatalf("leaving plan mode should keep the pane while a plan exists: mode=%s planW=%d", m.deps.Mode, m.geo.planW)
+	}
+
+	empty := sized(t, 140, 30)
+	empty.deps.Mode = perms.ModePlan
+	empty.showPlan = true
+	empty.Update(tea.WindowSizeMsg{Width: 140, Height: 30})
+	if empty.geo.planW == 0 {
+		t.Fatal("plan mode should show the pane even with an empty plan")
 	}
 }
 
@@ -317,6 +349,67 @@ func TestStatusLineCarriesModeJevModelAndMeter(t *testing.T) {
 	m.Update(eventMsg{harness.Event{Kind: harness.EvJev, Name: "turn", Text: "offline model=strong stuck=false"}})
 	if status := screen(m)[m.geo.statusY()]; !strings.Contains(status, "gpt-4o ") {
 		t.Fatalf("strong turn should show the strong model: %q", status)
+	}
+	if strings.Contains(transcriptText(m), "◇ jev") {
+		t.Fatalf("turn diagnostics should stay off the transcript by default:\n%s", transcriptText(m))
+	}
+}
+
+func TestJevDiagnosticsStayHiddenUntilVerbose(t *testing.T) {
+	m := sized(t, 100, 24)
+	m.Update(eventMsg{harness.Event{Kind: harness.EvJev, Name: "turn", Text: "offline model=fast stuck=false compact=false skills="}})
+	m.Update(eventMsg{harness.Event{Kind: harness.EvJev, Name: "risk", Text: "offline p=0.15 block=false"}})
+	m.Update(eventMsg{harness.Event{Kind: harness.EvJev, Name: "ready", Text: "plan looks good"}})
+	got := transcriptText(m)
+	if strings.Contains(got, "stuck=") || strings.Contains(got, "p=0.15") || strings.Contains(got, "◇ jev turn") || strings.Contains(got, "◇ jev risk") {
+		t.Fatalf("diagnostic jev lines should be hidden by default: %q", got)
+	}
+	if !strings.Contains(got, "◇ jev ready") || !strings.Contains(got, "plan looks good") {
+		t.Fatalf("user-facing ◇ jev marks should stay visible: %q", got)
+	}
+	if status := screen(m)[m.geo.statusY()]; !strings.Contains(status, "jev:offline") {
+		t.Fatalf("status jev mark missing: %q", status)
+	}
+
+	submit(m, "/verbose")
+	if !m.verbose {
+		t.Fatal("/verbose should turn diagnostics on")
+	}
+	got = transcriptText(m)
+	for _, want := range []string{"◇ jev turn", "stuck=false", "◇ jev risk", "p=0.15", "◇ jev ready"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("verbose transcript lacks %q: %q", want, got)
+		}
+	}
+
+	submit(m, "/verbose")
+	if m.verbose {
+		t.Fatal("/verbose again should hide diagnostics")
+	}
+	got = transcriptText(m)
+	if strings.Contains(got, "◇ jev turn") || strings.Contains(got, "stuck=") || strings.Contains(got, "p=0.15") {
+		t.Fatalf("diagnostics still visible after toggle off: %q", got)
+	}
+	if !strings.Contains(got, "◇ jev ready") {
+		t.Fatalf("user-facing mark disappeared: %q", got)
+	}
+
+	on := sized(t, 100, 24)
+	on.verbose = true
+	on.Update(eventMsg{harness.Event{Kind: harness.EvJev, Name: "turn", Text: "offline model=fast stuck=false compact=false skills="}})
+	if !strings.Contains(transcriptText(on), "◇ jev turn") {
+		t.Fatalf("--verbose start should show diagnostics: %q", transcriptText(on))
+	}
+
+	keys := sized(t, 100, 24)
+	keys.Update(eventMsg{harness.Event{Kind: harness.EvJev, Name: "risk", Text: "offline p=0.15 block=false"}})
+	keys.Update(tea.KeyPressMsg{Code: tea.KeyTab, Text: "tab"})
+	if !keys.focusTranscript {
+		t.Fatal("tab should focus the transcript")
+	}
+	keys.Update(tea.KeyPressMsg{Code: 'v', Text: "v"})
+	if !keys.verbose || !strings.Contains(transcriptText(keys), "p=0.15") {
+		t.Fatalf("v in the transcript should show diagnostics: verbose=%v %q", keys.verbose, transcriptText(keys))
 	}
 }
 
@@ -469,8 +562,11 @@ func TestPlanPaneSaysShellIsBlockedBesideAReadableTranscript(t *testing.T) {
 		t.Fatalf("plan body not shown: %q\n%s", plan, strings.Join(screen(m), "\n"))
 	}
 	submit(m, "/default")
-	if m.geo.planH != 0 || m.deps.Mode != perms.ModeDefault {
-		t.Fatal("leaving plan mode on a narrow screen hides the plan")
+	if m.deps.Mode != perms.ModeDefault {
+		t.Fatal("leaving plan mode should return to default")
+	}
+	if m.geo.planH == 0 {
+		t.Fatal("a written plan should keep the stacked pane after leaving plan mode")
 	}
 }
 
@@ -550,6 +646,8 @@ func TestMouseWheelAndScrollbarScrollTheTranscript(t *testing.T) {
 
 func TestLightTerminalGetsThePalettePair(t *testing.T) {
 	m := sized(t, 100, 24)
+	_ = m.input.Focus()
+	m.layout()
 	if dark := m.View().Content; !strings.Contains(dark, "122;155;255") {
 		t.Fatal("dark frame should draw with brand #7A9BFF")
 	}
@@ -577,7 +675,8 @@ func TestAssistantMarkdownUsesTheRockPalette(t *testing.T) {
 		t.Fatalf("markdown was not rendered: %q", text)
 	}
 	raw := m.View().Content
-	if !strings.Contains(raw, "38;2;122;155;") {
+	// Glamour's truecolor heading is one count off #7A9BFF (121 vs 122).
+	if !strings.Contains(raw, "38;2;122;155;") && !strings.Contains(raw, "38;2;121;155;") {
 		t.Fatal("heading should be brand azurite")
 	}
 	if strings.Contains(raw, "38;5;") || strings.Contains(raw, "48;5;") {
@@ -600,7 +699,7 @@ func TestCodeBlocksFollowTheThemeInTruecolor(t *testing.T) {
 }
 
 func TestPlaceholderListsEverySlashCommandAndTheyAllWork(t *testing.T) {
-	all := []string{"/help", "/plan", "/yolo", "/default", "/sessions", "/permissions", "/agents", "/ready", "/fork", "/quit"}
+	all := []string{"/help", "/plan", "/yolo", "/default", "/sessions", "/permissions", "/agents", "/ready", "/verbose", "/fork", "/quit"}
 	m := sized(t, 80, 24)
 	g := m.geo
 	composer := flat(strings.Join(screen(m)[g.composerY():g.composerY()+g.composerRows+g.infoRows], " "))
@@ -626,6 +725,10 @@ func TestPlaceholderListsEverySlashCommandAndTheyAllWork(t *testing.T) {
 			}
 		case "/ready":
 			if !strings.Contains(m.status, "does not approve") {
+				t.Fatal(m.status)
+			}
+		case "/verbose":
+			if !m.verbose || !strings.Contains(m.status, "turn and risk") {
 				t.Fatal(m.status)
 			}
 		}

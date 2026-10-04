@@ -38,10 +38,9 @@ const (
 	// contextLimit is the session size at which the offline Jev policy
 	// compacts, so a full meter means compaction is next.
 	contextLimit = 24000
-	// wideAt is the width from which the plan column is always shown.
-	wideAt = 100
 	// splitMin is the narrowest width that still puts the plan beside the
-	// transcript. Narrower screens stack the plan above it in plan mode.
+	// transcript. Narrower screens stack the plan above it when the pane
+	// is showing.
 	splitMin = 64
 	// blockPad is the left inset of transcript blocks, Grok's
 	// scrollback.layout.block_pad_left default.
@@ -55,7 +54,7 @@ const (
 	fps     = 30
 
 	readyText   = "Ask Rock to start. /help lists the keys and commands."
-	placeholder = "Ask Rock. /help /plan /yolo /default /sessions /permissions /agents /ready /fork /quit"
+	placeholder = "Ask Rock. /help /plan /yolo /default /sessions /permissions /agents /ready /verbose /fork /quit"
 )
 
 // RunFunc executes one turn against the session the screen is showing.
@@ -80,6 +79,9 @@ type Deps struct {
 	SetMode       func(perms.Mode)
 	InitialPrompt string
 	Output        io.Writer
+	// Verbose starts the TUI with Jev turn/risk diagnostics in the
+	// transcript. /verbose toggles it after that.
+	Verbose bool
 }
 
 type line struct {
@@ -262,6 +264,7 @@ type Model struct {
 
 	overlay         overlay
 	showPlan        bool
+	verbose         bool
 	focusTranscript bool
 	quitArmed       time.Time
 
@@ -303,6 +306,8 @@ func New(deps Deps) *Model {
 		follow:   true,
 		status:   "ready",
 		selected: -1,
+		verbose:  deps.Verbose,
+		showPlan: deps.Mode == perms.ModePlan,
 		spring:   harmonica.NewSpring(harmonica.FPS(fps), 7, 1),
 		md:       map[int]*glamour.TermRenderer{},
 	}
@@ -548,6 +553,8 @@ func (m *Model) scrollbackKey(msg tea.KeyPressMsg) tea.Cmd {
 	case msg.String() == "r":
 		m.toggleRaw()
 		return nil
+	case msg.String() == "v":
+		return m.toggleVerbose()
 	case msg.String() == "?":
 		return m.openPalette()
 	case msg.String() == "/":
@@ -631,6 +638,42 @@ func (m *Model) toggleYolo() tea.Cmd {
 	return m.submit()
 }
 
+func (m *Model) toggleVerbose() tea.Cmd {
+	m.verbose = !m.verbose
+	m.alert = false
+	if m.verbose {
+		m.status = "verbose. Jev turn and risk lines are in the transcript."
+	} else {
+		m.status = "quiet. Jev diagnostics are hidden. /verbose shows them."
+	}
+	m.syncView()
+	return nil
+}
+
+// wantPlan is whether the plan pane should take space: plan mode, or a
+// plan file that already has text.
+func (m *Model) wantPlan() bool {
+	return m.showPlan || m.hasPlan()
+}
+
+func (m *Model) hasPlan() bool {
+	p := strings.TrimSpace(m.plan)
+	return p != "" && p != "No plan yet."
+}
+
+// diagnosticJev is a harness gate trace (BeforeTurn / Risk). Those rows
+// stay off the transcript until /verbose. Other ◇ jev marks still paint.
+func diagnosticJev(ln line) bool {
+	if ln.kind != "jev" {
+		return false
+	}
+	switch ln.name {
+	case "turn", "risk":
+		return true
+	}
+	return false
+}
+
 func (m *Model) cancelTurn() tea.Cmd {
 	if m.cancel != nil {
 		m.cancel()
@@ -682,12 +725,14 @@ func (m *Model) refreshPalette() {
 		rowItem{title: "/permissions", desc: "allow, ask, and deny rules", id: "cmd:/permissions"},
 		rowItem{title: "/agents", desc: "subagents spawned this session", id: "cmd:/agents"},
 		rowItem{title: "/ready", desc: "is the plan ready? never approves", id: "cmd:/ready"},
+		rowItem{title: "/verbose", desc: "show or hide Jev turn/risk diagnostics", id: "cmd:/verbose"},
 		rowItem{title: "/fork", desc: "new Rock pane in Suzuri (OSC 7880)", id: "cmd:/fork"},
 		rowItem{title: "/quit", desc: "quit", id: "cmd:/quit"},
 		rowItem{title: "tab", desc: "focus composer ↔ transcript", id: "key:focus"},
 		rowItem{title: "shift+tab", desc: "cycle default / plan / yolo", id: "key:cycle"},
 		rowItem{title: "ctrl+s", desc: "sessions", id: "key:sessions"},
 		rowItem{title: "ctrl+o", desc: "toggle yolo", id: "key:yolo"},
+		rowItem{title: "v", desc: "toggle Jev diagnostics (transcript focus)", id: "key:verbose"},
 		rowItem{title: "ctrl+.", desc: "help", id: "key:help"},
 	}
 	_ = m.palette.SetItems(items)
@@ -715,6 +760,8 @@ func (m *Model) runPalette() tea.Cmd {
 		m.openOverlay(sessionsOverlay)
 	case item.id == "key:yolo":
 		return m.toggleYolo()
+	case item.id == "key:verbose":
+		return m.toggleVerbose()
 	case item.id == "key:help":
 		m.openOverlay(helpOverlay)
 	}
@@ -882,6 +929,8 @@ func (m *Model) slash(text string) tea.Cmd {
 		m.refreshPlan()
 		m.reportReady()
 		m.status = m.verdict
+	case "/verbose":
+		return m.toggleVerbose()
 	case "/fork":
 		return m.emitFork(rest)
 	case "/quit":

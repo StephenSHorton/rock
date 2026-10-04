@@ -129,7 +129,7 @@ There is no welcome screen. `rock` opens on the current session.
 ```
 
 - **Header** — copper ` rock  `, session title · id, cwd (home-collapsed).
-- **Body** — transcript. Plan column (28–46 cols, ~32%) when `/plan` is on or width ≥ 100 and ≥ 64; stacked above the transcript on a narrow plan-mode screen. Permission ask card eats the bottom of the body.
+- **Body** — transcript. Plan column (28–46 cols, ~32%) when plan mode is on or a plan already exists, and the inner width is ≥ 64; stacked above the transcript on a narrower screen. Hidden otherwise so the idle layout is full width. Permission ask card eats the bottom of the body.
 - **Overlays** replace the body: help, sessions, permissions, subagents.
 - **Scrollbar** — `┃` thumb / `│` track on the transcript’s last column. Click and drag. Wheel scrolls under the pointer.
 
@@ -148,7 +148,7 @@ A speaker-column log, gutter width 6:
 | tool | `▸ name` + one-line summary (path, `$ command`, pattern, …) |
 | result | `✓ name` first line (+N more), or `✗` if the text starts `denied` |
 | permission | `⚑ name  allow/deny` |
-| jev | `◇ jev <gate>` |
+| jev | `◇ jev <gate>` (turn/risk diagnostics only with `/verbose`) |
 | error | alarm `error` |
 
 Empty state: *“Rock is ready. The transcript lives in the session store, not in this screen.”* No fold, no sticky headers, no thinking blocks, no verb-group, no click-to-select. Resume rebuilds the log from the session store.
@@ -198,6 +198,7 @@ Typed at the composer, exact name, no fuzzy menu.
 | `/permissions` | Loaded allow / ask / deny rules + sandbox honesty note |
 | `/agents` | Table of `spawn_subagent` rows this session (kind / status / detail) |
 | `/ready` | Jev (or offline policy) plan-readiness verdict — **never approves** |
+| `/verbose` | Show or hide Jev `turn` / `risk` diagnostic rows. Same as `--verbose` / `ROCK_VERBOSE=1`, or `v` when the transcript is focused. |
 | `/fork [prompt]` | Print Suzuri OSC 7880 (`brand=rock`) for a new host pane |
 | `/quit` | Quit |
 
@@ -243,7 +244,7 @@ Rock: `rock inspect` on the CLI. The TUI does not grow a doctor modal. Discovery
 
 ### Jev
 
-Grok has no Jev. Rock puts `jev:offline|live` on the status line, `◇ jev` rows in the transcript, and `/ready` on the plan. Offline policy is labeled as such. Those marks stay even if the rest of the chrome moves toward Grok.
+Grok has no Jev. Rock puts `jev:offline|live` on the status line, `◇ jev` marks in the transcript, and `/ready` on the plan. Offline policy is labeled as such. Those marks stay even if the rest of the chrome moves toward Grok. Harness `turn` and `risk` traces (`stuck=`, `compact=`, `p=`, `block=`) are hidden unless `/verbose`, `--verbose`, or `ROCK_VERBOSE` is on.
 
 ---
 

@@ -55,10 +55,10 @@ func (m *Model) layout() {
 
 	g.transcriptW = g.innerW
 	switch {
-	case (m.showPlan || w >= wideAt) && g.innerW >= splitMin:
+	case m.wantPlan() && g.innerW >= splitMin:
 		g.planW = min(max(g.innerW*32/100, 28), 46)
 		g.transcriptW = g.innerW - g.planW - 1
-	case m.showPlan:
+	case m.wantPlan():
 		inner := max(1, g.innerW-4)
 		m.planContent(inner)
 		want := 2 + lipgloss.Height(m.planHeader(inner, true)) + m.planVP.TotalLineCount()
@@ -383,6 +383,7 @@ func (m *Model) helpText(w int) string {
 		{"/permissions", "allow, ask, and deny rules"},
 		{"/agents", "subagents spawned this session"},
 		{"/ready", "is the plan ready? never approves"},
+		{"/verbose", "show or hide Jev turn/risk diagnostics"},
 		{"/fork", "new Rock pane in Suzuri (OSC 7880)"},
 		{"/quit", "quit"},
 	}
@@ -737,6 +738,10 @@ func (m *Model) renderTranscript(width int) string {
 	}
 	i := 0
 	for i < len(m.lines) {
+		if !m.verbose && diagnosticJev(m.lines[i]) {
+			i++
+			continue
+		}
 		end, kind, n := verbRun(m.lines, i)
 		if n > 1 {
 			if i > 0 {
