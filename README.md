@@ -38,7 +38,7 @@ Per-tool pages live under [`docs/clis/`](docs/clis/). The page template is [`doc
 ## Direction (short)
 
 - **Product:** Grok Build-class CLI (public tree, reimplemented in Go). Edge is Jev.
-- **Jev:** System One. `ask_jev` is the target primitive. Today the loop still uses hard-wired gates plus `jev_decide` — the audit tells the truth.
+- **Jev:** System One. The agent tool is `ask_jev`. Hard-wired gates still run — the audit tells the truth.
 - **TUI:** Charm v2. Crush is FSL-1.1-MIT; study freely, do not wholesale-copy while FSL applies.
 - **License:** MIT. See [LICENSE](LICENSE).
 

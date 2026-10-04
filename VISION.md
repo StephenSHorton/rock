@@ -31,7 +31,7 @@ The product principles come from the reference talk **Level 10: Agentic Jev** (I
 - **Context optimization.** Jev is a cheap first filter. It classifies errors and scans files against criteria so the main LLM skips token-heavy reads.
 - **Not a replacement.** Jev complements the LLM. It is never a substitute for it.
 
-Implementation target: a robust `ask_jev` that takes multi-parameter queries and lets the agent pick boolean, choice, or score in the moment. What the tree does *today* is mostly hard-coded gates plus a thin `jev_decide` — see [docs/synthesis/jev-audit.md](docs/synthesis/jev-audit.md). The cut to Level 10 is [docs/synthesis/ask-jev-plan.md](docs/synthesis/ask-jev-plan.md).
+The agent tool is `ask_jev`: multi-parameter queries, boolean / choice / score in the moment. Hard-coded gates still run. See [docs/synthesis/jev-audit.md](docs/synthesis/jev-audit.md) and [docs/synthesis/ask-jev-plan.md](docs/synthesis/ask-jev-plan.md).
 
 Do not invent Jev API verbs the public docs do not describe. Do not quote vendor speed or price numbers as Rock’s.
 

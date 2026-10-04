@@ -24,7 +24,11 @@ Reference talk: IndyDevDan, [10 Levels of Jev For Agentic Engineers](https://www
 
 ## Slice (a) — the `ask_jev` tool
 
-**Scope.** Give the agent one tool that is the Jev primitive: multi-parameter queries, mode chosen per question (`boolean` / `choice` / `score`), a stable result format, honest errors, and an offline stub. Register it on the tool list every client already uses. Retire `jev_decide` in the same PR so there is one name.
+**Landed.** See the contract below. `jev_decide` is gone. Hard-coded `Gates` are unchanged. TUI diamonds stay slice (d); this slice emits `EvJev` name `ask`.
+
+**Scope.** Give the agent one tool that is the Jev primitive: multi-parameter queries, mode chosen per question (`boolean` / `choice` / `score`), a stable result format, and honest runtime errors. Register it on the tool list every client already uses. Retire `jev_decide` in the same PR so there is one name.
+
+Rock refuses to start without a Jev key (parallel PR: TUI onboarding, `rock setup jev`, headless fail-fast). **ask_jev does not implement a key-less user mode.** Do not add one here. A missing client or a failed Decide is a structured error, same as network/timeout/API failure.
 
 This slice does **not** add after-edit hooks, triage, or TUI diamonds. Those are (b), (c), (d). Hard-coded `Gates` stay.
 
@@ -47,39 +51,55 @@ ask_jev
 
 `boolean` → `NoulQ`. `choice` → `ChoiceQ`. `score` → `ScoreQ`. Reject a choice with no criteria, a score with fewer than two levels, or an empty questions list, in Go, before the HTTP call.
 
-**Result format (proposed).** One tool result the model can read:
+**Result format.** One tool result the model can read:
 
 ```
 {
-  "source": "live" | "offline",
-  "model": "jev-1.x" | "",
+  "source": "live",
+  "model": "jev-1.x",
   "answers": {
     "<name>": {
       "mode": "boolean" | "choice" | "score",
       "value": ...,
       "confidence": ...,
       "probabilities": ...,
+      "legend": ...,
+      "reason": "...",
       "detail": "..."
     }
   },
-  "error": ""
+  "error": "",
+  "usage": {"input_tokens": 0, "output_tokens": 0}
 }
 ```
 
-- boolean `value` is the noul float, plus `yes` if you want a threshold in the result — pick one and test it. Do not invent a second API type.
+- boolean `value` is the noul float. No extra yes/no threshold.
 - choice `value` is the winning key.
 - score `value` is the numeric score; include the legend when the API sent one.
-- `usage` from the HTTP body is unknown-to-us in Rock’s current `Response` struct. If we decode it, treat extra JSON fields as optional. Do not fail the tool because usage is missing.
+- `reason` is copied if the JSON happens to include `reason` or `explanation`. **The public decide API does not document a reason field.** Do not invent one.
+- `usage` is optional. Missing usage is not an error.
 
-**Errors and offline.**
+**Errors.** Never fabricate an answer.
 
 | Case | Tool result | HTTP? |
 |---|---|---|
-| No key / `Mode()==offline` | `source=offline`, each answer `detail` explains the stub, no error that looks like a crash | no |
-| Live HTTP or decode error | `source=offline` **or** `error` set — pick one policy in the PR and test both the message and that the turn continues | yes, failed |
+| Network / timeout / HTTP / decode / unwired client | `error` set, each answer has `detail` only, no `value` | maybe |
 | Bad arguments | Go error from `Run`, same as other tools | no |
+| No Jev key at process start | Not ask_jev's job. Parallel PR refuses to run. | — |
 
-Offline stub: do not guess Jev. A boolean returns a documented constant (or “not asked”); a choice returns `unknown` / first criterion only if the PR says so in the tool description. The inspect sentence stays: that policy is not Jev.
+**API mapping (do not invent endpoints).**
+
+| Agent | Jev wire | Notes |
+|---|---|---|
+| `mode: boolean` | `noul` | No boolean type in the public API |
+| `mode: choice` + `options` list or map | `choice` + criteria map | List labels become `{label: label}` |
+| `mode: score` + `levels` | `score` + criteria array | Native. 2–10 levels |
+| `mode: score` + `range: [min,max]` | same score levels `"min"…"max"` | Convenience only. Integers, at most 10 steps |
+| `rubric` | folded into `instructions` | Jev has no rubric field |
+| `context` | merged into `state` | Jev does not open files |
+| single `{question, mode, …}` | one question named `q` | Same Decide call |
+
+**Also accepted.** `questions[]` (batch) or one question plus `state` / `context` fields.
 
 **Files.**
 
@@ -92,19 +112,19 @@ Offline stub: do not guess Jev. A boolean returns a documented constant (or “n
 
 **Tests.**
 
-- `ask_jev` live via `httptest`: several questions, mixed modes, auth header, batched body
-- offline: no HTTP, `source=offline`, turn still ends
-- schema errors: empty questions, choice without criteria, unknown mode
+- `ask_jev` against a **fake** Jev client (`httptest` in `internal/jev`, `Env.Ask` stub in tools/harness): several questions, mixed modes, auth header, one batched body
+- runtime failure (502 / timeout): `error` set, no `value`, turn continues
+- schema errors: empty questions, choice without options, unknown mode
 - permissions: allowed in plan mode; default allow
-- rename: `jev_decide` is gone from `Specs()` (or aliased and tested)
+- rename: `jev_decide` is gone from `Specs()`
 
-**Stub / offline.** Same `Gates.Mode()` / `JevKey()` path. No new env vars. `inspect` wording unchanged.
+**Stub.** Tests use a fake client. Do not add a user-facing key-less path. Leave `JevKey()` / `inspect` / process fail-fast to the parallel PR.
 
 **Acceptance.**
 
-- The model sees `ask_jev` and does not see `jev_decide` (unless the PR documents a temporary alias).
+- The model sees `ask_jev` and does not see `jev_decide`.
 - One call can ask a boolean, a choice, and a score against the same `state`.
-- Offline never pretends a live decision happened.
+- A failed call never pretends Jev answered.
 - Hard-coded `BeforeTurn` / `Risk` still run. This PR does not move them.
 
 ---
@@ -133,7 +153,7 @@ Do **not** auto-approve, auto-revert, or skip the LLM. Jev’s answer is another
 - Risky shell still hits `Gates.Risk` even if the model also called `ask_jev`
 - Offline: nudge still appears; `ask_jev` still stubs
 
-**Stub / offline.** Nudges do not require a key. Validation `ask_jev` uses slice (a)’s offline result.
+**Stub.** Validation `ask_jev` uses slice (a)’s result type. There is no key-less ask_jev stub. Tests use a fake client.
 
 **Acceptance.**
 

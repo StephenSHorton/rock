@@ -51,12 +51,12 @@ type MCPServer struct {
 }
 
 type Loaded struct {
-	File      File
-	Path      string
-	CWD       string
-	Trusted   bool
-	Ignored   []string
-	Policy    perms.Policy
+	File    File
+	Path    string
+	CWD     string
+	Trusted bool
+	Ignored []string
+	Policy  perms.Policy
 }
 
 func Default() File {
@@ -68,7 +68,7 @@ func Default() File {
 		Mode:        "default",
 		MaxSteps:    12,
 		Permissions: Perms{
-			Allow: []string{"read_file", "grep", "glob", "web_fetch", "jev_decide", "update_plan"},
+			Allow: []string{"read_file", "grep", "glob", "web_fetch", "ask_jev", "update_plan"},
 			Ask:   []string{"edit_file", "write_file", "shell", "spawn_subagent"},
 		},
 		Jev: Jev{Enabled: true, MinConfidence: 0.55, RiskBlock: 0.72},

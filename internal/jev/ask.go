@@ -1,0 +1,213 @@
+package jev
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+)
+
+// Agent-facing modes. boolean is noul on the wire — Jev has no boolean type.
+const (
+	ModeBoolean = "boolean"
+	ModeChoice  = "choice"
+	ModeScore   = "score"
+
+	// FailedDetail is set on every answer when Decide does not return one.
+	// Never invent a value to go with it.
+	FailedDetail = "Jev call failed, question not answered"
+)
+
+// Query is one agent question. Ask batches them in a single Decide call.
+type Query struct {
+	Name     string
+	Question string
+	Mode     string
+	Options  map[string]string // choice labels → meanings
+	Levels   []string          // score scale, 2–10
+}
+
+// Answer is one typed result the model can act on.
+type Answer struct {
+	Mode          string             `json:"mode"`
+	Value         any                `json:"value,omitempty"`
+	Confidence    float64            `json:"confidence,omitempty"`
+	Probabilities map[string]float64 `json:"probabilities,omitempty"`
+	Legend        map[string]string  `json:"legend,omitempty"`
+	Reason        string             `json:"reason,omitempty"`
+	Detail        string             `json:"detail,omitempty"`
+}
+
+// Result is the ask_jev tool payload.
+type Result struct {
+	Source  string            `json:"source"`
+	Model   string            `json:"model,omitempty"`
+	Answers map[string]Answer `json:"answers"`
+	Error   string            `json:"error,omitempty"`
+	Usage   *Usage            `json:"usage,omitempty"`
+}
+
+// Usage is optional. The public API documents it; a missing field is not an error.
+type Usage struct {
+	InputTokens  int `json:"input_tokens,omitempty"`
+	OutputTokens int `json:"output_tokens,omitempty"`
+}
+
+func (q Query) agentMode() string {
+	switch strings.ToLower(strings.TrimSpace(q.Mode)) {
+	case ModeBoolean, "noul", "yes", "yesno", "yes/no":
+		return ModeBoolean
+	case ModeChoice:
+		return ModeChoice
+	case ModeScore:
+		return ModeScore
+	default:
+		return strings.ToLower(strings.TrimSpace(q.Mode))
+	}
+}
+
+// ValidateQuery checks one question before any HTTP call.
+func ValidateQuery(q Query) error {
+	if strings.TrimSpace(q.Question) == "" {
+		return fmt.Errorf("question is required")
+	}
+	switch q.agentMode() {
+	case ModeBoolean:
+		return nil
+	case ModeChoice:
+		if len(q.Options) == 0 {
+			return fmt.Errorf("choice %q needs an options list", q.Name)
+		}
+		if len(q.Options) > 255 {
+			return fmt.Errorf("choice %q has %d options; Jev choice allows at most 255", q.Name, len(q.Options))
+		}
+		return nil
+	case ModeScore:
+		if len(q.Levels) < 2 {
+			return fmt.Errorf("score %q needs a range or at least two levels", q.Name)
+		}
+		if len(q.Levels) > 10 {
+			return fmt.Errorf("score %q has %d levels; Jev score allows 2-10", q.Name, len(q.Levels))
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown mode %q (want boolean, choice, or score)", q.Mode)
+	}
+}
+
+func ValidateQueries(questions []Query) error {
+	if len(questions) == 0 {
+		return fmt.Errorf("ask_jev needs at least one question")
+	}
+	seen := map[string]bool{}
+	for i, q := range questions {
+		if strings.TrimSpace(q.Name) == "" {
+			return fmt.Errorf("questions[%d] needs a name", i)
+		}
+		if seen[q.Name] {
+			return fmt.Errorf("duplicate question name %q", q.Name)
+		}
+		seen[q.Name] = true
+		if err := ValidateQuery(q); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (q Query) wireQuestion() Question {
+	switch q.agentMode() {
+	case ModeChoice:
+		return ChoiceQ(q.Question, q.Options)
+	case ModeScore:
+		return ScoreQ(q.Question, q.Levels)
+	default:
+		return NoulQ(q.Question)
+	}
+}
+
+// Ask runs questions in one Decide call. A failed call sets Error and
+// leaves every value empty — never a fabricated answer. Key-less process
+// startup is not this function's job; if we are called without a live
+// client, that is a runtime error like any other Decide failure.
+func (g Gates) Ask(ctx context.Context, state any, questions []Query) Result {
+	qs := make(map[string]Question, len(questions))
+	for _, q := range questions {
+		qs[q.Name] = q.wireQuestion()
+	}
+	if g.Client == nil {
+		return askFailed(questions, "jev client is not wired")
+	}
+	res, err := g.Client.Decide(ctx, state, qs)
+	if err != nil {
+		return askFailed(questions, err.Error())
+	}
+	out := Result{Source: "live", Model: res.Model, Answers: make(map[string]Answer, len(questions))}
+	if res.Usage != nil && (res.Usage.InputTokens != 0 || res.Usage.OutputTokens != 0) {
+		out.Usage = res.Usage
+	}
+	for _, q := range questions {
+		raw, ok := res.Answers[q.Name]
+		if !ok {
+			out.Answers[q.Name] = Answer{Mode: q.agentMode(), Detail: "Jev returned no answer"}
+			continue
+		}
+		out.Answers[q.Name] = decodeAsk(q, raw)
+	}
+	return out
+}
+
+func askFailed(questions []Query, err string) Result {
+	out := Result{Error: err, Answers: make(map[string]Answer, len(questions))}
+	for _, q := range questions {
+		out.Answers[q.Name] = Answer{Mode: q.agentMode(), Detail: FailedDetail}
+	}
+	return out
+}
+
+func decodeAsk(q Query, raw json.RawMessage) Answer {
+	a := Answer{Mode: q.agentMode(), Reason: extraReason(raw)}
+	switch q.agentMode() {
+	case ModeChoice:
+		ch, err := DecodeChoice(raw)
+		if err != nil {
+			a.Detail = "decode: " + err.Error()
+			return a
+		}
+		a.Value = ch.Choice
+		a.Confidence = ch.Confidence
+		a.Probabilities = ch.Probabilities
+	case ModeScore:
+		s, err := DecodeScore(raw)
+		if err != nil {
+			a.Detail = "decode: " + err.Error()
+			return a
+		}
+		a.Value = s.Score
+		a.Confidence = s.Confidence
+		a.Probabilities = s.Probabilities
+		a.Legend = s.Legend
+	default:
+		n, err := DecodeNoul(raw)
+		if err != nil {
+			a.Detail = "decode: " + err.Error()
+			return a
+		}
+		a.Value = n.Noul
+	}
+	return a
+}
+
+func extraReason(raw json.RawMessage) string {
+	var extra struct {
+		Reason      string `json:"reason"`
+		Explanation string `json:"explanation"`
+	}
+	if json.Unmarshal(raw, &extra) != nil {
+		return ""
+	}
+	if extra.Reason != "" {
+		return extra.Reason
+	}
+	return extra.Explanation
+}

@@ -1266,12 +1266,28 @@ func toolSummary(name, args string) string {
 		return str("url")
 	case "update_plan":
 		return "plan.md"
-	case "jev_decide":
-		return str("question")
+	case "ask_jev":
+		return askJevSummary(raw)
 	case "spawn_subagent":
 		return strings.TrimSpace(str("kind") + "  " + str("prompt"))
 	}
 	return sanitize(args)
+}
+
+func askJevSummary(raw map[string]any) string {
+	if list, ok := raw["questions"].([]any); ok && len(list) > 0 {
+		m, _ := list[0].(map[string]any)
+		mode, _ := m["mode"].(string)
+		q, _ := m["question"].(string)
+		sum := strings.TrimSpace(sanitize(mode) + "  " + sanitize(q))
+		if len(list) > 1 {
+			return fmt.Sprintf("%s  (+%d)", sum, len(list)-1)
+		}
+		return sum
+	}
+	mode, _ := raw["mode"].(string)
+	q, _ := raw["question"].(string)
+	return strings.TrimSpace(sanitize(mode) + "  " + sanitize(q))
 }
 
 func resultSummary(text string) string {
