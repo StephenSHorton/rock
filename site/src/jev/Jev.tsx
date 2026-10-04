@@ -21,7 +21,7 @@ export function Jev() {
   return (
     <section id="jev" className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
       <p className="mono text-[0.72rem] tracking-[0.16em] uppercase text-[var(--muted)]">
-        <span className="text-[var(--primary)]">jev</span> one feature
+        <span className="text-[var(--primary)]">jev</span> · decisions
       </p>
       <h2 className="mt-2 max-w-[18ch] text-4xl tracking-tight sm:text-5xl">Cheap checks in the loop.</h2>
       <p className="mt-4 max-w-2xl text-lg text-[var(--ink-2)]">
