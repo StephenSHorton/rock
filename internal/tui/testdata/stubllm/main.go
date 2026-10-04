@@ -82,6 +82,17 @@ func respond(msgs []message) map[string]any {
 	}
 	name, args := "edit_file", `{"path":"greeting.txt","old":"helo wrold","new":"hello world"}`
 	switch {
+	case strings.Contains(prompt, "ask jev") || strings.Contains(prompt, "ask_jev") || strings.Contains(prompt, "rounding"):
+		name = "ask_jev"
+		args = `{
+			"state":"rounding: expected 2 got 1.9",
+			"questions":[
+				{"name":"resolved","question":"Is the rounding failure gone?","mode":"boolean"},
+				{"name":"kind","question":"What kind of failure?","mode":"choice","options":{"other":"something else","round":"rounding"}},
+				{"name":"risk","question":"How risky is this change?","mode":"score","levels":["safe","caution","dangerous","stop"]},
+				{"name":"fail","question":"Did this request reach a dead endpoint?","mode":"boolean"}
+			]
+		}`
 	case strings.Contains(prompt, "subagent"):
 		name = "spawn_subagent"
 		args = `{"prompt":"` + childTask + `","kind":"explore"}`
@@ -113,6 +124,8 @@ func afterTool(result string) string {
 		return "## Edited `greeting.txt`\n\nThe typo is gone:\n\n- **before** `helo wrold`\n- **after** `hello world`\n\n" +
 			"```go\nfmt.Println(\"hello world\") // what the file says now\n```\n\n" +
 			"> Allowed once. The next edit asks again."
+	case strings.Contains(result, `"source"`) && strings.Contains(result, `"answers"`):
+		return "## Jev answered\n\nThe `ask_jev` batch came back. Read the `◇ jev` marks — boolean, choice, score, and the failed question."
 	case strings.HasPrefix(result, "updated plan"):
 		return "## Plan written\n\nThe plan is in the pane. `/ready` asks whether it is ready. That does not approve it."
 	case strings.Contains(result, "[explore]") || strings.Contains(result, "[plan]") || strings.Contains(result, "[general]"):

@@ -383,15 +383,24 @@ func rawMap(v any) (map[string]any, bool) {
 }
 
 func jevEvent(name string, res jev.Result, extra string) Event {
-	text := res.Line()
-	if extra != "" {
-		if text == "" || text == "jev" {
-			text = extra
-		} else {
-			text = strings.TrimSpace(text + " " + extra)
-		}
+	return Event{Kind: EvJev, Name: name, Text: attachJevExtra(res.Line(), extra)}
+}
+
+func attachJevExtra(text, extra string) string {
+	text = strings.TrimSpace(text)
+	extra = strings.TrimSpace(extra)
+	if extra == "" {
+		return text
 	}
-	return Event{Kind: EvJev, Name: name, Text: text}
+	if text == "" || text == "jev" {
+		return extra
+	}
+	first, rest, ok := strings.Cut(text, "\n")
+	first = strings.TrimSpace(first + " " + extra)
+	if !ok {
+		return first
+	}
+	return first + "\n" + rest
 }
 
 func askEventText(output string) string {
