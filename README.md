@@ -1,18 +1,16 @@
 # Rock
 
-Jev is the reason Rock exists.
-
-Rock is a Grok Build-class coding CLI — a clone of public [xai-org/grok-build](https://github.com/xai-org/grok-build), written in Go, Charm TUI — packed full of Jev. It is not a mash-up of several harnesses.
+Rock is an AI coding CLI in Go: a clone of public [xai-org/grok-build](https://github.com/xai-org/grok-build), with a Charm TUI. It is not a mash-up of several harnesses.
 
 The binary name is **`rock`**.
 
-Jev is not an LLM. It is a fast System One primitive for safety, speed, and token efficiency: typed questions, typed answers. The LLM reasons and edits. Jev checks, filters, and validates. See [VISION.md](VISION.md).
+Jev is a fast decision API — typed questions, typed answers. The agent uses it for cheap checks, triage, and filtering. The Risk gate is mandatory. A Jev key is required (`rock setup jev`). See [VISION.md](VISION.md).
 
 The program lives in `cmd/rock` and `internal/`. Raid notes under `docs/` are study, not the identity.
 
 ## What this is
 
-A coding agent with a Charm TUI, a headless print mode, ACP on stdio, and a loopback HTTP API. The same harness sits behind all of them. The Grok-shaped surface is familiar on purpose. The Jev marks are the difference.
+A coding agent with a Charm TUI, a headless print mode, ACP on stdio, and a loopback HTTP API. The same harness sits behind all of them.
 
 - **Vision** — Grok Build clone + Jev; what we refuse.
 - **Jev audit** — how the Go actually calls Jev today (mostly hard-coded gates).
@@ -38,8 +36,8 @@ Per-tool pages live under [`docs/clis/`](docs/clis/). The page template is [`doc
 
 ## Direction (short)
 
-- **Product:** Grok Build-class CLI (public tree, reimplemented in Go). Edge is Jev.
-- **Jev:** System One. The agent tool is `ask_jev`. Hard-wired gates still run — the audit tells the truth.
+- **Product:** Grok Build-class CLI (public tree, reimplemented in Go). Charm TUI, `-p`, ACP, serve.
+- **Jev:** Decision API. The agent tool is `ask_jev`. Hard-wired gates still run, including Risk — the audit tells the truth.
 - **TUI:** Charm v2. Crush is FSL-1.1-MIT; study freely, do not wholesale-copy while FSL applies.
 - **License:** MIT. See [LICENSE](LICENSE).
 

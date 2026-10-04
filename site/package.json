@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Rock public page — the coding CLI with a System One.",
+  "description": "Rock public page — an AI coding CLI in Go.",
   "license": "MIT",
   "scripts": {
     "dev": "vite",

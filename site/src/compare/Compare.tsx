@@ -17,12 +17,12 @@ export function Compare() {
   return (
     <section id="compare" className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
       <p className="mono text-[0.72rem] tracking-[0.16em] uppercase text-[var(--muted)]">
-        <span className="text-[var(--primary)]">why</span> jev
+        <span className="text-[var(--primary)]">gates</span> in the binary
       </p>
-      <h2 className="mt-2 max-w-[18ch] text-4xl tracking-tight sm:text-5xl">Why the System One sits here.</h2>
+      <h2 className="mt-2 max-w-[18ch] text-4xl tracking-tight sm:text-5xl">What Jev does here.</h2>
       <p className="mt-4 max-w-2xl text-lg text-[var(--ink-2)]">
-        Rock is a Grok Build-class CLI because the harness is serious. It is Rock because Jev is in
-        the loop. The claims below are in the binary, not a benchmark.
+        The harness is a Grok Build-class CLI in Go. Jev is the decision API in that loop. The claims
+        below are in the binary, not a benchmark.
       </p>
       <ul className="mt-8 grid list-none gap-4 p-0 md:grid-cols-3">
         {POINTS.map((point) => (

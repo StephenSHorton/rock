@@ -21,17 +21,17 @@ export function Jev() {
   return (
     <section id="jev" className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
       <p className="mono text-[0.72rem] tracking-[0.16em] uppercase text-[var(--muted)]">
-        <span className="text-[var(--primary)]">jev</span> system one
+        <span className="text-[var(--primary)]">jev</span> one feature
       </p>
-      <h2 className="mt-2 max-w-[18ch] text-4xl tracking-tight sm:text-5xl">The primitive in the loop.</h2>
+      <h2 className="mt-2 max-w-[18ch] text-4xl tracking-tight sm:text-5xl">Cheap checks in the loop.</h2>
       <p className="mt-4 max-w-2xl text-lg text-[var(--ink-2)]">
-        Jev answers typed questions — boolean, choice, score — in one round trip. It is not an LLM
-        and it does not write code. The main model reasons. Jev decides the bounded questions so the
-        turn is faster, safer, and cheaper.
+        Jev is a fast decision API. It answers typed questions — boolean, choice, score — in one
+        round trip. It is not an LLM and it does not write code. The agent uses it for cheap checks,
+        triage, and filtering.
       </p>
       <p className="mt-3 max-w-2xl text-[var(--ink-2)]">
-        <code>ask_jev</code> is the first-class tool. Built-in checks use that same path. A working Jev
-        key is required; Rock will not start an agent without one.
+        <code>ask_jev</code> is the tool. Built-in checks use that same path. The Risk gate is
+        mandatory. A working Jev key is required; Rock will not start an agent without one.
       </p>
       <div className="mt-8 grid gap-4 md:grid-cols-2">
         {ITEMS.map((item) => (

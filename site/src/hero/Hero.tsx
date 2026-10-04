@@ -3,12 +3,12 @@ import { TuiFrame } from './TuiFrame'
 
 const POINTS = [
   {
-    title: 'Jev is why Rock exists',
-    body: 'A Grok Build-class coding CLI, packed with a System One. The LLM reasons. Jev answers the cheap, typed questions.',
+    title: 'One harness, four faces',
+    body: 'A fullscreen Charm TUI, plus rock -p, rock acp, and rock serve. They share a session.',
   },
   {
-    title: 'Faster, safer, cheaper per task',
-    body: 'The agent calls ask_jev on its own to classify, filter, and verify. Built-in checks share that path. The Risk gate stays mandatory.',
+    title: 'Jev for cheap checks',
+    body: 'A fast decision API the agent uses for classify, triage, and filtering. The Risk gate is mandatory. Yolo cannot skip it.',
   },
   {
     title: 'A Jev key is required',
@@ -22,16 +22,14 @@ export function Hero() {
       <div className="grid items-start gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
         <div>
           <p className="mono text-[0.72rem] tracking-[0.16em] uppercase text-[var(--muted)]">
-            <span className="text-[var(--primary)]">rock</span> 1.0 · MIT · Jev
+            <span className="text-[var(--primary)]">rock</span> 1.0 · MIT · Go
           </p>
           <h1 className="mt-3 text-4xl leading-[1.05] tracking-tight sm:text-5xl">
-            The coding CLI with a System One.
-            <span className="mt-2 block italic text-[var(--primary)]">Jev is why Rock exists.</span>
+            An AI coding CLI in Go.
           </h1>
           <p className="mt-5 max-w-xl text-lg text-[var(--ink-2)]">
-            Jev is a fast, programmable System One primitive. It is not an LLM. A fullscreen Charm TUI,{' '}
-            <code>rock -p</code>, <code>rock acp</code>, and <code>rock serve</code> share the same
-            harness.
+            A fullscreen Charm TUI, <code>rock -p</code>, <code>rock acp</code>, and{' '}
+            <code>rock serve</code> share the same harness.
           </p>
           <ol className="mt-6 space-y-4 p-0">
             {POINTS.map((point, i) => (
