@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useChromeTheme, useReducedMotion } from '../hero/theme'
 
 type DemoId = 'fork' | 'plan' | 'permission' | 'agents' | 'inspect'
@@ -6,32 +6,59 @@ type DemoId = 'fork' | 'plan' | 'permission' | 'agents' | 'inspect'
 const ITEMS: {
   id: DemoId
   title: string
-  body: string
+  body: ReactNode
 }[] = [
   {
     id: 'plan',
     title: 'Plan pane',
-    body: 'Plan mode blocks edits and every shell command until /ready. The pane fills from update_plan, then /ready prints a verdict. The verdict does not approve the work.',
+    body: (
+      <>
+        Plan mode blocks edits and every shell command until <code>/ready</code>. The pane fills from{' '}
+        <code>update_plan</code>, then <code>/ready</code> prints a verdict. The verdict does not approve
+        the work.
+      </>
+    ),
   },
   {
     id: 'permission',
     title: 'Permission cards',
-    body: 'Allow or Deny runs one call once. An allowed call still hits the destructive-action gate. This clip is a real edit_file card, then Allow.',
+    body: (
+      <>
+        Allow or Deny runs one call once. An allowed call still hits the destructive-action gate. This
+        clip is a real <code>edit_file</code> card, then Allow.
+      </>
+    ),
   },
   {
     id: 'fork',
     title: '/fork',
-    body: '/fork emits the fork signal; the status line confirms sent OSC 7880 to the host. The split into a second pane happens inside the Suzuri terminal host, not in a plain terminal. This clip does not show a split, and Rock does not create a git branch.',
+    body: (
+      <>
+        <code>/fork</code> emits the fork signal; the status line confirms <code>sent OSC 7880 to the
+        host</code>. The split into a second pane happens inside the Suzuri terminal host, not in a
+        plain terminal. This clip does not show a split, and Rock does not create a git branch.
+      </>
+    ),
   },
   {
     id: 'agents',
     title: 'Subagents',
-    body: 'spawn_subagent really runs a child explore harness and returns. /agents lists it afterward.',
+    body: (
+      <>
+        <code>spawn_subagent</code> really runs a child explore harness and returns.{' '}
+        <code>/agents</code> lists it afterward.
+      </>
+    ),
   },
   {
     id: 'inspect',
     title: 'inspect',
-    body: 'rock inspect prints what is actually configured and running: config, models, Jev, and the session store. It says when they are offline. No guessing what the harness is doing.',
+    body: (
+      <>
+        <code>rock inspect</code> prints what is actually configured and running: config, models, Jev,
+        and the session store. It says when they are offline. No guessing what the harness is doing.
+      </>
+    ),
   },
 ]
 
@@ -51,6 +78,20 @@ function DemoFrame({
   const src = `/rock/demos/${id}-${theme}.mp4`
   const poster = `/rock/demos/${id}-${theme}.png`
   const showPlay = reduced && !started
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || reduced) return
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) void video.play().catch(() => {})
+        else video.pause()
+      },
+      { threshold: 0.25 },
+    )
+    io.observe(video)
+    return () => io.disconnect()
+  }, [reduced, src])
 
   function play() {
     setStarted(true)
@@ -98,17 +139,10 @@ export function Features() {
 
   return (
     <section id="features" className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="mono text-[0.72rem] tracking-[0.16em] uppercase text-[var(--muted)]">
-            <span className="text-[var(--primary)]">rock</span> 1.0 · on tape
-          </p>
-          <h2 className="mt-2 max-w-[16ch] text-4xl tracking-tight sm:text-5xl">Seen, not sketched.</h2>
-          <p className="mt-4 max-w-2xl text-lg text-[var(--ink-2)]">
-            Real recordings from main, through a stub LLM and xterm. Captions say only what the clip
-            shows.
-          </p>
-        </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="mono text-[0.72rem] tracking-[0.16em] uppercase text-[var(--muted)]">
+          <span className="text-[var(--primary)]">rock</span> 1.0 · on tape
+        </p>
         <button
           type="button"
           className="tui-chip"
@@ -118,6 +152,11 @@ export function Features() {
           {theme === 'dark' ? 'Dark' : 'Light'}
         </button>
       </div>
+      <h2 className="mt-2 max-w-[16ch] text-4xl tracking-tight sm:text-5xl">Seen, not sketched.</h2>
+      <p className="mt-4 max-w-2xl text-lg text-[var(--ink-2)]">
+        Real recordings from main, through a stub LLM and xterm. Captions say only what the clip
+        shows.
+      </p>
       <div className="mt-8 grid gap-6 lg:grid-cols-2">
         {ITEMS.map((item) => (
           <article key={item.id} className="glass-hud rounded-2xl p-5">
