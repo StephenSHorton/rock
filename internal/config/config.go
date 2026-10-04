@@ -42,6 +42,35 @@ type Jev struct {
 	// < 0 disables. The hint is text; it never calls Jev.
 	Nudge      *bool `toml:"nudge"`
 	NudgeEvery int   `toml:"nudge_every"`
+	// Triage attaches a Jev classification to a failed shell (default on).
+	// Filter runs KeepSnippet / grep through the same Ask primitive (default on).
+	Triage    *bool `toml:"triage"`
+	Filter    *bool `toml:"filter"`
+	ClipBytes int   `toml:"clip_bytes"`
+}
+
+func (j Jev) TriageOn() bool {
+	if j.Triage != nil {
+		return *j.Triage
+	}
+	return true
+}
+
+func (j Jev) FilterOn() bool {
+	if j.Filter != nil {
+		return *j.Filter
+	}
+	return true
+}
+
+func (j Jev) ClipSize() int {
+	if j.ClipBytes <= 0 {
+		return 1500
+	}
+	if j.ClipBytes > 8000 {
+		return 8000
+	}
+	return j.ClipBytes
 }
 
 // NudgeInterval is how often the harness appends a validation hint.
@@ -202,6 +231,15 @@ func merge(dst *File, src File) {
 	}
 	if src.Jev.NudgeEvery != 0 {
 		dst.Jev.NudgeEvery = src.Jev.NudgeEvery
+	}
+	if src.Jev.Triage != nil {
+		dst.Jev.Triage = src.Jev.Triage
+	}
+	if src.Jev.Filter != nil {
+		dst.Jev.Filter = src.Jev.Filter
+	}
+	if src.Jev.ClipBytes != 0 {
+		dst.Jev.ClipBytes = src.Jev.ClipBytes
 	}
 	if len(src.MCP) > 0 && dst.MCP == nil {
 		dst.MCP = map[string]MCPServer{}

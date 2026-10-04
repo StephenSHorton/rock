@@ -69,7 +69,7 @@ func (g Gates) BeforeTurn(ctx context.Context, prompt string, skillNames []strin
 			qs["skill"] = ChoiceQ("Which single skill is most relevant? Prefer none when unsure.", crit)
 		}
 		state := map[string]any{
-			"prompt":           clip(prompt, 2000),
+			"prompt":           Clip(prompt, 2000),
 			"recent_tools":     recentTools,
 			"transcript_bytes": transcriptBytes,
 		}
@@ -150,7 +150,7 @@ func repeating(tools []string) bool {
 func (g Gates) Risk(ctx context.Context, tool, args string) (block bool, p float64, source string) {
 	source = g.Mode()
 	if source == "live" {
-		res, err := g.Client.Decide(ctx, map[string]string{"tool": tool, "args": clip(args, 1500)}, map[string]Question{
+		res, err := g.Client.Decide(ctx, map[string]string{"tool": tool, "args": Clip(args, 1500)}, map[string]Question{
 			"risk": NoulQ("Is this tool call destructive or hard to undo?"),
 		})
 		if err == nil {
@@ -192,7 +192,7 @@ func (g Gates) SubagentKind(ctx context.Context, prompt, requested string) strin
 		}
 	}
 	if g.Mode() == "live" {
-		res, err := g.Client.Decide(ctx, map[string]string{"prompt": clip(prompt, 1500), "requested": req}, map[string]Question{
+		res, err := g.Client.Decide(ctx, map[string]string{"prompt": Clip(prompt, 1500), "requested": req}, map[string]Question{
 			"kind": ChoiceQ("What kind of subagent should run?", map[string]string{
 				"explore": "read-only search",
 				"plan":    "write a plan, do not edit the repo",
@@ -221,32 +221,10 @@ func (g Gates) SubagentKind(ctx context.Context, prompt, requested string) strin
 	}
 }
 
-// KeepSnippet drops weak search hits. Offline keeps them.
-func (g Gates) KeepSnippet(ctx context.Context, query, snippet string) bool {
-	if g.Mode() != "live" || strings.TrimSpace(snippet) == "" {
-		return true
-	}
-	res, err := g.Client.Decide(ctx, map[string]string{"query": clip(query, 400), "snippet": clip(snippet, 800)}, map[string]Question{
-		"keep": NoulQ("Does this snippet help answer the query?"),
-	})
-	if err != nil {
-		return true
-	}
-	raw, ok := res.Answers["keep"]
-	if !ok {
-		return true
-	}
-	n, err := DecodeNoul(raw)
-	if err != nil {
-		return true
-	}
-	return n.Noul >= g.minConf()
-}
-
 // PlanReady is reported. It does not auto-approve.
 func (g Gates) PlanReady(ctx context.Context, plan, request string) (bool, float64) {
 	if g.Mode() == "live" {
-		res, err := g.Client.Decide(ctx, map[string]string{"plan": clip(plan, 2000), "request": clip(request, 800)}, map[string]Question{
+		res, err := g.Client.Decide(ctx, map[string]string{"plan": Clip(plan, 2000), "request": Clip(request, 800)}, map[string]Question{
 			"ready": NoulQ("Is this plan specific enough to implement?"),
 		})
 		if err == nil {
@@ -263,11 +241,4 @@ func (g Gates) PlanReady(ctx context.Context, plan, request string) (bool, float
 		p = 0.8
 	}
 	return ready, p
-}
-
-func clip(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n]
 }

@@ -3,6 +3,7 @@ package harness
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -605,4 +606,219 @@ func toolResult(sess *session.Session, name string) string {
 		}
 	}
 	return ""
+}
+
+func TestClassifyFailedShell(t *testing.T) {
+	t.Setenv("ROCK_HOME", t.TempDir())
+	dir := t.TempDir()
+	script := &provider.Script{Replies: []provider.Message{
+		{Role: provider.RoleAssistant, ToolCalls: []provider.ToolCall{{ID: "c1", Name: "shell", Arguments: `{"command":"printf 'FAIL: TestAdd\\nassert want 2 got 1\\n'; exit 1"}`}}},
+		{Role: provider.RoleAssistant, Content: "classified"},
+	}}
+	set := tools.New(tools.Env{Root: dir})
+	h := New(Options{
+		Provider:  script,
+		FastModel: "fast",
+		Policy:    perms.Policy{Mode: perms.ModeYolo, Allow: []string{"shell"}},
+		Gates:     jev.Gates{},
+		Tools:     set,
+		MaxSteps:  4,
+	})
+	var state any
+	var qs []jev.Query
+	set.Env.Ask = func(_ context.Context, st any, questions []jev.Query) (jev.Result, error) {
+		state, qs = st, questions
+		return jev.Result{
+			Source: "live",
+			Answers: map[string]jev.Answer{
+				"kind":  {Mode: jev.ModeChoice, Value: "test"},
+				"area":  {Mode: jev.ModeChoice, Value: "code"},
+				"retry": {Mode: jev.ModeBoolean, Value: 0.12},
+			},
+		}, nil
+	}
+	sess, err := session.Create(dir, "classify", "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var class Event
+	if err := h.Run(context.Background(), sess, "run tests", func(ev Event) {
+		if ev.Kind == EvClassify {
+			class = ev
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := state.(map[string]any)
+	if !strings.Contains(fmt.Sprint(st["log"]), "FAIL: TestAdd") {
+		t.Fatalf("log not in state %#v", state)
+	}
+	if len(qs) != 3 || qs[0].Name != "kind" || qs[1].Name != "area" || qs[2].Name != "retry" {
+		t.Fatalf("%#v", qs)
+	}
+	got := toolResult(sess, "shell")
+	if !strings.Contains(got, "kind=test") || !strings.Contains(got, "area=code") {
+		t.Fatal(got)
+	}
+	if class.Text == "" || !strings.Contains(class.Text, "kind=test") {
+		t.Fatalf("event %#v", class)
+	}
+}
+
+func TestClassifyOfflineDoesNotInvent(t *testing.T) {
+	t.Setenv("ROCK_HOME", t.TempDir())
+	dir := t.TempDir()
+	script := &provider.Script{Replies: []provider.Message{
+		{Role: provider.RoleAssistant, ToolCalls: []provider.ToolCall{{ID: "c1", Name: "shell", Arguments: `{"command":"printf fail; exit 1"}`}}},
+		{Role: provider.RoleAssistant, Content: "kept going"},
+	}}
+	h := New(Options{
+		Provider:  script,
+		FastModel: "fast",
+		Policy:    perms.Policy{Mode: perms.ModeYolo, Allow: []string{"shell"}},
+		Gates:     jev.Gates{},
+		Tools:     tools.New(tools.Env{Root: dir}),
+		MaxSteps:  4,
+	})
+	sess, err := session.Create(dir, "classify-off", "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var class Event
+	if err := h.Run(context.Background(), sess, "run", func(ev Event) {
+		if ev.Kind == EvClassify {
+			class = ev
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if class.Text != "" {
+		t.Fatalf("offline invented a class: %#v", class)
+	}
+	if strings.Contains(toolResult(sess, "shell"), "Jev classify:") {
+		t.Fatal(toolResult(sess, "shell"))
+	}
+}
+
+func TestTriageOffSkipsClassify(t *testing.T) {
+	t.Setenv("ROCK_HOME", t.TempDir())
+	dir := t.TempDir()
+	script := &provider.Script{Replies: []provider.Message{
+		{Role: provider.RoleAssistant, ToolCalls: []provider.ToolCall{{ID: "c1", Name: "shell", Arguments: `{"command":"printf fail; exit 1"}`}}},
+		{Role: provider.RoleAssistant, Content: "ok"},
+	}}
+	set := tools.New(tools.Env{Root: dir})
+	h := New(Options{
+		Provider:  script,
+		FastModel: "fast",
+		Policy:    perms.Policy{Mode: perms.ModeYolo, Allow: []string{"shell"}},
+		Gates:     jev.Gates{},
+		Tools:     set,
+		TriageOff: true,
+		MaxSteps:  4,
+	})
+	var asks int
+	set.Env.Ask = func(context.Context, any, []jev.Query) (jev.Result, error) {
+		asks++
+		return jev.Result{}, nil
+	}
+	sess, err := session.Create(dir, "triage-off", "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Run(context.Background(), sess, "run", nil); err != nil {
+		t.Fatal(err)
+	}
+	if asks != 0 {
+		t.Fatalf("triage off still asked %d", asks)
+	}
+}
+
+func TestGrepFilterEventCounts(t *testing.T) {
+	t.Setenv("ROCK_HOME", t.TempDir())
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("keep hit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.go"), []byte("drop hit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := &provider.Script{Replies: []provider.Message{
+		{Role: provider.RoleAssistant, ToolCalls: []provider.ToolCall{{ID: "c1", Name: "grep", Arguments: `{"pattern":"hit"}`}}},
+		{Role: provider.RoleAssistant, Content: "filtered"},
+	}}
+	set := tools.New(tools.Env{Root: dir})
+	h := New(Options{
+		Provider:  script,
+		FastModel: "fast",
+		Policy:    perms.Policy{Mode: perms.ModeYolo, Allow: []string{"grep"}},
+		Gates:     jev.Gates{},
+		Tools:     set,
+		MaxSteps:  4,
+	})
+	set.Env.FilterSnippets = func(_ string, snips []string) []string {
+		var out []string
+		for _, s := range snips {
+			if strings.Contains(s, "keep") {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	sess, err := session.Create(dir, "filter-ev", "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fil Event
+	if err := h.Run(context.Background(), sess, "search", func(ev Event) {
+		if ev.Kind == EvFilter {
+			fil = ev
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if fil.ClipsBefore != 2 || fil.ClipsAfter != 1 || fil.BytesBefore <= fil.BytesAfter {
+		t.Fatalf("%#v", fil)
+	}
+	got := toolResult(sess, "grep")
+	if !strings.Contains(got, "Jev filter: clips 2→1") {
+		t.Fatal(got)
+	}
+	if !strings.Contains(h.system("x", nil), "Jev does not open files") {
+		t.Fatal(h.system("x", nil))
+	}
+}
+
+func TestAskJevPathsInPlanMode(t *testing.T) {
+	t.Setenv("ROCK_HOME", t.TempDir())
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := &provider.Script{Replies: []provider.Message{
+		{Role: provider.RoleAssistant, ToolCalls: []provider.ToolCall{{ID: "c1", Name: "ask_jev", Arguments: `{"paths":["a.go"],"question":"keep?","mode":"boolean"}`}}},
+		{Role: provider.RoleAssistant, Content: "ok"},
+	}}
+	set := tools.New(tools.Env{Root: dir})
+	h := New(Options{
+		Provider:  script,
+		FastModel: "fast",
+		Policy:    perms.Policy{Mode: perms.ModePlan, Allow: []string{"ask_jev"}},
+		Gates:     jev.Gates{},
+		Tools:     set,
+		MaxSteps:  4,
+	})
+	set.Env.Ask = func(context.Context, any, []jev.Query) (jev.Result, error) {
+		return jev.Result{Source: "live", Answers: map[string]jev.Answer{"q": {Mode: jev.ModeBoolean, Value: 0.4}}}, nil
+	}
+	sess, err := session.Create(dir, "plan-paths", "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Run(context.Background(), sess, "scan", nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(toolResult(sess, "ask_jev"), `"value":0.4`) && !strings.Contains(toolResult(sess, "ask_jev"), "0.4") {
+		t.Fatal(toolResult(sess, "ask_jev"))
+	}
 }

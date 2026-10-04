@@ -3,6 +3,9 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -158,6 +161,146 @@ func TestAskJevRuntimeErrorIsStructured(t *testing.T) {
 	}
 	if res.Error == "" || res.Answers["q"].Value != nil {
 		t.Fatalf("%#v", res)
+	}
+}
+
+func TestAskJevPathsReadsWorkspaceClips(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "math.go"), []byte("package math\nfunc Add() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var gotState any
+	var got []jev.Query
+	set := New(Env{Root: dir, Ask: fakeAsk(func(state any, qs []jev.Query) jev.Result {
+		gotState, got = state, qs
+		return jev.Result{
+			Source: "live",
+			Answers: map[string]jev.Answer{
+				"keep_0": {Mode: jev.ModeBoolean, Value: 0.9},
+			},
+		}
+	})})
+	out, err := set.Run(context.Background(), "ask_jev", `{"paths":["math.go"],"state":{"task":"find Add"}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, ok := gotState.(map[string]any)
+	if !ok {
+		t.Fatalf("state %#v", gotState)
+	}
+	clips, _ := st["clips"].([]any)
+	if len(clips) != 1 {
+		t.Fatalf("clips %#v", st["clips"])
+	}
+	clip, _ := clips[0].(map[string]any)
+	if clip["path"] != "math.go" || !strings.Contains(fmt.Sprint(clip["text"]), "func Add") {
+		t.Fatalf("%#v", clip)
+	}
+	if len(got) != 1 || got[0].Name != "keep_0" {
+		t.Fatalf("generated keep %#v", got)
+	}
+	var res jev.Result
+	if err := json.Unmarshal([]byte(out.Output), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Filter == nil || res.Filter.ClipsBefore != 1 || res.Filter.ClipsAfter != 1 {
+		t.Fatalf("stats %#v", res.Filter)
+	}
+	if len(res.Clips) != 1 || res.Clips[0].Path != "math.go" {
+		t.Fatalf("kept %#v", res.Clips)
+	}
+}
+
+func TestAskJevPathsRejectEscapeAndClip(t *testing.T) {
+	dir := t.TempDir()
+	big := strings.Repeat("x", 4000)
+	if err := os.WriteFile(filepath.Join(dir, "big.go"), []byte(big), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var gotState any
+	set := New(Env{Root: dir, ClipBytes: 20, Ask: fakeAsk(func(state any, qs []jev.Query) jev.Result {
+		gotState = state
+		return jev.Result{Source: "live", Answers: map[string]jev.Answer{
+			"q": {Mode: jev.ModeBoolean, Value: 0.2},
+		}}
+	})})
+	if _, err := set.Run(context.Background(), "ask_jev", `{"paths":["../secret"],"question":"match?","mode":"boolean"}`); err == nil {
+		t.Fatal("expected escape")
+	}
+	out, err := set.Run(context.Background(), "ask_jev", `{"paths":["big.go"],"state":"task","question":"relevant?","mode":"boolean"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := gotState.(map[string]any)
+	clips := st["clips"].([]any)
+	text := fmt.Sprint(clips[0].(map[string]any)["text"])
+	if len(text) != 20 {
+		t.Fatalf("clipped %d %q", len(text), text)
+	}
+	var res jev.Result
+	if err := json.Unmarshal([]byte(out.Output), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Filter == nil || res.Filter.ClipsBefore != 1 || res.Filter.ClipsAfter != 0 {
+		t.Fatalf("custom question must not dump the clip back: %#v", res.Filter)
+	}
+	if len(res.Clips) != 0 {
+		t.Fatalf("clips leaked %#v", res.Clips)
+	}
+}
+
+func TestAskJevPathsOfflineDoesNotInventMatch(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	set := New(Env{Root: dir, Ask: fakeAsk(func(any, []jev.Query) jev.Result {
+		return jev.Result{Error: "jev client is not wired", Answers: map[string]jev.Answer{
+			"keep_0": {Mode: jev.ModeBoolean, Detail: jev.FailedDetail},
+		}}
+	})})
+	out, err := set.Run(context.Background(), "ask_jev", `{"paths":["a.go"]}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var res jev.Result
+	if err := json.Unmarshal([]byte(out.Output), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.Error == "" || len(res.Clips) != 0 || res.Answers["keep_0"].Value != nil {
+		t.Fatalf("must not invent a match: %#v", res)
+	}
+}
+
+func TestGrepFilterStatsAreMeasured(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.go"), []byte("keep hit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.go"), []byte("drop hit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	set := New(Env{Root: dir, FilterSnippets: func(_ string, snips []string) []string {
+		var out []string
+		for _, s := range snips {
+			if strings.Contains(s, "keep") {
+				out = append(out, s)
+			}
+		}
+		return out
+	}})
+	out, err := set.Run(context.Background(), "grep", `{"pattern":"hit"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.Output, "keep") || strings.Contains(out.Output, "drop") {
+		t.Fatal(out.Output)
+	}
+	if out.Filter == nil || out.Filter.ClipsBefore != 2 || out.Filter.ClipsAfter != 1 {
+		t.Fatalf("%#v", out.Filter)
+	}
+	if out.Filter.BytesBefore <= out.Filter.BytesAfter {
+		t.Fatalf("bytes should shrink %#v", out.Filter)
 	}
 }
 

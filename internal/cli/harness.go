@@ -25,6 +25,9 @@ func (a *App) harness(set *tools.Set, ask harness.AskFunc) *harness.Harness {
 		Checkpoint:  a.Checkpoint,
 		Ask:         ask,
 		NudgeEvery:  a.Loaded.File.Jev.NudgeInterval(),
+		TriageOff:   !a.Loaded.File.Jev.TriageOn(),
+		FilterOff:   !a.Loaded.File.Jev.FilterOn(),
+		ClipBytes:   a.Loaded.File.Jev.ClipSize(),
 	})
 }
 

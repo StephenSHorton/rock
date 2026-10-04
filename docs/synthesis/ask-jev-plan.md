@@ -167,6 +167,8 @@ Do **not** auto-approve, auto-revert, or skip the LLM. Jev’s answer is another
 
 ## Slice (c) — triage and filtering
 
+**Landed.** Failed shell: optional live classification (kind / area / retry) attached as a tool-result hint via `Ask`, never a fabricated class. `ask_jev` accepts `paths` — Rock reads clips into `state`; Jev does not open files. Grep filtering and `KeepSnippet` share that encoder; clip/byte counts before and after are measured on the `filter` event. Config: `jev.triage`, `jev.filter` (default on), `jev.clip_bytes` (default 1500).
+
 **Scope.** Jev as a cheap first filter: classify an error, or scan files against criteria, *before* the main LLM reads the pile. The agent calls `ask_jev`. The harness may offer a thin helper so the agent does not have to paste twenty files by hand — but the helper is still `ask_jev` underneath, and the agent chooses to use it.
 
 Two concrete jobs:
