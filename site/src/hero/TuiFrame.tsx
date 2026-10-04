@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { useChromeTheme } from './theme'
 
 export type ShotPair = { dark: string; light: string; label: string; alt: string }
 
@@ -48,18 +49,8 @@ export function TuiFrame({
   pair?: ShotPair
   states?: boolean
 }) {
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark')
-  const [state, setState] = useState(STATES[0].id)
-  const [pinned, setPinned] = useState(false)
-
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    const apply = () => {
-      if (!pinned) setTheme(mq.matches ? 'dark' : 'light')
-    }
-    mq.addEventListener('change', apply)
-    return () => mq.removeEventListener('change', apply)
-  }, [pinned])
+  const { theme, toggle } = useChromeTheme()
+  const [state, setState] = useState('tools')
 
   const active = pair ?? STATES.find((s) => s.id === state)?.pair ?? STATES[0].pair
   const src = `/rock/tui/${theme === 'dark' ? active.dark : active.light}`
@@ -91,10 +82,7 @@ export function TuiFrame({
             type="button"
             className="tui-chip"
             aria-pressed={theme === 'dark'}
-            onClick={() => {
-              setPinned(true)
-              setTheme((t) => (t === 'dark' ? 'light' : 'dark'))
-            }}
+            onClick={toggle}
           >
             {theme === 'dark' ? 'Dark' : 'Light'}
           </button>
