@@ -6,3 +6,7 @@ package version
 //
 // Local and `go install` builds keep the dev fallback.
 var Version = "dev"
+
+// Source is "release" on binaries built by scripts/release.sh. Those
+// binaries are never treated as `go install` trees by rock update.
+var Source = ""

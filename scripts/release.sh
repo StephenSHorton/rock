@@ -12,7 +12,7 @@ fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${ROOT}/dist"
-LDFLAGS="-s -w -X github.com/StephenSHorton/rock/internal/version.Version=${VERSION}"
+LDFLAGS="-s -w -X github.com/StephenSHorton/rock/internal/version.Version=${VERSION} -X github.com/StephenSHorton/rock/internal/version.Source=release"
 mkdir -p "$OUT"
 rm -f "$OUT"/rock_* "$OUT"/checksums.txt
 

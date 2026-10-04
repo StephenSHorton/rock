@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+
+	"github.com/StephenSHorton/rock/internal/version"
 )
 
 const modulePath = "github.com/StephenSHorton/rock/cmd/rock"
@@ -19,6 +21,11 @@ const modulePath = "github.com/StephenSHorton/rock/cmd/rock"
 // InstalledByGo reports a `go install` binary: GOPATH/bin, or build info
 // that names a module version (not a local devel build).
 func InstalledByGo(exe string) bool {
+	// Release archives stamp Source=release. Go 1.24+ also stamps the VCS
+	// tag into build info, so without this a release binary looks go-installed.
+	if version.Source == "release" {
+		return false
+	}
 	abs, err := filepath.Abs(exe)
 	if err == nil {
 		if dir := goBin(); dir != "" {

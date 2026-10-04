@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/StephenSHorton/rock/internal/version"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -235,5 +236,16 @@ func TestGoInstallHint(t *testing.T) {
 	}
 	if !InstalledByGo(exe) {
 		t.Fatal("GOPATH/bin should count as go install")
+	}
+}
+
+func TestReleaseBinaryNotGoInstall(t *testing.T) {
+	old := version.Source
+	version.Source = "release"
+	t.Cleanup(func() { version.Source = old })
+	t.Setenv("GOPATH", t.TempDir())
+	exe := filepath.Join(os.Getenv("GOPATH"), "bin", "rock")
+	if InstalledByGo(exe) {
+		t.Fatal("release binaries must self-update even in GOPATH/bin")
 	}
 }
