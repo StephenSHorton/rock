@@ -1,0 +1,46 @@
+import type { LookPatch } from 'mokei/clay'
+
+/** Clay look for the quarry. Sandstone, slate, hard-hat orange, teal. */
+export const quarryLook = {
+  ground: '#e6d5b8',
+  road: '#c4a574',
+  grass: '#c9d4b0',
+  wall: '#f3eadc',
+  roof: '#5c6670',
+  accent: '#e85d04',
+  yellow: '#f07a2a',
+  cardboard: '#c4a07a',
+  tree: '#2a9d8f',
+  tire: '#2a241f',
+  aoColor: '#4a3728',
+  skyColor: '#d8e4ea',
+  groundBounce: '#d4c0a0',
+  sunColor: '#fff4e4',
+  sunAzimuth: -32,
+  sunElevation: 48,
+  sunIntensity: 0.3,
+  skyIntensity: 0.74,
+  aoIntensity: 2.8,
+  aoRadius: 2.1,
+  cameraZoom: 52,
+  cameraAzimuth: 32,
+  cameraElevation: 36,
+} satisfies LookPatch
+
+export const clay = {
+  sand: '#e6d5b8',
+  sandDeep: '#c4a574',
+  sandHot: '#d8b48a',
+  slate: '#5c6670',
+  slateDeep: '#3d4650',
+  slatePale: '#8b949c',
+  orange: '#f07a2a',
+  orangeHot: '#e85d04',
+  teal: '#2a9d8f',
+  tealDeep: '#1d7a70',
+  crate: '#c4a07a',
+  crateDeep: '#a9845c',
+  cream: '#f3eadc',
+  sage: '#c9d4b0',
+  tire: '#2a241f',
+}

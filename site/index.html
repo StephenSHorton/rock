@@ -1,202 +1,25 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Rock — Go AI coding CLI</title>
-  <meta name="description" content="Rock is a coding CLI. Ask it of the repo. A Charm TUI, headless print, ACP, and a loopback HTTP API share one session.">
-  <meta name="theme-color" content="#0c0b0a">
-  <meta property="og:title" content="Rock — Go AI coding CLI">
-  <meta property="og:description" content="A coding CLI you can ask of the repo. It checks, and it says when it does not know.">
-  <meta property="og:type" content="website">
-  <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,560;0,9..144,640;1,9..144,560&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-  <a class="skip" href="#content">Skip to content</a>
-  <div class="strata" aria-hidden="true"></div>
-  <div class="glow" aria-hidden="true"></div>
-  <div class="scroll-vein" aria-hidden="true"><span id="scroll-vein"></span></div>
-
-  <header class="nav" id="nav">
-    <a class="mark" href="#top" aria-label="Rock, top">
-      <svg viewBox="0 0 32 32" aria-hidden="true">
-        <rect width="32" height="32" rx="8" fill="#161311" stroke="#3a322a"/>
-        <path d="M6 22c3-6 5-7 8-12 2 4 4 5 7 2 2-2 3-1 5 3" fill="none" stroke="#e7a15a" stroke-width="1.8" stroke-linecap="round"/>
-      </svg>
-      <span>rock</span>
-    </a>
-    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="nav-links">Menu</button>
-    <nav id="nav-links" class="nav-links">
-      <a href="#install">Install</a>
-      <a href="#face">Face</a>
-      <a href="#doors">Doors</a>
-      <a href="#gates">Gates</a>
-      <a href="#sample">Sample</a>
-      <a href="#essentials">Essentials</a>
-    </nav>
-    <a class="nav-git" href="https://github.com/StephenSHorton/rock">GitHub</a>
-  </header>
-
-  <main id="content">
-    <section class="hero" id="top">
-      <div class="hero-copy">
-        <p class="kicker"><span>01</span> coding cli · 1.0</p>
-        <h1>
-          <span>Go AI coding CLI</span>
-          <span class="vein-text">Charm TUI, ACP, print, permissions</span>
-        </h1>
-        <p class="lede">Ask it of the repo. Rock reads the files, answers in the transcript, and says when the claim does not hold. A Charm TUI, headless print, ACP on stdio, and a loopback HTTP API share one session. Jev judges the bounded calls. With no key, those gates still run, and <code>inspect</code> says they are offline.</p>
-        <div class="cta">
-          <a class="btn primary" href="https://github.com/StephenSHorton/rock">Source on GitHub</a>
-          <a class="btn ghost" href="https://github.com/StephenSHorton/rock/blob/main/docs/synthesis/v1-plan.md">Read the 1.0 plan</a>
-        </div>
-        <ul class="chips">
-          <li>Charm v2</li>
-          <li>Jev</li>
-          <li>ACP</li>
-          <li>Suzuri guest</li>
-          <li>MIT</li>
-        </ul>
-      </div>
-
-      <figure class="ask">
-        <p class="ask-where">the ask</p>
-        <blockquote>
-          <p>Does this comment match the test?</p>
-        </blockquote>
-        <p class="ask-reply"><span>rock</span> I read the diff. The comment says yes. The test says no.</p>
-      </figure>
-    </section>
-
-    <section class="install" id="install" aria-labelledby="install-title">
-      <div class="band-head">
-        <p class="kicker"><span>install</span> one command</p>
-        <h2 id="install-title">Try it in your terminal.</h2>
-      </div>
-      <div class="os-switch" role="tablist" aria-label="Operating system">
-        <button type="button" class="os-tab" role="tab" id="os-mac" aria-controls="cmd-mac" aria-selected="true" data-os="mac">macOS</button>
-        <button type="button" class="os-tab" role="tab" id="os-linux" aria-controls="cmd-linux" aria-selected="false" data-os="linux">Linux</button>
-        <button type="button" class="os-tab" role="tab" id="os-windows" aria-controls="cmd-windows" aria-selected="false" data-os="windows">Windows</button>
-      </div>
-      <div class="os-panels">
-        <div class="os-panel is-on" role="tabpanel" id="cmd-mac" aria-labelledby="os-mac" data-os="mac">
-          <p class="os-label">macOS</p>
-          <pre><code id="install-mac">curl -fsSL https://stephenshorton.github.io/rock/install.sh | bash</code></pre>
-          <button type="button" class="copy" data-copy="install-mac">Copy</button>
-        </div>
-        <div class="os-panel" role="tabpanel" id="cmd-linux" aria-labelledby="os-linux" data-os="linux">
-          <p class="os-label">Linux</p>
-          <pre><code id="install-linux">curl -fsSL https://stephenshorton.github.io/rock/install.sh | bash</code></pre>
-          <button type="button" class="copy" data-copy="install-linux">Copy</button>
-        </div>
-        <div class="os-panel" role="tabpanel" id="cmd-windows" aria-labelledby="os-windows" data-os="windows">
-          <p class="os-label">Windows</p>
-          <pre><code id="install-windows">irm https://stephenshorton.github.io/rock/install.ps1 | iex</code></pre>
-          <button type="button" class="copy" data-copy="install-windows">Copy</button>
-        </div>
-      </div>
-      <p class="install-note">Needs <a href="https://go.dev/dl/">Go 1.27</a> or newer. The command installs the current 1.0 build of <code>rock</code> into your Go bin.</p>
-    </section>
-
-    <section class="band" id="face" aria-labelledby="face-title">
-      <div class="band-head">
-        <p class="kicker"><span>02</span> the agent</p>
-        <h2 id="face-title">Built to sit in, and to be driven.</h2>
-      </div>
-      <div class="cards">
-        <article class="card" id="doors">
-          <p class="idx">01</p>
-          <h3>Charm, on purpose</h3>
-          <p>Bubble Tea, Bubbles, Lip Gloss, Glamour, Huh, Log, and Harmonica. The transcript, composer, permission modal, and context meter are the product. Huh is <code>rock setup</code> only.</p>
-        </article>
-        <article class="card">
-          <p class="idx">02</p>
-          <h3>Four doors, one session</h3>
-          <p>JSONL under <code>~/.rock</code> is the session. Resume it from the TUI, from print mode, or from a Suzuri pane with the same id.</p>
-        </article>
-        <article class="card" id="gates">
-          <p class="idx">03</p>
-          <h3>Jev, in the loop</h3>
-          <p>Model, skill, stuck, destructive risk, subagent kind, retrieval, compaction, plan readiness. Yolo skips the ask. It does not skip the destructive block.</p>
-        </article>
-        <article class="card">
-          <p class="idx">04</p>
-          <h3>A guest in the pane</h3>
-          <p><code>rock fork</code> emits OSC 7880. Suzuri splits the pane and launches an allowlisted <code>rock</code> with <code>ROCK_SESSION_TITLE</code>. The host keeps the window.</p>
-        </article>
-      </div>
-    </section>
-
-    <section class="sample" id="sample" aria-labelledby="sample-title">
-      <div class="sample-grid">
-        <div class="term" aria-hidden="false">
-          <div class="term-bar">
-            <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
-            <span>rock · session</span>
-            <span class="live">live</span>
-          </div>
-          <ol class="term-lines" id="term-lines">
-            <li><span class="who">mode</span> plan</li>
-            <li><span class="who">jev</span> offline policy</li>
-            <li><span class="who you">you</span> What does plan mode block?</li>
-            <li><span class="who">rock</span> shell is blocked in plan mode</li>
-            <li><span class="who">rock</span> <code>rm -rf</code> still stops. yolo does not skip it.</li>
-          </ol>
-          <p class="term-cursor" id="term-cursor"><span></span></p>
-        </div>
-        <div class="dossier">
-          <header class="dossier-head">
-            <p>Session <span>// rock</span></p>
-            <p>checked · not guessed</p>
-          </header>
-          <h2 id="sample-title">Same engine. Honest about what is running.</h2>
-          <dl class="facts">
-            <div><dt>Binary</dt><dd>rock</dd></div>
-            <div><dt>Face</dt><dd>Charm v2</dd></div>
-            <div><dt>Doors</dt><dd>TUI · print · ACP · HTTP</dd></div>
-            <div><dt>Judge</dt><dd>Jev, or a labeled offline policy</dd></div>
-            <div><dt>Keys</dt><dd>BYOK. The binary still runs without one.</dd></div>
-            <div><dt>Host</dt><dd>Suzuri pane via OSC 7880</dd></div>
-          </dl>
-          <p class="mission">One engine behind every client. Hard gates on risk. A face you can sit in. A PTY guest in the terminal host.</p>
-        </div>
-      </div>
-    </section>
-
-    <section class="essentials" id="essentials" aria-labelledby="ess-title">
-      <div class="band-head">
-        <p class="kicker"><span>03</span> surface</p>
-        <h2 id="ess-title">Essentials</h2>
-      </div>
-      <table>
-        <caption class="sr">Commands and what they do</caption>
-        <tbody>
-          <tr><th scope="row"><code>rock</code></th><td>Fullscreen TUI</td></tr>
-          <tr><th scope="row"><code>rock -p "…"</code></th><td>Headless text on stdout</td></tr>
-          <tr><th scope="row"><code>--output streaming-json</code></th><td>One JSON event per line</td></tr>
-          <tr><th scope="row"><code>rock acp</code></th><td>ACP v1 and v2 on stdio</td></tr>
-          <tr><th scope="row"><code>rock serve</code></th><td>Loopback HTTP and SSE</td></tr>
-          <tr><th scope="row"><code>rock inspect</code></th><td>Config, skills, Jev mode, permissions</td></tr>
-          <tr><th scope="row"><code>rock setup</code></th><td>Huh form. Never stores an API key.</td></tr>
-          <tr><th scope="row"><code>rock fork</code></th><td>OSC 7880, so Suzuri can split a pane</td></tr>
-          <tr><th scope="row"><code>/plan</code> <code>/yolo</code> <code>/fork</code></th><td>Inside the TUI</td></tr>
-        </tbody>
-      </table>
-    </section>
-  </main>
-
-  <footer class="foot">
-    <p>MIT · Copyright 2026 Stephen Horton</p>
-    <p>
-      <a href="https://github.com/StephenSHorton/rock">Repository</a>
-      <a href="https://stephenshorton.github.io/suzuri/">Suzuri</a>
-      <a href="https://github.com/StephenSHorton/rock/blob/main/VISION.md">Vision</a>
-    </p>
-  </footer>
-  <script src="main.js"></script>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rock — Go AI coding CLI</title>
+    <meta
+      name="description"
+      content="Rock is a Go AI coding CLI. Charm TUI, headless print, ACP, and a loopback HTTP API share one session. Permissions, plan mode, skills, and MCP."
+    />
+    <meta name="theme-color" content="#e6d5b8" />
+    <meta property="og:title" content="Rock — Go AI coding CLI" />
+    <meta
+      property="og:description"
+      content="Ask it of the repo. A Charm TUI, headless print, ACP on stdio, and a loopback HTTP API share one session."
+    />
+    <meta property="og:type" content="website" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="canonical" href="https://stephenshorton.github.io/rock/" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>
