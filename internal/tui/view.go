@@ -32,7 +32,7 @@ const sandboxNote = "Permissions are not a sandbox. Plan mode blocks every shell
 // bar is gone unless a permission card is asking. There is no branded header.
 func (m *Model) layout() {
 	w, h := max(m.width, 20), max(m.height, 6)
-	g := geometry{w: w, h: h, composerRows: 3}
+	g := geometry{w: w, h: h, composerRows: 3, frameRows: 2}
 	g.compact = h <= compactAt
 	if !g.compact && h > shortAt {
 		g.padT, g.padB, g.padL, g.padR = 1, 1, 1, 1
@@ -42,9 +42,12 @@ func (m *Model) layout() {
 	if m.pending != nil {
 		g.helpRows = 1
 	}
+	if m.overlay != noOverlay {
+		g.composerRows = 1
+	}
 
 	chrome := func() int {
-		return g.padT + 1 + g.composerRows + g.infoRows + g.helpRows + g.padB
+		return g.padT + 1 + g.composerRows + g.frameRows + g.infoRows + g.helpRows + g.padB
 	}
 	for g.composerRows > 1 && h-chrome() < 4 {
 		g.composerRows--
@@ -76,7 +79,7 @@ func (m *Model) layout() {
 	g.barX = g.padL + g.transcriptW - 1
 	m.geo = g
 
-	// Accent column + prompt leave innerW-2 for the textarea.
+	// Frame sides leave innerW-2 for the textarea.
 	m.input.SetWidth(max(1, g.innerW-2))
 	m.input.SetHeight(g.composerRows)
 	m.help.SetWidth(max(1, g.innerW-1))
@@ -158,6 +161,7 @@ func (m *Model) View() tea.View {
 	if m.gating() {
 		return m.onboardView()
 	}
+	m.syncPicker()
 	g := m.geo
 	var parts []string
 	if g.padT > 0 {
@@ -165,7 +169,7 @@ func (m *Model) View() tea.View {
 	}
 	parts = append(parts,
 		m.inset(m.bodyView(), g.bodyH),
-		m.inset(m.composerView(), g.composerRows+g.infoRows),
+		m.inset(m.composerView(), g.composerRows+g.frameRows+g.infoRows),
 		m.inset(m.statusView(), 1),
 	)
 	if g.helpRows > 0 {
@@ -217,7 +221,7 @@ func (m *Model) bodyView() string {
 		rows = append(rows, m.askView(g.innerW, g.askH))
 	}
 	out := strings.Join(rows, "\n")
-	if menu := m.slashMenuView(g.innerW); menu != "" {
+	if menu := m.pickerView(g.innerW); menu != "" {
 		return overlayBottom(out, menu, g.bodyH, g.innerW)
 	}
 	return out
@@ -665,53 +669,99 @@ func fmtDuration(d time.Duration) string {
 
 func (m *Model) composerView() string {
 	g, t := m.geo, m.th
-	accent := t.faint.Render("│")
-	if m.input.Focused() {
-		accent = t.accent.Render("┃")
-	}
 	inner := max(1, g.innerW-2)
 	rows := strings.Split(block(m.input.View(), inner, g.composerRows), "\n")
 	if strings.TrimSpace(m.input.Value()) == "" && !m.slashVisible() && len(rows) > 0 {
 		rows[0] = overlayRight(rows[0], t.faint.Render(slashHint), inner)
 	}
-	for i := range rows {
-		rows[i] = accent + " " + rows[i]
+	border := t.chrome
+	if m.input.Focused() || m.picker.open() {
+		border = t.accent
 	}
+	top := border.Render("╭" + strings.Repeat("─", inner) + "╮")
+	mid := make([]string, len(rows))
+	for i, row := range rows {
+		mid[i] = border.Render("│") + padRight(row, inner) + border.Render("│")
+	}
+	chips, hits := m.chipSpans()
+	chipW := ansi.StringWidth(ansi.Strip(chips))
+	fill := max(1, inner-chipW-1)
+	if chipW+2 > inner {
+		chips = t.faint.Render(clip(ansi.Strip(chips), max(1, inner-2)))
+		chipW = ansi.StringWidth(ansi.Strip(chips))
+		fill = max(1, inner-chipW-1)
+	}
+	// Grok right-aligns model · mode on the bottom border. Hits are
+	// recorded in screen cells so a click opens that picker.
+	startX := g.padL + 1 + fill
+	x := startX
+	for i := range hits {
+		hits[i].x = x
+		x += hits[i].w + ansi.StringWidth(" · ")
+	}
+	m.chips = hits
+	m.chipY = g.composerY() + g.frameRows + g.composerRows - 1
+	bot := border.Render("╰"+strings.Repeat("─", fill)) + chips + border.Render("─╯")
+	out := append([]string{top}, mid...)
+	out = append(out, bot)
 	if g.infoRows > 0 {
-		rows = append(rows, "  "+strings.Repeat(" ", max(0, inner)))
+		out = append(out, strings.Repeat(" ", g.innerW))
 	}
-	return strings.Join(rows, "\n")
+	return strings.Join(out, "\n")
 }
 
-const slashMenuCap = 8
-
-func (m *Model) slashMenuView(w int) string {
-	if !m.slashVisible() {
-		return ""
-	}
-	items := m.slashMatches()
-	if len(items) == 0 {
-		return ""
-	}
+func (m *Model) chipSpans() (string, []chipHit) {
 	t := m.th
-	from := 0
-	if m.slashSel >= slashMenuCap {
-		from = m.slashSel - slashMenuCap + 1
+	model := m.modelChipLabel()
+	mode := string(m.deps.Mode)
+	if mode == "" {
+		mode = "default"
 	}
-	to := min(len(items), from+slashMenuCap)
-	var rows []string
-	for i := from; i < to; i++ {
-		it := items[i]
-		mark, titleSt := "  ", t.plain
-		if i == m.slashSel {
-			mark, titleSt = t.accent.Render("▸ "), t.strong
+	modelSt, modeSt := t.faint, t.faint
+	if m.input.Focused() || m.picker.open() {
+		modelSt, modeSt = t.chrome, t.chrome
+	}
+	if m.picker.kind == modelPicker {
+		modelSt = t.accent
+	}
+	if m.picker.kind == modePicker {
+		modeSt = t.accent
+	}
+	sep := t.faint.Render(" · ")
+	painted := modelSt.Render(model) + sep + modeSt.Render(mode)
+	return painted, []chipHit{
+		{id: "model", w: ansi.StringWidth(model)},
+		{id: "mode", w: ansi.StringWidth(mode)},
+	}
+}
+
+func (m *Model) modelChipLabel() string {
+	name := m.deps.FastModel
+	if m.turnModel != "" {
+		name = m.turnModel
+	}
+	if name == "" {
+		return "no model"
+	}
+	return name
+}
+
+func (m *Model) pickerView(w int) string {
+	if !m.picker.open() {
+		return ""
+	}
+	if m.picker.kind == slashPicker {
+		items := m.slashMatches()
+		if len(items) == 0 {
+			return ""
 		}
-		title := titleSt.Render(it.title)
-		desc := t.faint.Render(it.desc)
-		row := ansi.Truncate(mark+title+"  "+desc, w, "…")
-		rows = append(rows, t.bar.Width(w).Render(row))
+		p := m.picker
+		p.items = items
+		p.sel = m.slashSel
+		p.clamp()
+		return p.view(&m.th, w)
 	}
-	return strings.Join(rows, "\n")
+	return m.picker.view(&m.th, w)
 }
 
 func overlayRight(row, right string, w int) string {
@@ -747,6 +797,8 @@ func (m *Model) helpLineView() string {
 		}
 	case m.overlay == paletteOverlay:
 		bindings = []key.Binding{k.pick, key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "close"))}
+	case m.picker.open():
+		bindings = []key.Binding{k.move, k.pick, k.close}
 	case m.overlay == sessionsOverlay, m.overlay == providerOverlay:
 		bindings = []key.Binding{k.move, k.pick, k.close}
 	case m.overlay == helpOverlay:
