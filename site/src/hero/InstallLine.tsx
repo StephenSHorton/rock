@@ -9,7 +9,7 @@ function isWindows() {
   return /Win/.test(navigator.platform || '') || /Windows/.test(navigator.userAgent || '')
 }
 
-export function MobileInstallChip() {
+export function InstallChip() {
   const [install, setInstall] = useState(UNIX)
   const [copied, setCopied] = useState(false)
 
