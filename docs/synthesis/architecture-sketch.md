@@ -1,8 +1,8 @@
 # Architecture sketch
 
-Negotiable where the 1.0 plan leaves room. Update this when a raid changes the shape. The binary is `rock`; build it with `go build ./cmd/rock`.
+> **Superseded mash-up identity (kept for history).** The body of this page was written as if Rock were Charm-class + Grok-class + OpenCode-class + Aider + Pi. That blend is retired. Rock is a **Grok Build clone in Go**, Charm TUI, **packed with Jev**. Jev is why the binary exists. See [VISION.md](../../VISION.md), [jev-audit.md](jev-audit.md), [ask-jev-plan.md](ask-jev-plan.md). The checklist below is still a useful inventory of shipped harness pieces. It is not a license to mash peers back into the identity.
 
-Rock is a synthesis: Charm-class face, Grok-class brain ambitions, OpenCode-class permissions, MIT license. Not a Crush fork. Not a Grok Build fork.
+Negotiable where the 1.0 plan leaves room. The binary is `rock`; build it with `go build ./cmd/rock`.
 
 ```
 ┌─────────────────────────────┐
@@ -10,19 +10,21 @@ Rock is a synthesis: Charm-class face, Grok-class brain ambitions, OpenCode-clas
 │  rock TUI (Charm / Go)      │
 │  editors (ACP)              │
 │  scripts (headless / JSON)  │
-│  later: HTTP / desktop      │
+│  HTTP loopback              │
 └─────────────┬───────────────┘
               │  protocol
               │  ACP / stdio / JSON-RPC / session
-              │  optional HTTP OpenAPI
 ┌─────────────▼───────────────┐
-│  Harness                    │
+│  Harness  (Grok Build shape)│
 │  agent loop, tools, perms   │
-│  plan, skills, MCP, hooks   │
+│  plan, skills, MCP          │
 │  sessions, subagents        │
-│  sandbox, inspect           │
-└─────────────┬───────────────┘
-              │
+│  ask_jev (target) + gates   │
+│  inspect                    │
+└──────┬──────────────┬───────┘
+       │              │
+   LLM (reason)    Jev (System One)
+       │              │
      workspace / VCS / OS
 ```
 
@@ -30,11 +32,11 @@ Rock is a synthesis: Charm-class face, Grok-class brain ambitions, OpenCode-clas
 
 **Go only.** Charm TUI and harness in one module. The TUI is a client of the harness package. See [v1-plan.md](v1-plan.md).
 
-Protocol, quarry, and features stay negotiable. A Rust split is not the 1.0 plan. Do not fork a peer “for now.”
+Protocol and features stay negotiable. A Rust split is not the 1.0 plan. Do not fork Grok Build’s tree “for now.”
 
 ## Face
 
-- **Our own** Crush-class TUI on Charm libraries (Bubble Tea v2, Bubbles, Lip Gloss, Glamour).
+- **Our own** Grok Build-class TUI on Charm libraries (Bubble Tea v2, Bubbles, Lip Gloss, Glamour). Crush is study, not the face we clone.
 - Study Crush. Do not wholesale-copy while FSL-1.1-MIT applies.
 - Day-one TUI features worth designing toward: fullscreen + mouse, theme preview, status line, session picker, plan viewer (comment / approve), permission prompts, tasks pane for subagents.
 - Visual parity against Grok Build — intended workflow diffs vs look gaps — is [tui-parity.md](tui-parity.md).
@@ -54,7 +56,7 @@ If a feature cannot be reached through a protocol, it is a TUI toy.
 
 ## Brain
 
-Preferred quarry: [Grok Build](../clis/grok-build.md). Radar stays on. Destiny does not.
+Clone target: [Grok Build](../clis/grok-build.md). Radar stays on that public tree. Jev is the load-bearing difference, not a fifth blended peer.
 
 Minimum harness checklist:
 
@@ -106,9 +108,9 @@ Do not price this in pre-AI years.
 The build plan is [v1-plan.md](v1-plan.md). Short form:
 
 - **Go only.** Charm v2 face and harness in one module. The TUI is a client of the harness package. `rock acp` and `rock serve` speak the same loop.
-- **Clean-room.** Grok Build stays the quarry. Rock does not fork it. Crush stays FSL; we use Charm libraries.
+- **Clean-room.** Grok Build is the clone target. Rock does not fork the Rust tree. Crush stays FSL; we use Charm libraries. Jev is the edge.
 - **HTTP is a daemon (`rock serve`).** The TUI runs the harness in-process. Both read the session store.
 - **Git checkpoint and review-only both exist.** Checkpoint is off until config turns it on. Review-only denies mutating tools.
 - **Rock is an ACP server.** It does not wrap other CLIs in 1.0.
-- **Jev** takes the bounded decisions (model, skills, stuck, risk, subagent kind, retrieval, compact, plan readiness). No key means an offline policy, labeled as such.
+- **Jev** is the edge. 1.0 shipped hard-wired gates (model, skills, stuck, risk, subagent kind, retrieval, compact, plan readiness). The destination is agentic `ask_jev` — [jev-audit.md](jev-audit.md), [ask-jev-plan.md](ask-jev-plan.md). No key means an offline policy, labeled as such. Offline is not Jev. Jev is not a substitute for the LLM.
 - **Suzuri** hosts the PTY. Rock emits OSC 7880 and can attach `suzuri mcp`. Claude Code leak dumps stay out.

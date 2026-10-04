@@ -1,6 +1,6 @@
 # Rock 1.0 plan
 
-This is the build plan. The raid notes stay the evidence. This page is the decision: what 1.0 contains, what it refuses, and where Jev and Suzuri sit.
+This is the 1.0 build record. Identity since the Jev rewrite: Rock is a Grok Build clone in Go, packed with Jev — not a mash-up of several harnesses. See [VISION.md](../../VISION.md). The raid notes stay evidence. What 1.0 actually shipped for Jev is the hard-wired gates below; the next cut is [ask-jev-plan.md](ask-jev-plan.md). How those gates are wired today is [jev-audit.md](jev-audit.md).
 
 Fetched for this plan: Charm v2 module docs (2026-10-03), [Jev decision API](https://jevtypesafeai.com/decide/how-to-use), [ACP v2](https://agentclientprotocol.com/protocol/v2/overview), Suzuri README + `chrome/src/fork_osc.rs` + `docs/mcp.md` at `StephenSHorton/suzuri`. Claude Code stays public-docs only. No leak dumps.
 
@@ -9,7 +9,7 @@ Fetched for this plan: Charm v2 module docs (2026-10-03), [Jev decision API](htt
 | Question | Answer |
 |---|---|
 | Language | **Go only.** Charm v2 is the face. The harness is Go in the same module so the protocol is a package boundary, not a second language. |
-| Quarry | Grok Build is the harness shape we reimplement. We do not fork the tree. Crush is the Charm feel we study. We do not copy Crush source while FSL applies. |
+| Clone target | Grok Build is the product we reimplement. We do not fork the Rust tree. Crush is Charm study only. We do not copy Crush source while FSL applies. Jev is the edge, not a peer we blend in. |
 | Process split | The TUI calls the harness in-process. `rock serve` and `rock acp` are the same harness behind HTTP and stdio. Session state lives in the store, not in the TUI. |
 | Git | Both. `git.checkpoint` commits after a successful mutating turn (off by default). `review_only` denies mutating tools. |
 | Other CLIs | Rock is an ACP server. It does not wrap other CLIs as providers in 1.0. |
@@ -35,7 +35,9 @@ One `rock` binary:
 
 ## Jev
 
-Jev is not the writer. It answers typed questions (`choice`, `score`, `noul`) in one HTTP round trip.
+Jev is why Rock exists. It is not an LLM and not the writer. It answers typed questions (`choice`, `score`, `noul`) in one HTTP round trip. The 1.0 binary uses it as **hard-wired gates** plus a thin `jev_decide` tool. That is not Level 10 agentic Jev. The destination primitive is `ask_jev` — [ask-jev-plan.md](ask-jev-plan.md). The call-site audit is [jev-audit.md](jev-audit.md).
+
+What 1.0 shipped:
 
 - Official key (`TYPESAFE_API_KEY`): `POST https://api.typesafe.ai/v1/systemone`
 - Hosted key (`JEV_API_KEY`, `jv_live_…`): `POST https://jevtypesafeai.com/api/v1/decide`
@@ -55,7 +57,7 @@ Hard-wired gates (always run, one batched call when several questions share a st
 | Context pressure | score how heavy the transcript is | Compact when the score is high |
 | Plan exit | noul “is the plan ready” | Reported on the plan pane; does not auto-approve |
 
-The model can also call `jev_decide` itself. Same client. The loop does not trust the model to remember the hard gates.
+The model can also call `jev_decide` itself (one question, weak schema). Same client. The loop does not trust the model to remember the hard gates. Replacing that tool with `ask_jev` and migrating the gates onto one primitive is the ask-jev plan, not a silent change to this 1.0 record.
 
 ## Suzuri
 
