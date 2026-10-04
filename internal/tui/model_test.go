@@ -1158,3 +1158,90 @@ func TestArrowKeysFoldTheSelectedBlock(t *testing.T) {
 		t.Fatal("right should expand it again")
 	}
 }
+
+func TestAskJevTranscriptModesBatchAndFailure(t *testing.T) {
+	m := sized(t, 100, 30)
+	res := jev.Result{
+		Source: "live",
+		Answers: map[string]jev.Answer{
+			"resolved": {Mode: jev.ModeBoolean, Question: "Is the rounding failure gone?", Value: 0.91},
+			"kind":     {Mode: jev.ModeChoice, Question: "What kind of failure?", Value: "round", Confidence: 0.8},
+			"risk":     {Mode: jev.ModeScore, Question: "How risky is this change?", Value: 1.2, Legend: map[string]string{"1": "caution"}},
+			"fail":     {Mode: jev.ModeBoolean, Question: "Did this reach a dead endpoint?", Detail: "Jev returned no answer"},
+		},
+	}
+	m.Update(eventMsg{harness.Event{Kind: harness.EvToolCall, Name: "ask_jev", Text: `{"question":"hidden"}`}})
+	m.Update(eventMsg{harness.Event{Kind: harness.EvToolResult, Name: "ask_jev", Text: `{"source":"live"}`}})
+	m.Update(eventMsg{harness.Event{Kind: harness.EvJev, Name: "ask", Text: res.Line()}})
+	got := transcriptText(m)
+	if strings.Contains(got, "ask_jev") && strings.Contains(got, "hidden") {
+		t.Fatalf("ask_jev tool row should be hidden:\n%s", got)
+	}
+	if strings.Count(got, "◇ jev ask") != 1 {
+		t.Fatalf("batch should be one call:\n%s", got)
+	}
+	for _, want := range []string{
+		"resolved · boolean · Is the rounding failure gone?",
+		"0.91",
+		"kind · choice · What kind of failure?",
+		"round 0.80",
+		"risk · score · How risky is this change?",
+		"1.2 caution",
+		"fail · boolean · Did this reach a dead endpoint?",
+		"Jev returned no answer",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "fail=0") {
+		t.Fatalf("failed answer must not invent a value:\n%s", got)
+	}
+
+	fail := jev.Result{
+		Error: "jev http 502: nope",
+		Answers: map[string]jev.Answer{
+			"q": {Mode: jev.ModeBoolean, Question: "ok?", Detail: jev.FailedDetail},
+		},
+	}
+	m.Update(eventMsg{harness.Event{Kind: harness.EvJev, Name: "ask", Text: fail.Line()}})
+	got = transcriptText(m)
+	if !strings.Contains(got, jev.FailedDetail) || strings.Contains(got, "q=0") {
+		t.Fatalf("whole-call failure:\n%s", got)
+	}
+}
+
+func TestAskJevVisibilityRules(t *testing.T) {
+	m := sized(t, 100, 28)
+	ask := jev.Result{Source: "live", Answers: map[string]jev.Answer{
+		"resolved": {Mode: jev.ModeBoolean, Question: "Is it gone?", Value: 0.4},
+	}}
+	m.Update(eventMsg{harness.Event{Kind: harness.EvJev, Name: "turn", Text: jev.Result{
+		Source: "live", Answers: map[string]jev.Answer{"model": {Mode: jev.ModeChoice, Question: "Which model?", Value: "fast", Confidence: 0.9}},
+	}.Line() + " stuck=false"}})
+	m.Update(eventMsg{harness.Event{Kind: harness.EvJev, Name: "risk", Text: jev.Result{
+		Source: "live", Answers: map[string]jev.Answer{"risk": {Mode: jev.ModeBoolean, Question: "Destructive?", Value: 0.15}},
+	}.Line() + " p=0.15 block=false"}})
+	m.Update(eventMsg{harness.Event{Kind: harness.EvJev, Name: "kind", Text: "kind=explore"}})
+	m.Update(eventMsg{harness.Event{Kind: harness.EvJev, Name: "ready", Text: jev.Result{
+		Source: "live", Answers: map[string]jev.Answer{"ready": {Mode: jev.ModeBoolean, Question: "Is this plan specific enough to implement?", Value: 0.8}},
+	}.Line() + " plan looks good"}})
+	m.Update(eventMsg{harness.Event{Kind: harness.EvJev, Name: "ask", Text: ask.Line()}})
+
+	got := transcriptText(m)
+	if strings.Contains(got, "◇ jev turn") || strings.Contains(got, "◇ jev risk") || strings.Contains(got, "◇ jev kind") || strings.Contains(got, "stuck=false") || strings.Contains(got, "p=0.15") {
+		t.Fatalf("gates should stay hidden without verbose:\n%s", got)
+	}
+	if !strings.Contains(got, "◇ jev ready") || !strings.Contains(got, "plan looks good") {
+		t.Fatalf("/ready must stay visible:\n%s", got)
+	}
+	if !strings.Contains(got, "◇ jev ask") || !strings.Contains(got, "Is it gone?") || !strings.Contains(got, "0.4") {
+		t.Fatalf("agent ask_jev must stay visible:\n%s", got)
+	}
+
+	submit(m, "/verbose")
+	got = transcriptText(m)
+	if !strings.Contains(got, "◇ jev turn") || !strings.Contains(got, "◇ jev risk") || !strings.Contains(got, "stuck=false") {
+		t.Fatalf("verbose should show gate calls:\n%s", got)
+	}
+}
