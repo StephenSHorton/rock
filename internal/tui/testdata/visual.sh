@@ -9,7 +9,7 @@
 #   visual.sh offline             rock with no model key (offline provider)
 #   visual.sh stub                rock against stubllm in a fresh workspace
 #   visual.sh askjev              stub + fake Jev; type "ask jev about rounding"
-#   visual.sh onboard             first-run Jev gate (no saved key)
+#   visual.sh onboard [env...]    first-run Jev gate (no saved key)
 #   visual.sh onboard-ok          gate + ROCK_TEST_FAKE_JEV accept
 #   visual.sh onboard-bad         gate + ROCK_TEST_FAKE_JEV reject
 #   visual.sh onboard-slow        gate + fake accept after ROCK_TEST_FAKE_JEV_DELAY
