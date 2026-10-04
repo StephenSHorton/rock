@@ -1,4 +1,4 @@
-import type { LookPatch } from '../compat/look'
+import type { LookPatch } from 'mokei/clay'
 
 /** Clay look for the quarry. Sandstone, slate, hard-hat orange, teal. */
 export const quarryLook = {

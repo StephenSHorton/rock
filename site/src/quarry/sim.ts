@@ -1,5 +1,6 @@
+import type { SceneEvent } from 'mokei/scene'
 import { create } from 'zustand'
-import type { Phase, SceneEvent, StationId, Vec2 } from './types'
+import type { Phase, StationId, Vec2 } from './types'
 
 const MAIN_RAIL: Vec2[] = [
   { x: -7.3, z: 0.05 },
@@ -29,33 +30,62 @@ export const STATIONS: { id: StationId; label: string; at: Vec2 }[] = [
   { id: 'dock', label: 'stdout', at: { x: 8.15, z: 0.38 } },
 ]
 
-type Beat = {
-  t: number
-  phase: Phase
-  label: string
-  station: StationId
-  agent: number
-  sub: number
-  crates: number
-  drill: number
-  gate: number
+const STATION_T: Record<StationId, number> = {
+  drill: 0,
+  read: 0.22,
+  edit: 0.38,
+  gate: 0.5,
+  bash: 0.68,
+  tool: 0.84,
+  dock: 1,
 }
 
-const SCRIPT: Beat[] = [
-  { t: 0, phase: 'idle', label: 'ready', station: 'drill', agent: 0, sub: 0, crates: 0, drill: 0, gate: 1 },
-  { t: 0.9, phase: 'prompt', label: 'Does this comment match the test?', station: 'drill', agent: 0, sub: 0, crates: 0, drill: 1, gate: 1 },
-  { t: 2.4, phase: 'agent', label: 'agent cart on the main rail', station: 'read', agent: 0.18, sub: 0, crates: 0, drill: 0.7, gate: 1 },
-  { t: 4.1, phase: 'read', label: 'read_file  internal/cli/app.go', station: 'read', agent: 0.22, sub: 0, crates: 0, drill: 0.2, gate: 1 },
-  { t: 5.8, phase: 'subagent', label: 'spawn_subagent  explore', station: 'tool', agent: 0.28, sub: 0.45, crates: 0, drill: 0.15, gate: 1 },
-  { t: 7.8, phase: 'gate', label: 'ask edit_file — waiting', station: 'gate', agent: 0.5, sub: 0.72, crates: 0, drill: 0.1, gate: 1 },
-  { t: 10.2, phase: 'edit', label: 'allow edit_file', station: 'edit', agent: 0.38, sub: 0.85, crates: 1, drill: 0.1, gate: 0 },
-  { t: 12.2, phase: 'bash', label: 'shell  go test ./internal/cli', station: 'bash', agent: 0.68, sub: 0.92, crates: 2, drill: 0.05, gate: 0 },
-  { t: 14.2, phase: 'tool', label: 'mcp tools joined the loop', station: 'tool', agent: 0.84, sub: 1, crates: 3, drill: 0, gate: 0 },
-  { t: 16.2, phase: 'crates', label: 'stdout on the dock', station: 'dock', agent: 1, sub: 1, crates: 4, drill: 0, gate: 0 },
-  { t: 18.6, phase: 'done', label: 'done end_turn', station: 'dock', agent: 1, sub: 1, crates: 4, drill: 0, gate: 0 },
+const STATION_IDS = new Set<string>(Object.keys(STATION_T))
+
+const PHASE_FOR_STATION: Record<StationId, Phase> = {
+  drill: 'prompt',
+  read: 'read',
+  edit: 'edit',
+  bash: 'bash',
+  tool: 'tool',
+  gate: 'gate',
+  dock: 'crates',
+}
+
+type Cue = { t: number; event: SceneEvent }
+
+const CUES: Cue[] = [
+  { t: 0.9, event: { type: 'task-started', id: 'prompt', label: 'Does this comment match the test?' } },
+  { t: 2.4, event: { type: 'tool-station', station: 'read', label: 'agent cart on the main rail' } },
+  { t: 4.1, event: { type: 'tool-station', id: 'read', station: 'read', label: 'read_file  internal/cli/app.go' } },
+  { t: 5.8, event: { type: 'subagent-spawn', id: 'explore', label: 'spawn_subagent  explore' } },
+  { t: 7.8, event: { type: 'permission-gate', allowed: false, label: 'ask edit_file — waiting' } },
+  { t: 10.2, event: { type: 'permission-gate', allowed: true, label: 'allow edit_file' } },
+  { t: 10.2, event: { type: 'tool-station', station: 'edit', label: 'allow edit_file' } },
+  { t: 10.2, event: { type: 'crate', count: 1 } },
+  { t: 12.2, event: { type: 'tool-station', station: 'bash', label: 'shell  go test ./internal/cli' } },
+  { t: 12.2, event: { type: 'crate', count: 2 } },
+  { t: 14.2, event: { type: 'tool-station', station: 'tool', label: 'mcp tools joined the loop' } },
+  { t: 14.2, event: { type: 'crate', count: 3 } },
+  { t: 16.2, event: { type: 'output', label: 'stdout on the dock' } },
+  { t: 16.2, event: { type: 'crate', count: 4 } },
+  { t: 18.6, event: { type: 'subagent-finish', id: 'explore' } },
+  { t: 18.6, event: { type: 'task-finished', id: 'dock' } },
 ]
 
 const LOOP_AT = 21.2
+
+type LookApi = {
+  zoomBy: (delta: number) => void
+  rotateBy: (deg: number) => void
+  resetView: () => void
+}
+
+let lookApi: LookApi | null = null
+
+export function bindLook(api: LookApi | null) {
+  lookApi = api
+}
 
 export type QuarryState = {
   time: number
@@ -68,30 +98,41 @@ export type QuarryState = {
   crates: number
   drill: number
   gate: number
+  agentTarget: number
+  subTarget: number
+  drillTarget: number
+  gateTarget: number
+  cue: number
   selected: string | null
   tick: (dt: number) => void
   toggle: () => void
   replay: () => void
+  zoomBy: (delta: number) => void
+  rotateBy: (deg: number) => void
+  resetView: () => void
   dispatch: (event: SceneEvent) => void
 }
 
-function at(time: number): Beat {
-  let beat = SCRIPT[0]
-  for (const next of SCRIPT) {
-    if (time >= next.t) beat = next
-  }
-  const i = SCRIPT.indexOf(beat)
-  const after = SCRIPT[i + 1]
-  if (!after) return beat
-  const u = (time - beat.t) / Math.max(0.001, after.t - beat.t)
-  return {
-    ...beat,
-    agent: beat.agent + (after.agent - beat.agent) * u,
-    sub: beat.sub + (after.sub - beat.sub) * u,
-    drill: beat.drill + (after.drill - beat.drill) * u,
-    gate: beat.gate + (after.gate - beat.gate) * u,
-    crates: u > 0.55 ? after.crates : beat.crates,
-  }
+const IDLE = {
+  phase: 'idle' as const,
+  label: 'ready',
+  station: 'drill' as const,
+  agentT: 0,
+  subT: 0,
+  crates: 0,
+  drill: 0,
+  gate: 1,
+  agentTarget: 0,
+  subTarget: 0,
+  drillTarget: 0,
+  gateTarget: 1,
+  cue: -1,
+  selected: null as string | null,
+}
+
+function asStation(value?: string): StationId | undefined {
+  if (value && STATION_IDS.has(value)) return value as StationId
+  return undefined
 }
 
 function along(path: Vec2[], t: number): Vec2 {
@@ -116,37 +157,47 @@ export function subPos(t: number): Vec2 {
 
 export const RAILS = { main: MAIN_RAIL, spur: SPUR_RAIL }
 
+function lerp(from: number, to: number, dt: number, rate: number) {
+  return from + (to - from) * Math.min(1, dt * rate)
+}
+
+function applyCues(time: number, from: number, dispatch: (event: SceneEvent) => void) {
+  let cue = from
+  for (let i = from + 1; i < CUES.length; i += 1) {
+    if (CUES[i].t > time) break
+    dispatch(CUES[i].event)
+    cue = i
+  }
+  return cue
+}
+
 export const useQuarry = create<QuarryState>((set, get) => ({
   time: 0,
   playing: true,
-  phase: 'idle',
-  label: 'ready',
-  station: 'drill',
-  agentT: 0,
-  subT: 0,
-  crates: 0,
-  drill: 0,
-  gate: 1,
-  selected: null,
+  ...IDLE,
   tick: (dt) => {
     if (!get().playing) return
     let time = get().time + dt
-    if (time >= LOOP_AT) time = 0
-    const beat = at(time)
+    if (time >= LOOP_AT) {
+      get().replay()
+      return
+    }
+    const cue = applyCues(time, get().cue, (event) => get().dispatch(event))
+    const cur = get()
     set({
       time,
-      phase: beat.phase,
-      label: beat.label,
-      station: beat.station,
-      agentT: beat.agent,
-      subT: beat.sub,
-      crates: beat.crates,
-      drill: beat.drill,
-      gate: beat.gate,
+      cue,
+      agentT: lerp(cur.agentT, cur.agentTarget, dt, 2.4),
+      subT: lerp(cur.subT, cur.subTarget, dt, 1.6),
+      drill: lerp(cur.drill, cur.drillTarget, dt, 3.2),
+      gate: lerp(cur.gate, cur.gateTarget, dt, 3.2),
     })
   },
   toggle: () => set({ playing: !get().playing }),
-  replay: () => set({ time: 0, playing: true, ...at(0), selected: null }),
+  replay: () => set({ time: 0, playing: true, ...IDLE }),
+  zoomBy: (delta) => lookApi?.zoomBy(delta),
+  rotateBy: (deg) => lookApi?.rotateBy(deg),
+  resetView: () => lookApi?.resetView(),
   dispatch: (event) => {
     if (event.type === 'reset') {
       get().replay()
@@ -157,16 +208,99 @@ export const useQuarry = create<QuarryState>((set, get) => ({
       return
     }
     if (event.type === 'task-started') {
-      set({ time: 0.9, playing: true, ...at(0.9), label: event.label ?? at(0.9).label, selected: event.id ?? 'agent' })
+      set({
+        playing: true,
+        phase: 'prompt',
+        label: event.label ?? 'Does this comment match the test?',
+        station: 'drill',
+        drillTarget: 1,
+        agentTarget: 0,
+        selected: event.id ?? 'agent',
+      })
       return
     }
     if (event.type === 'task-progress') {
       const time = 0.9 + event.progress * 17.7
-      set({ time, ...at(time) })
+      set({ time, playing: get().playing, ...IDLE, selected: event.id ?? get().selected })
+      const cue = applyCues(time, -1, (next) => get().dispatch(next))
+      const cur = get()
+      set({
+        cue,
+        agentT: cur.agentTarget,
+        subT: cur.subTarget,
+        drill: cur.drillTarget,
+        gate: cur.gateTarget,
+      })
       return
     }
     if (event.type === 'task-finished') {
-      set({ time: 18.6, ...at(18.6), selected: event.id ?? 'dock' })
+      set({
+        phase: 'done',
+        label: 'done end_turn',
+        station: 'dock',
+        agentTarget: 1,
+        drillTarget: 0,
+        gateTarget: 0,
+        selected: event.id ?? 'dock',
+      })
+      return
+    }
+    if (event.type === 'tool-station') {
+      const station = asStation(event.station) ?? get().station
+      const firstRead = station === 'read' && !event.id && (get().phase === 'prompt' || get().phase === 'idle' || get().phase === 'agent')
+      set({
+        phase: firstRead ? 'agent' : PHASE_FOR_STATION[station],
+        label: event.label ?? get().label,
+        station,
+        agentTarget: STATION_T[station],
+        selected: event.id ?? station,
+      })
+      return
+    }
+    if (event.type === 'permission-gate') {
+      const allowed = Boolean(event.allowed)
+      set({
+        phase: allowed ? 'edit' : 'gate',
+        label: event.label ?? (allowed ? 'allow' : 'ask'),
+        station: allowed ? 'edit' : 'gate',
+        gateTarget: allowed ? 0 : 1,
+        agentTarget: allowed ? STATION_T.edit : STATION_T.gate,
+        selected: event.id ?? 'gate',
+      })
+      return
+    }
+    if (event.type === 'crate') {
+      set({
+        crates: event.count ?? get().crates + 1,
+        phase: get().phase === 'done' ? 'done' : 'crates',
+        label: event.label ?? get().label,
+      })
+      return
+    }
+    if (event.type === 'output') {
+      set({
+        phase: 'crates',
+        label: event.label ?? 'stdout on the dock',
+        station: 'dock',
+        agentTarget: 1,
+        selected: event.id ?? 'dock',
+      })
+      return
+    }
+    if (event.type === 'subagent-spawn') {
+      set({
+        phase: 'subagent',
+        label: event.label ?? 'spawn_subagent',
+        subTarget: 1,
+        selected: event.id ?? 'explore',
+      })
+      return
+    }
+    if (event.type === 'subagent-finish') {
+      set({
+        subTarget: 1,
+        selected: event.id ?? get().selected,
+      })
     }
   },
 }))

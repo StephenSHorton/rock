@@ -1,4 +1,3 @@
-import { useLook } from '../compat/look'
 import { useQuarry } from './sim'
 import type { Phase } from './types'
 
@@ -29,9 +28,9 @@ export function Hud() {
   const playing = useQuarry((s) => s.playing)
   const toggle = useQuarry((s) => s.toggle)
   const replay = useQuarry((s) => s.replay)
-  const resetView = useLook((s) => s.resetView)
-  const zoomBy = useLook((s) => s.zoomBy)
-  const rotateBy = useLook((s) => s.rotateBy)
+  const resetView = useQuarry((s) => s.resetView)
+  const zoomBy = useQuarry((s) => s.zoomBy)
+  const rotateBy = useQuarry((s) => s.rotateBy)
   const current = stepIndex(phase)
 
   return (

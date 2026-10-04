@@ -5,15 +5,6 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
-const realMokei = existsSync(resolve(__dirname, 'node_modules/mokei/package.json'))
-const aliases = realMokei
-  ? []
-  : [
-      { find: 'mokei/theme/preset.css', replacement: resolve(__dirname, 'src/compat/preset.css') },
-      { find: 'mokei/clay', replacement: resolve(__dirname, 'src/compat/clay.tsx') },
-      { find: 'mokei/theme', replacement: resolve(__dirname, 'src/compat/theme.ts') },
-    ]
-
 function previewNotFound() {
   return {
     name: 'preview-not-found',
@@ -50,9 +41,14 @@ export default defineConfig({
   base: '/rock/',
   appType: 'mpa',
   plugins: [react(), tailwindcss(), copyRootFiles(), previewNotFound()],
-  resolve: { alias: aliases },
+  resolve: {
+    alias: [
+      // mokei/scene's barrel re-exports activateScene, which imports mokei/clay.
+      // Registering a host scene should not pull three.js into the first paint.
+      { find: /^mokei\/scene$/, replacement: resolve(__dirname, 'node_modules/mokei/pkg/kit/scene/registry.js') },
+    ],
+  },
   optimizeDeps: {
-    exclude: ['mokei'],
     include: ['stats.js', 'three', '@react-three/fiber', '@react-three/drei', '@react-three/postprocessing'],
   },
   build: {
@@ -68,7 +64,12 @@ export default defineConfig({
       },
       output: {
         manualChunks(id) {
-          if (id.includes('node_modules/three') || id.includes('@react-three') || id.includes('three/')) {
+          if (
+            id.includes('node_modules/three') ||
+            id.includes('@react-three') ||
+            id.includes('/mokei/pkg/kit/clay') ||
+            id.includes('three/')
+          ) {
             return 'clay'
           }
         },

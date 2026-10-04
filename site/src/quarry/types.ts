@@ -1,10 +1,3 @@
-export type SceneEvent =
-  | { type: 'task-started'; id?: string; label?: string }
-  | { type: 'task-progress'; id?: string; progress: number }
-  | { type: 'task-finished'; id?: string }
-  | { type: 'select'; id: string | null }
-  | { type: 'reset' }
-
 export type Phase =
   | 'idle'
   | 'prompt'

@@ -17,11 +17,7 @@
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true,
-    "paths": {
-      "mokei/clay": ["./src/compat/clay.tsx"],
-      "mokei/theme": ["./src/compat/theme.ts"]
-    }
+    "noUncheckedSideEffectImports": true
   },
   "include": ["src"]
 }

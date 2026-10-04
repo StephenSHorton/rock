@@ -1,8 +1,37 @@
+import { applyLook, lookDefaults, useLook } from 'mokei/clay'
 import { Canvas } from '@react-three/fiber'
-import { World } from './World'
+import { useEffect } from 'react'
 import { quarryLook } from './palette'
+import { quarryScene } from './scene'
+import { bindLook } from './sim'
+import { World } from './World'
 
 export function QuarryCanvas({ pretty }: { pretty: boolean }) {
+  useEffect(() => {
+    applyLook({
+      ...lookDefaults,
+      ...quarryScene.look,
+      cameraZoom: quarryScene.camera?.zoom,
+      cameraAzimuth: quarryScene.camera?.azimuth,
+      cameraElevation: quarryScene.camera?.elevation,
+      panX: 0,
+      panZ: 0,
+    })
+    bindLook({
+      zoomBy: (delta) => useLook.getState().zoomBy(delta),
+      rotateBy: (deg) => useLook.getState().rotateBy(deg),
+      resetView: () =>
+        applyLook({
+          cameraZoom: quarryScene.camera?.zoom,
+          cameraAzimuth: quarryScene.camera?.azimuth,
+          cameraElevation: quarryScene.camera?.elevation,
+          panX: 0,
+          panZ: 0,
+        }),
+    })
+    return () => bindLook(null)
+  }, [])
+
   return (
     <Canvas
       shadows

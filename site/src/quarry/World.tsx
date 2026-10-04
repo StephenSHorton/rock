@@ -1,12 +1,13 @@
-import { ClayCameraRig, ClayGround, Lights, PostFX, SoftBox } from 'mokei/clay'
+import { ClayCameraRig, ClayGround, Lights, Matte, PostFX, RoundCyl, SoftBox } from 'mokei/clay'
 import { useFrame } from '@react-three/fiber'
 import { clay } from './palette'
 import { Cart, Cliff, Dock, DrillRig, Gate, RailPath, Station } from './models'
 import { RAILS, agentPos, subPos, useQuarry } from './sim'
 
 const NO_AO = typeof location !== 'undefined' && /noao|reduced/.test(location.search)
+const HOME = { x: 0.6, z: 0.15 }
 
-export function World({ pretty }: { pretty: boolean }) {
+export function World({ pretty = true }: { pretty?: boolean }) {
   const phase = useQuarry((s) => s.phase)
   const station = useQuarry((s) => s.station)
   const agentT = useQuarry((s) => s.agentT)
@@ -24,10 +25,15 @@ export function World({ pretty }: { pretty: boolean }) {
 
   return (
     <>
-      <ClayCameraRig home={{ x: 0.6, z: 0.15 }} />
+      <ClayCameraRig home={HOME} />
       <Lights />
       <ClayGround onMiss={() => dispatch({ type: 'select', id: null })} />
       <SoftBox size={[22, 0.08, 14]} r={0.05} color={clay.sand} position={[0.4, 0.03, -0.4]} cast={false} />
+      <mesh position={[-8.35, 0.16, 1.55]} castShadow receiveShadow>
+        <sphereGeometry args={[0.2, 16, 12]} />
+        <Matte color={clay.sandHot} />
+      </mesh>
+      <RoundCyl radius={0.18} height={0.28} fillet={0.06} color={clay.slatePale} position={[-8.05, 0.16, 1.85]} />
       <Cliff />
       <RailPath points={RAILS.main} />
       <RailPath points={RAILS.spur} color={clay.slate} />
