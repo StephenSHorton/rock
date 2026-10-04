@@ -65,13 +65,13 @@ ask   spawn_subagent
 Permissions are not a sandbox. Plan mode blocks every shell command because redirections are not inspected.`
 
 export const tuiTranscript = ` rock  Does this comment match the test? · a18f3c0e9b21d4c6          ~/src/app
- DEFAULT  jev:offline  ◆ gpt-4o-mini (offline)  ctx ░░░░░░   2%            ready
+ DEFAULT  jev:live  ◆ gpt-4o-mini (offline)  ctx ░░░░░░   2%            ready
 
 you   Does this comment match the test?
       ◇ jev turn  offline model=fast stuck=false compact=false skills= (offline policy)
 rock  Rock is up. No model key is set, so this reply is the offline provider.
 
- Ask Rock. /help /plan /yolo /default /sessions /permissions /agents /ready /fork /quit`
+ Ask Rock                                          / for commands`
 
 export const commands = [
   { cmd: 'rock', detail: 'Fullscreen Charm TUI. Transcript, composer, plan pane, permission modal.' },

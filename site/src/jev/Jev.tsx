@@ -42,8 +42,8 @@ export function Jev() {
         ))}
       </div>
       <p className="mt-6 max-w-2xl text-[var(--muted)]">
-        Showing <code>ask_jev</code> calls in the TUI is still coming. <code>/ready</code> still prints a
-        plan-readiness verdict. It does not approve the work.
+        Agent <code>ask_jev</code> calls paint as <code>◇ jev</code> with a <code>└</code> gutter.{' '}
+        <code>/ready</code> still prints a plan-readiness verdict. It does not approve the work.
       </p>
     </section>
   )

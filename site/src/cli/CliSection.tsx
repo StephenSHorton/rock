@@ -83,7 +83,8 @@ export function CliSection() {
         <article className="glass-hud rounded-2xl p-5">
           <h3 className="text-2xl tracking-tight">Inside the TUI</h3>
           <p className="mt-2 text-[var(--ink-2)]">
-            Composer placeholder: <code>Ask Rock. /help /plan /yolo /default /sessions /permissions /agents /ready /fork /quit</code>
+            Composer placeholder: <code>Ask Rock</code>. Hint: <code>/ for commands</code>. Type{' '}
+            <code>/</code> to open the menu.
           </p>
           <ul className="mt-4 space-y-2">
             {slash.map((row) => (

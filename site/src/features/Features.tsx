@@ -1,13 +1,23 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useChromeTheme, useReducedMotion } from '../hero/theme'
 
-type DemoId = 'fork' | 'plan' | 'permission' | 'agents' | 'inspect'
+type DemoId = 'fork' | 'plan' | 'permission' | 'agents' | 'inspect' | 'askjev'
 
 const ITEMS: {
   id: DemoId
   title: string
   body: ReactNode
 }[] = [
+  {
+    id: 'askjev',
+    title: 'ask_jev',
+    body: (
+      <>
+        One <code>ask_jev</code> batch: yes/no, choice, score, and a failed answer. The TUI paints{' '}
+        <code>◇ jev</code> with a <code>└</code> gutter. A failed answer does not invent a value.
+      </>
+    ),
+  },
   {
     id: 'plan',
     title: 'Plan pane',

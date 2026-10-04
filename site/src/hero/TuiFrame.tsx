@@ -7,17 +7,26 @@ const STATES: { id: string; pair: ShotPair }[] = [
   {
     id: 'idle',
     pair: {
-      dark: 'idle-dark-v2.png',
+      dark: 'idle-dark.png',
       light: 'idle-light.png',
       label: 'Idle',
-      alt: 'Rock TUI idle: composer, status line, and empty transcript',
+      alt: 'Rock TUI idle: Ask Rock composer, / for commands hint, and jev:live status',
+    },
+  },
+  {
+    id: 'slash',
+    pair: {
+      dark: 'slash-dark.png',
+      light: 'slash-light.png',
+      label: 'Slash',
+      alt: 'Rock TUI slash-command menu after typing / in the composer',
     },
   },
   {
     id: 'tools',
     pair: {
       dark: 'tools-dark.png',
-      light: 'tools-light-v2.png',
+      light: 'tools-light.png',
       label: 'Tools',
       alt: 'Rock TUI after an allowed edit_file call, with the diff in the transcript',
     },
@@ -29,6 +38,15 @@ const STATES: { id: string; pair: ShotPair }[] = [
       light: 'permission-light.png',
       label: 'Ask',
       alt: 'Rock TUI permission card asking to allow or deny edit_file',
+    },
+  },
+  {
+    id: 'askjev',
+    pair: {
+      dark: 'askjev-dark.png',
+      light: 'askjev-light.png',
+      label: 'ask_jev',
+      alt: 'Rock TUI after an ask_jev batch, painted as diamond jev marks with a gutter',
     },
   },
   {

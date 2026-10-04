@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Record the five Rock feature demos in dark and light.
+# Record the Rock feature demos in dark and light.
 # See README.md in this directory.
 set -euo pipefail
 
@@ -191,6 +191,16 @@ drive_inspect() {
 	sleep 8
 }
 
+drive_askjev() {
+	sleep 0.6
+	type_enter "ask jev about rounding"
+	wait_text '◇ jev' 40
+	wait_text 'Jev answered' 40
+	# Bring the diamond batch back into the viewport if the recap pushed it off.
+	vs wheel up 5 || true
+	sleep 4
+}
+
 record_one() {
 	local feat=$1 theme=$2
 	local bg fg stem raw
@@ -222,6 +232,7 @@ record_one() {
 	permission) drive_permission ;;
 	agents) drive_agents ;;
 	inspect) drive_inspect "$(seed_inspect_home)" ;;
+	askjev) drive_askjev ;;
 	*) echo "unknown feature $feat" >&2; return 2 ;;
 	esac
 	wait "$rec"
@@ -241,7 +252,7 @@ main() {
 	ensure_llm
 	seed_inspect_home >/dev/null
 	probe_geom
-	local feats=(fork plan permission agents inspect)
+	local feats=(fork plan permission agents inspect askjev)
 	local themes=(dark light)
 	if [ "$#" -gt 0 ]; then
 		feats=("$@")
