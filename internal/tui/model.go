@@ -216,8 +216,8 @@ type geometry struct {
 	compact      bool
 }
 
-func (g geometry) statusY() int     { return g.bodyY + g.bodyH }
-func (g geometry) composerY() int   { return g.statusY() + 1 }
+func (g geometry) composerY() int   { return g.bodyY + g.bodyH }
+func (g geometry) statusY() int     { return g.composerY() + g.composerRows + g.infoRows }
 func (g geometry) contentLeft() int { return g.padL }
 
 // Model is the Bubble Tea program.
@@ -265,6 +265,7 @@ type Model struct {
 	target   float64
 	ctxBytes int
 	ticking  bool
+	turnAt   time.Time
 
 	send     func(tea.Msg)
 	cancel   context.CancelFunc
@@ -432,6 +433,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 	case turnDone:
 		m.busy = false
 		m.turnModel = ""
+		m.turnAt = time.Time{}
 		if m.cancel != nil {
 			m.cancel()
 			m.cancel = nil
@@ -683,6 +685,7 @@ func (m *Model) start(prompt string) tea.Cmd {
 		return nil
 	}
 	m.busy = true
+	m.turnAt = time.Now()
 	m.status, m.alert = "working", false
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel

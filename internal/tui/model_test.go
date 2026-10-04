@@ -301,8 +301,14 @@ func TestStatusLineCarriesModeJevModelAndMeter(t *testing.T) {
 				t.Fatalf("%d cols: status %q lacks %q", w, status, want)
 			}
 		}
+		if !strings.Contains(status, "│") {
+			t.Fatalf("%d cols: status should use │ segments: %q", w, status)
+		}
 		if w >= 80 && !strings.Contains(status, "─") {
 			t.Fatalf("%d cols: meter bar missing from %q", w, status)
+		}
+		if i, j := strings.Index(status, "0%"), strings.Index(status, "─"); w >= 80 && i >= 0 && j >= 0 && i > j {
+			t.Fatalf("%d cols: percent should come before the meter: %q", w, status)
 		}
 	}
 	m := sized(t, 120, 24)
@@ -311,6 +317,35 @@ func TestStatusLineCarriesModeJevModelAndMeter(t *testing.T) {
 	m.Update(eventMsg{harness.Event{Kind: harness.EvJev, Name: "turn", Text: "offline model=strong stuck=false"}})
 	if status := screen(m)[m.geo.statusY()]; !strings.Contains(status, "gpt-4o ") {
 		t.Fatalf("strong turn should show the strong model: %q", status)
+	}
+}
+
+func TestStatusLineSitsUnderTheComposer(t *testing.T) {
+	m := sized(t, 120, 24)
+	g := m.geo
+	if g.statusY() <= g.composerY() {
+		t.Fatalf("status should sit under the composer: composerY=%d statusY=%d", g.composerY(), g.statusY())
+	}
+	rows := screen(m)
+	if !strings.Contains(rows[g.composerY()], "❯") {
+		t.Fatalf("composer: %q", rows[g.composerY()])
+	}
+	if !strings.Contains(rows[g.statusY()], "│") || !strings.Contains(rows[g.statusY()], "jev:offline") {
+		t.Fatalf("status: %q", rows[g.statusY()])
+	}
+}
+
+func TestStatusLineShowsSessionNameAndTurnTimer(t *testing.T) {
+	m := sized(t, 140, 24)
+	m.deps.CWD = "/tmp/rock"
+	m.layout()
+	if status := screen(m)[m.geo.statusY()]; !strings.Contains(status, "demo") {
+		t.Fatalf("titled session should name itself: %q", status)
+	}
+	m.busy = true
+	m.turnAt = time.Now().Add(-12 * time.Second)
+	if status := screen(m)[m.geo.statusY()]; !strings.Contains(status, "12s") {
+		t.Fatalf("busy turn should show the timer: %q", status)
 	}
 }
 

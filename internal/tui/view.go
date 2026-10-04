@@ -26,9 +26,9 @@ const sandboxNote = "Permissions are not a sandbox. Plan mode blocks every shell
 
 // layout sizes every component for the window and the current state. Rows
 // are handed out top-down from a fixed budget, so the body is what shrinks
-// and the status line, composer, and shortcuts bar always stay on screen.
-// There is no branded header: Grok's agent view keeps the prompt flush
-// against the hint bar and lets the scrollback take the leftover rows.
+// and the composer, status line, and shortcuts bar always stay on screen.
+// The live session row sits under the composer, above the shortcuts, matching
+// Grok's [ui.status_line] slot. There is no branded header.
 func (m *Model) layout() {
 	w, h := max(m.width, 20), max(m.height, 6)
 	g := geometry{w: w, h: h, composerRows: 3, infoRows: 1, helpRows: 1}
@@ -159,8 +159,8 @@ func (m *Model) View() tea.View {
 	}
 	parts = append(parts,
 		m.inset(m.bodyView(), g.bodyH),
-		m.inset(m.statusView(), 1),
 		m.inset(m.composerView(), g.composerRows+g.infoRows),
+		m.inset(m.statusView(), 1),
 	)
 	if g.helpRows > 0 {
 		parts = append(parts, m.inset(m.helpLineView(), 1))
@@ -519,18 +519,33 @@ func (m *Model) statusView() string {
 	if m.deps.Provider == "offline" {
 		note = " (offline)"
 	}
-	pct := fmt.Sprintf("%3.0f%%", m.meterP*100)
+	pct := fmt.Sprintf("%.0f%%", m.meterP*100)
 	pctStyle := t.plain
 	if m.meterP >= 0.8 {
 		pctStyle = t.alarm
 	}
+	cwd := shortPath(m.deps.CWD)
+	title := ""
+	if m.deps.Session != nil {
+		title = strings.TrimSpace(m.deps.Session.Meta.Title)
+	}
+	timer := ""
+	if m.busy && !m.turnAt.IsZero() {
+		timer = fmtDuration(time.Since(m.turnAt))
+	}
 
-	build := func(barW int, withNote bool) string {
-		model := t.chrome.Render("◆ ") + t.plain.Render(name)
-		if withNote {
-			model += t.faint.Render(note)
+	sep := t.faint.Render(" │ ")
+	join := func(parts []string) string {
+		var keep []string
+		for _, p := range parts {
+			if strings.TrimSpace(ansi.Strip(p)) != "" {
+				keep = append(keep, p)
+			}
 		}
-		ctx := t.chrome.Render("ctx ")
+		return " " + strings.Join(keep, sep)
+	}
+	ctxSeg := func(barW int) string {
+		s := pctStyle.Render(pct) + t.chrome.Render(" ctx")
 		if barW > 0 {
 			meter := m.meter
 			meter.SetWidth(barW)
@@ -538,20 +553,56 @@ func (m *Model) statusView() string {
 			if fill > 0 && fill*float64(barW) < 1 {
 				fill = 1 / float64(barW)
 			}
-			ctx += meter.ViewAs(fill) + " "
+			s += " " + meter.ViewAs(fill)
 		}
-		ctx += pctStyle.Render(pct)
-		return " " + badges + "  " + jevSeg + "  " + model + "  " + ctx
+		return s
 	}
-	left := build(m.meter.Width(), true)
+	modelSeg := func(withNote bool) string {
+		s := t.plain.Render(name)
+		if withNote {
+			s += t.faint.Render(note)
+		}
+		return s
+	}
+
+	build := func(barW int, withNote, withTitle, withTimer, withCwd bool, cwdW int) string {
+		cwdSeg := ""
+		if withCwd {
+			path := cwd
+			if cwdW > 0 {
+				path = clipLeft(cwd, cwdW)
+			}
+			cwdSeg = t.faint.Render(path)
+		}
+		parts := []string{badges, jevSeg, cwdSeg, modelSeg(withNote), ctxSeg(barW)}
+		if withTitle && title != "" {
+			parts = append(parts, t.faint.Render(title))
+		}
+		if withTimer && timer != "" {
+			parts = append(parts, t.chrome.Render(timer))
+		}
+		return join(parts)
+	}
+
+	bar := m.meter.Width()
+	left := build(bar, true, true, true, true, 0)
 	for _, try := range []struct {
-		bar  int
-		note bool
-	}{{6, true}, {0, true}, {6, false}, {0, false}} {
+		bar                         int
+		note, title, timer, withCwd bool
+		cwdW                        int
+	}{
+		{bar, true, true, true, true, 24},
+		{bar, true, true, false, true, 16},
+		{bar, true, false, false, true, 12},
+		{bar, true, false, false, false, 0},
+		{6, true, false, false, false, 0},
+		{0, true, false, false, false, 0},
+		{0, false, false, false, false, 0},
+	} {
 		if ansi.StringWidth(left) <= w {
 			break
 		}
-		left = build(try.bar, try.note)
+		left = build(try.bar, try.note, try.title, try.timer, try.withCwd, try.cwdW)
 	}
 	left = ansi.Truncate(left, w, "…")
 
@@ -574,6 +625,16 @@ func (m *Model) statusView() string {
 	}
 	gap := max(2, w-ansi.StringWidth(left)-ansi.StringWidth(right)-1)
 	return left + strings.Repeat(" ", gap) + right
+}
+
+func fmtDuration(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	return fmt.Sprintf("%d:%02d", int(d.Minutes()), int(d.Seconds())%60)
 }
 
 func (m *Model) composerView() string {
@@ -602,14 +663,7 @@ func (m *Model) composerInfo(w int) string {
 		name = "no model"
 	}
 	mode := string(m.deps.Mode)
-	left := t.plain.Render(name) + t.faint.Render(" · "+mode)
-	cwd := shortPath(m.deps.CWD)
-	if ansi.StringWidth(name+" · "+mode+"  "+cwd) > w {
-		cwd = clipLeft(cwd, max(8, w-ansi.StringWidth(name+" · "+mode)-2))
-	}
-	right := t.faint.Render(cwd)
-	gap := max(1, w-ansi.StringWidth(name+" · "+mode)-ansi.StringWidth(cwd))
-	return ansi.Truncate(left+strings.Repeat(" ", gap)+right, w, "…")
+	return ansi.Truncate(t.plain.Render(name)+t.faint.Render(" · "+mode), w, "…")
 }
 
 func (m *Model) helpLineView() string {
