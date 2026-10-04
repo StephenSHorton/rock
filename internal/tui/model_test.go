@@ -55,11 +55,30 @@ func testModel(t *testing.T) *Model {
 func TestViewRendersSession(t *testing.T) {
 	m := testModel(t)
 	view := m.View().Content
-	if !strings.Contains(view, "rock") || !strings.Contains(view, "jev:offline") {
+	if !strings.Contains(view, "Rock") || !strings.Contains(view, "jev:offline") {
 		t.Fatalf("view:\n%s", view)
 	}
 	if !strings.Contains(view, "ready") {
 		t.Fatal(view)
+	}
+}
+
+func TestLayoutHasNoWordmarkHeader(t *testing.T) {
+	m := sized(t, 120, 30)
+	rows := screen(m)
+	if strings.HasPrefix(strings.TrimSpace(rows[0]), "rock") {
+		t.Fatalf("branded header wordmark still occupies row 0: %q", rows[0])
+	}
+	if m.geo.padT != 1 || m.geo.padL != 1 {
+		t.Fatalf("tall screen should pad: %+v", m.geo)
+	}
+	compact := sized(t, 120, 20)
+	if compact.geo.padT != 0 || !compact.geo.compact {
+		t.Fatalf("height 20 should compact: %+v", compact.geo)
+	}
+	info := screen(m)[m.geo.composerY()+m.geo.composerRows]
+	if !strings.Contains(info, "gpt-4o-mini") || !strings.Contains(info, "default") {
+		t.Fatalf("composer info line: %q", info)
 	}
 }
 
@@ -163,7 +182,7 @@ func transcriptText(m *Model) string {
 	g := m.geo
 	var parts []string
 	for y := g.vpY; y < g.vpY+g.vpH && y < len(rows); y++ {
-		parts = append(parts, ansi.Cut(rows[y], 0, g.transcriptW))
+		parts = append(parts, ansi.Cut(rows[y], g.padL, g.padL+g.transcriptW))
 	}
 	return flat(strings.Join(parts, " "))
 }
@@ -172,13 +191,17 @@ func transcriptText(m *Model) string {
 func planText(m *Model) string {
 	rows := screen(m)
 	g := m.geo
-	left, top, height := g.transcriptW+1, g.vpY, g.vpH
+	left, top, height := g.padL+g.transcriptW+1, g.vpY, g.vpH
 	if g.planH > 0 {
-		left, top, height = 0, g.bodyY, g.planH
+		left, top, height = g.padL, g.bodyY, g.planH
+	}
+	right := g.padL + g.innerW - 2
+	if g.planW > 0 {
+		right = left + g.planW - 2
 	}
 	var parts []string
 	for y := top + 1; y < top+height-1 && y < len(rows); y++ {
-		parts = append(parts, ansi.Cut(rows[y], left+2, g.w-2))
+		parts = append(parts, ansi.Cut(rows[y], left+2, right))
 	}
 	return flat(strings.Join(parts, " "))
 }
@@ -224,14 +247,14 @@ func TestReadySentenceIsWholeAndThePlanColumnSharesTheRow(t *testing.T) {
 			}
 			continue
 		}
-		if g.transcriptW+1+g.planW != tc.w {
-			t.Fatalf("%d cols: transcript %d + gap + plan %d does not fill the row", tc.w, g.transcriptW, g.planW)
+		if g.transcriptW+1+g.planW != g.innerW {
+			t.Fatalf("%d cols: transcript %d + gap + plan %d does not fill the inner row", tc.w, g.transcriptW, g.planW)
 		}
 		for y := g.vpY; y < g.vpY+g.vpH; y++ {
-			left := ansi.Cut(rows[y], 0, g.transcriptW)
-			gap := ansi.Cut(rows[y], g.transcriptW, g.transcriptW+1)
-			plan := ansi.Cut(rows[y], g.transcriptW+1, tc.w)
-			if strings.ContainsAny(left, "│╭╰╮╯") {
+			left := ansi.Cut(rows[y], g.padL, g.padL+g.transcriptW)
+			gap := ansi.Cut(rows[y], g.padL+g.transcriptW, g.padL+g.transcriptW+1)
+			plan := ansi.Cut(rows[y], g.padL+g.transcriptW+1, g.padL+g.innerW)
+			if strings.ContainsAny(left, "╭╰╮╯") {
 				t.Fatalf("%d cols row %d: plan border inside the transcript column: %q", tc.w, y, left)
 			}
 			if gap != " " || ansi.StringWidth(plan) != g.planW {
@@ -251,15 +274,18 @@ func TestShortHeightKeepsStatusComposerAndHelp(t *testing.T) {
 			m := sized(t, w, h)
 			rows := assertFrame(t, m, w, h)
 			g := m.geo
-			status := rows[g.bodyY+g.bodyH]
+			status := rows[g.statusY()]
 			if !strings.Contains(status, "jev:offline") || !strings.Contains(status, "gpt-4o-mini") || !strings.Contains(status, "ctx") {
 				t.Fatalf("%dx%d: status row %q", w, h, status)
 			}
-			top, bottom := rows[g.bodyY+g.bodyH+1], rows[g.bodyY+g.bodyH+g.composerRows+2]
-			if !strings.HasPrefix(top, "╭") || !strings.HasPrefix(bottom, "╰") {
-				t.Fatalf("%dx%d: composer box %q / %q", w, h, top, bottom)
+			top := strings.TrimLeft(rows[g.composerY()], " ")
+			if !strings.Contains(top, "❯") {
+				t.Fatalf("%dx%d: composer should use ❯, got %q", w, h, top)
 			}
-			if !strings.Contains(rows[h-1], "send") {
+			if strings.Contains(rows[g.composerY()], "╭") {
+				t.Fatalf("%dx%d: composer still has a rounded box: %q", w, h, rows[g.composerY()])
+			}
+			if g.helpRows > 0 && !strings.Contains(rows[h-1], "send") && !strings.Contains(rows[h-1], "allow") {
 				t.Fatalf("%dx%d: help row %q", w, h, rows[h-1])
 			}
 		}
@@ -269,7 +295,7 @@ func TestShortHeightKeepsStatusComposerAndHelp(t *testing.T) {
 func TestStatusLineCarriesModeJevModelAndMeter(t *testing.T) {
 	for _, w := range []int{60, 80, 140} {
 		m := sized(t, w, 24)
-		status := screen(m)[m.geo.bodyY+m.geo.bodyH]
+		status := screen(m)[m.geo.statusY()]
 		for _, want := range []string{"DEFAULT", "jev:offline", "gpt-4o-mini", "(offline)", "ctx", "0%"} {
 			if !strings.Contains(status, want) {
 				t.Fatalf("%d cols: status %q lacks %q", w, status, want)
@@ -283,7 +309,7 @@ func TestStatusLineCarriesModeJevModelAndMeter(t *testing.T) {
 	m.Update(eventMsg{harness.Event{Kind: harness.EvJev, Name: "turn", Text: "offline model=strong stuck=false"}})
 	m.deps.StrongModel = "gpt-4o"
 	m.Update(eventMsg{harness.Event{Kind: harness.EvJev, Name: "turn", Text: "offline model=strong stuck=false"}})
-	if status := screen(m)[m.geo.bodyY+m.geo.bodyH]; !strings.Contains(status, "gpt-4o ") {
+	if status := screen(m)[m.geo.statusY()]; !strings.Contains(status, "gpt-4o ") {
 		t.Fatalf("strong turn should show the strong model: %q", status)
 	}
 }
@@ -312,7 +338,7 @@ func TestContextMeterEasesWithoutJumping(t *testing.T) {
 	if steps < 10 || cmd != nil || m.meterP != m.target {
 		t.Fatalf("settled after %d frames at %v, cmd %v", steps, m.meterP, cmd != nil)
 	}
-	if status := screen(m)[m.geo.bodyY+m.geo.bodyH]; !strings.Contains(status, "25%") || !strings.Contains(status, "━") {
+	if status := screen(m)[m.geo.statusY()]; !strings.Contains(status, "25%") || !strings.Contains(status, "━") {
 		t.Fatalf("status %q", status)
 	}
 }
@@ -381,7 +407,7 @@ func TestPlanPaneSaysShellIsBlockedBesideAReadableTranscript(t *testing.T) {
 				t.Fatalf("%d cols: plan pane lacks %q: %q", w, want, plan)
 			}
 		}
-		if !strings.Contains(rows[m.geo.bodyY+m.geo.bodyH], "PLAN") {
+		if !strings.Contains(rows[m.geo.statusY()], "PLAN") {
 			t.Fatalf("%d cols: status should show PLAN", w)
 		}
 		if !strings.Contains(transcriptText(m), readyText) {
@@ -429,7 +455,11 @@ func TestAllowDialogShowsTheCallAndKeepsTheChrome(t *testing.T) {
 			}
 		}
 		g := m.geo
-		if !strings.Contains(rows[g.bodyY+g.bodyH], "jev:offline") || !strings.Contains(rows[h-1], "allow") {
+		help := rows[h-1]
+		if g.padB > 0 && h-2 >= 0 {
+			help = rows[h-1-g.padB]
+		}
+		if !strings.Contains(rows[g.statusY()], "jev:offline") || !strings.Contains(help, "allow") {
 			t.Fatalf("%dx%d: chrome pushed off:\n%s", w, h, view)
 		}
 		m.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
@@ -462,15 +492,15 @@ func TestMouseWheelAndScrollbarScrollTheTranscript(t *testing.T) {
 		t.Fatal("wheel down did not scroll")
 	}
 	g := m.geo
-	m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: g.transcriptW - 1, Y: g.vpY})
+	m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: g.barX, Y: g.vpY})
 	if m.vp.YOffset() != 0 {
 		t.Fatalf("click on the top of the scrollbar: offset %d", m.vp.YOffset())
 	}
 	if !strings.Contains(screen(m)[g.vpY], "┃") {
 		t.Fatalf("scrollbar thumb not at the top: %q", screen(m)[g.vpY])
 	}
-	m.Update(tea.MouseMotionMsg{Button: tea.MouseLeft, X: g.transcriptW - 1, Y: g.vpY + g.vpH - 1})
-	m.Update(tea.MouseReleaseMsg{Button: tea.MouseLeft, X: g.transcriptW - 1, Y: g.vpY + g.vpH - 1})
+	m.Update(tea.MouseMotionMsg{Button: tea.MouseLeft, X: g.barX, Y: g.vpY + g.vpH - 1})
+	m.Update(tea.MouseReleaseMsg{Button: tea.MouseLeft, X: g.barX, Y: g.vpY + g.vpH - 1})
 	if !m.vp.AtBottom() || !m.follow || m.dragging {
 		t.Fatal("dragging the thumb to the bottom should pin the transcript again")
 	}
@@ -535,7 +565,7 @@ func TestPlaceholderListsEverySlashCommandAndTheyAllWork(t *testing.T) {
 	all := []string{"/help", "/plan", "/yolo", "/default", "/sessions", "/permissions", "/agents", "/ready", "/fork", "/quit"}
 	m := sized(t, 80, 24)
 	g := m.geo
-	composer := flat(strings.Join(screen(m)[g.bodyY+g.bodyH+1:g.bodyY+g.bodyH+g.composerRows+3], " "))
+	composer := flat(strings.Join(screen(m)[g.composerY():g.composerY()+g.composerRows+g.infoRows], " "))
 	for _, c := range all {
 		if !strings.Contains(placeholder, c) || !strings.Contains(composer, c) {
 			t.Fatalf("placeholder lacks %s: %q", c, composer)
