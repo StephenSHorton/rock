@@ -45,7 +45,7 @@ export function YardStage() {
   return (
     <div
       ref={root}
-      className="pointer-events-none absolute inset-0 -z-10 min-h-[100svh] w-full bg-[var(--clay-sky)]"
+      className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[100svh] w-full bg-[var(--clay-sky)]"
       aria-hidden="true"
     >
       {ready ? (

@@ -35,16 +35,16 @@ export function InstallLine() {
   }
 
   return (
-    <div className="mt-6">
-      <div className="flex flex-col gap-3 rounded-xl border border-[var(--border)] bg-[var(--mokei-base)] p-3 sm:flex-row sm:items-center">
-        <pre className="m-0 flex-1 overflow-x-auto whitespace-pre-wrap break-all text-[0.8rem] leading-6">
+    <div className="mt-3 lg:mt-6">
+      <div className="flex flex-col gap-2 rounded-xl border border-[var(--border)] bg-[var(--mokei-base)] p-2 sm:flex-row sm:items-center lg:gap-3 lg:p-3">
+        <pre className="m-0 flex-1 overflow-x-auto whitespace-pre-wrap break-all text-[0.68rem] leading-5 lg:text-[0.8rem] lg:leading-6">
           <code>{text}</code>
         </pre>
         <button type="button" className="hud-btn bg-[var(--primary)] text-[var(--primary-foreground)]" onClick={copy}>
           {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
-      <p className="mt-2 text-sm text-[var(--muted)]">
+      <p className="mt-2 hidden text-sm text-[var(--muted)] lg:block">
         A Jev key is required. The TUI asks for it on first run if none is stored.
       </p>
     </div>
