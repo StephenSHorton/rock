@@ -41,15 +41,6 @@ export default defineConfig({
   base: '/rock/',
   appType: 'mpa',
   plugins: [react(), tailwindcss(), copyRootFiles(), previewNotFound()],
-  resolve: {
-    alias: [
-      // kit export points at pkg/kit/themes; 8c44d1e ships the CSS under src/kit/themes.
-      {
-        find: 'mokei/themes/quarry.css',
-        replacement: resolve(__dirname, 'node_modules/mokei/src/kit/themes/quarry.css'),
-      },
-    ],
-  },
   optimizeDeps: {
     include: ['stats.js', 'three', '@react-three/fiber', '@react-three/drei', '@react-three/postprocessing'],
   },
