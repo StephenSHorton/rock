@@ -65,6 +65,30 @@ a {
   border: 0;
 }
 
+.hero-scrim {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: radial-gradient(
+    80% 70% at 0% 0%,
+    color-mix(in srgb, var(--mokei-base) 78%, transparent) 0%,
+    color-mix(in srgb, var(--mokei-base) 28%, transparent) 42%,
+    transparent 70%
+  );
+}
+
+.hero-title {
+  color: var(--ink);
+  text-shadow:
+    0 0 18px color-mix(in srgb, var(--mokei-base) 92%, transparent),
+    0 1px 2px color-mix(in srgb, var(--mokei-base) 80%, transparent);
+}
+
+.hero-sub {
+  text-shadow: 0 0 14px color-mix(in srgb, var(--mokei-base) 88%, transparent);
+}
+
 .glass-hud {
   background: var(--glass-bg);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
