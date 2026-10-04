@@ -31,7 +31,7 @@ One `rock` binary:
 - Repo map: ranked files plus a light symbol skim, injected into the system prompt.
 - `rock inspect` tells the truth about config, skills, MCP, Jev mode, permissions.
 - `rock setup` is a Huh form that writes config and never writes the API key.
-- BYOK OpenAI-compatible chat completions. No key, no network: an offline provider so the binary still runs.
+- BYOK OpenAI-compatible chat completions. No model key, no model network: an offline **model** provider so a turn can still complete. That is not Jev. The Jev key is separate and required — Rock will not run without it once the parallel onboarding-gate PR lands. See [subscription-auth.md](subscription-auth.md).
 
 ## Jev
 
@@ -104,4 +104,4 @@ internal/config/     TOML
 
 ## Out of 1.0
 
-OS sandbox profiles, OTEL, plugin marketplace UI, memory/dream, ACP-as-provider, cloud handoff, LSP. Permissions are not a sandbox. `inspect` says that in a sentence.
+OS sandbox profiles, OTEL, plugin marketplace UI, memory/dream, ACP-as-provider, cloud handoff, LSP. In-process consumer-plan model OAuth (Sign in with ChatGPT, official `grok` / `claude` children). 1.0 model auth stays API-key BYOK; the sanctioned map is [subscription-auth.md](subscription-auth.md). Jev is a separate required key, not a model provider. Permissions are not a sandbox. `inspect` says that in a sentence.

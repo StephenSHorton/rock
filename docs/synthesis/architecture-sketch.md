@@ -71,7 +71,7 @@ Minimum harness checklist:
 | Sessions | persist, compact, inspect |
 | Subagents | depth 1; optional worktrees; explore vs write |
 | Sandbox | OS profiles when we claim untrusted runs |
-| Providers | BYOK + catalog; mid-session switch |
+| Providers | BYOK + catalog; mid-session switch. Optional SANCTIONED subscription later ([subscription-auth.md](subscription-auth.md)). Never a reused first-party OAuth client as default. |
 | Context | AGENTS.md; optional Aider-style repo map |
 | Git | optional commit-as-checkpoint; review-only mode |
 

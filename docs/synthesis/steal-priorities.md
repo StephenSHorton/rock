@@ -29,6 +29,7 @@ These were treated as the product during the mash-up pass. 1.0 did ship several 
 | **Subagents + optional git worktrees** | Grok, OpenCode, Codex | Parallel research / build / review without trampling cwd. |
 | **Scriptable config (crushrc-style builtins) + TOML/JSON for CI** | Crush + Grok `config.toml` | Humans get a shell; automation gets a file. |
 | **Provider catalog (Catwalk-like) + mid-session model switch** | Crush | BYOK without YAML archaeology. |
+| **Sanctioned subscription sign-in** (SIWC in-process; official `grok` / `claude` as children later) | [subscription-auth.md](subscription-auth.md); OpenAI SIWC docs; Grok ACP; Claude Code legal page | Users already pay Grok / ChatGPT / Claude. Implement only SANCTIONED routes. API keys stay the fallback. Never ship a reused first-party client id. |
 | **`inspect` discovery dump** | Grok `grok inspect` | Truth about config, skills, hooks, MCP. |
 | **Visible `/permissions` + sandbox roots** | Codex, Grok | Status you can see, not only a hidden file. |
 | **Security honesty** | Pi | Permissions ≠ sandbox. Document containers for the rest. |
@@ -53,7 +54,7 @@ These were treated as the product during the mash-up pass. 1.0 did ship several 
 | Idea | Source | Why Rock |
 |---|---|---|
 | **Memory / dream / flush** | Grok | Cross-session memory after the loop is solid. |
-| **ACP-as-provider** (wrap other CLIs) | Goose | Subscription bridge; compatibility test. Not the identity. |
+| **ACP-as-provider** (wrap other CLIs) | Goose; [subscription-auth.md](subscription-auth.md) | Sanctioned SuperGrok / Claude bridge: spawn official `grok` or unmodified `claude`. Not Rock's identity. Not 1.0. |
 | **Compat skill paths** (`.agents`, `.claude`, `.cursor`) | Grok, Crush | Portable projects. |
 | **Session branch** | Pi | Alternate-universe chats. |
 | **Multi-surface handoff** | Claude Code public docs | After ACP + HTTP. |
@@ -67,7 +68,8 @@ These were treated as the product during the mash-up pass. 1.0 did ship several 
 | Wholesale Crush copy while FSL applies | FSL-1.1-MIT. Build with Charm libs; Rock stays MIT. |
 | Fork the Grok Build Rust tree, or wholesale-copy Crush | Clone the Grok *product* in Go. Crush stays FSL study. Jev is the edge, not a fifth blended harness. |
 | Pi’s “no built-in tool permissions” as default | Honesty is good; the default must still be allow/ask/deny. |
-| ChatGPT/xAI/Anthropic account as identity | BYOK-first. |
+| ChatGPT/xAI/Anthropic/Google account as Rock identity | BYOK-first. A vendor account may bill a SANCTIONED route; it is not who the user is. See [subscription-auth.md](subscription-auth.md). |
+| Reusing another CLI's OAuth client or tokens | GREY or PROHIBITED. Anthropic and Gemini say so in current public docs. xAI and Codex first-party clients are undocumented for third parties. |
 | Pre-AI year estimates as scope control | Do not price the work in human-only calendars. |
 
 ## Suggested shape (superseded)

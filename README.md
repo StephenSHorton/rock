@@ -32,6 +32,7 @@ Language is Go only. See [docs/synthesis/v1-plan.md](docs/synthesis/v1-plan.md).
 | [docs/README.md](docs/README.md) | Raid process and index. |
 | [docs/synthesis/v1-plan.md](docs/synthesis/v1-plan.md) | 1.0 decisions: Go, shipped Jev gates, Suzuri. |
 | [docs/synthesis/tui-parity.md](docs/synthesis/tui-parity.md) | Charm TUI vs Grok Build: intended diffs + visual backlog. |
+| [docs/synthesis/subscription-auth.md](docs/synthesis/subscription-auth.md) | Consumer-plan model sign-in: what is legal to ship. Jev is a separate key. |
 
 Per-tool pages live under [`docs/clis/`](docs/clis/). The page template is [`docs/_template.md`](docs/_template.md). Older synthesis pages that framed Rock as a mash-up are marked superseded and kept as history.
 
