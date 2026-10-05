@@ -17,10 +17,14 @@ import (
 // tools, ask_jev, and the Risk gate. The child only produces text (and
 // optional proposed tool calls that Rock executes after denying the child).
 type Provider struct {
-	Bin     string
-	CWD     string
-	Start   StartFunc
+	Bin   string
+	CWD   string
+	Start StartFunc
+	// Timeout, when >0, overrides SetupTimeout for initialize/session/new
+	// in tests. It is never used as a wall-clock limit on session/prompt.
 	Timeout time.Duration
+	// PromptIdle, when >0, overrides PromptIdleTimeout (tests).
+	PromptIdle time.Duration
 	// OverrideModel is config grok_model — a user pick from the child's
 	// advertised list. It overrides Jev fast/strong mapping.
 	OverrideModel string
@@ -28,11 +32,14 @@ type Provider struct {
 	mu        sync.Mutex
 	sess      *session
 	wantModel string // pending -m restart target (last resort only)
+	startN    int    // how many children this provider has spawned
+	lastPID   int
 }
 
 type session struct {
-	client *client
-	id     string
+	client   *client
+	id       string
+	prompted int // messages already sent into the live grok session
 }
 
 // ModelInfo is one subscription model advertised by the grok child.
@@ -57,11 +64,38 @@ func (p *Provider) denied() (perm, fs int64) {
 	return p.sess.client.permN.Load(), p.sess.client.fsN.Load()
 }
 
-func (p *Provider) timeout() time.Duration {
+func (p *Provider) setupTimeout() time.Duration {
 	if p.Timeout > 0 {
 		return p.Timeout
 	}
-	return 8 * time.Second
+	return SetupTimeout
+}
+
+func (p *Provider) promptIdle() time.Duration {
+	if p.PromptIdle > 0 {
+		return p.PromptIdle
+	}
+	return PromptIdleTimeout
+}
+
+// ChildPID is the OS pid of the live grok child, or 0. Tests use it.
+func (p *Provider) ChildPID() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.sess == nil {
+		return 0
+	}
+	if pid := p.sess.client.pid(); pid != 0 {
+		return pid
+	}
+	return p.lastPID
+}
+
+// StartCount is how many times this provider has spawned a child.
+func (p *Provider) StartCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.startN
 }
 
 func (p *Provider) Close() {
@@ -82,8 +116,8 @@ func (p *Provider) Complete(ctx context.Context, model string, messages []provid
 		}
 		bin = st.Bin
 	}
-	ctx, cancel := withTimeout(ctx, p.timeout())
-	defer cancel()
+	// No wall-clock timeout on the turn — caller's ctx (interrupt) plus
+	// prompt idle timeout govern waits. Child lifetime is independent.
 	sess, err := p.ensure(ctx, bin)
 	if err != nil {
 		return provider.Message{}, err
@@ -98,9 +132,17 @@ func (p *Provider) Complete(ctx context.Context, model string, messages []provid
 			return provider.Message{}, err
 		}
 	}
-	if err := sess.client.prompt(ctx, sess.id, renderPrompt(messages, tools)); err != nil {
+	fresh := sess.prompted == 0
+	from := sess.prompted
+	if from > len(messages) {
+		from = 0
+		fresh = true
+	}
+	body := renderPromptSince(messages, tools, from, fresh)
+	if err := sess.client.promptWithIdle(ctx, sess.id, body, p.promptIdle()); err != nil {
 		return provider.Message{}, err
 	}
+	sess.prompted = len(messages)
 	text, proposed := sess.client.snapshot()
 	msg := provider.Message{Role: provider.RoleAssistant, Content: strings.TrimSpace(stripToolFences(text))}
 	if calls := parseToolFences(text); len(calls) > 0 {
@@ -144,30 +186,42 @@ func (p *Provider) ensure(ctx context.Context, bin string) (*session, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.sess != nil {
-		return p.sess, nil
+		if p.sess.client.alive() {
+			return p.sess, nil
+		}
+		debugGrok("ensure: cached child dead; respawning")
+		p.sess.client.Close()
+		p.sess = nil
 	}
 	args := ChildArgsModel(p.wantModel)
-	c, err := dial(ctx, bin, args, p.CWD, p.Start)
+	// Dial with Background: process must outlive this call's ctx.
+	c, err := dial(context.Background(), bin, args, p.CWD, p.Start)
 	if err != nil {
 		return nil, err
+	}
+	p.startN++
+	if pid := c.pid(); pid != 0 {
+		p.lastPID = pid
+	} else {
+		p.lastPID = p.startN // synthetic for fakes
 	}
 	c.modelArg = p.wantModel
-	methods, err := c.initialize(ctx)
+	setupCtx, cancel := withTimeout(ctx, p.setupTimeout())
+	defer cancel()
+	methods, err := c.initialize(setupCtx)
 	if err != nil {
 		c.Close()
 		return nil, err
 	}
-	if err := c.authenticate(ctx, methods); err != nil {
+	if err := c.authenticate(setupCtx, methods); err != nil {
 		c.Close()
 		return nil, err
 	}
-	id, err := c.newSession(ctx)
+	id, err := c.newSession(setupCtx)
 	if err != nil {
 		c.Close()
 		return nil, err
 	}
-	// -m may be the only switch path; trust it when initialize did not
-	// echo the selection yet.
 	if p.wantModel != "" && c.modelCurrent == "" {
 		c.modelCurrent = p.wantModel
 	}
@@ -248,8 +302,6 @@ func (p *Provider) Models(ctx context.Context) (current string, models []ModelIn
 		}
 		bin = st.Bin
 	}
-	ctx, cancel := withTimeout(ctx, p.timeout())
-	defer cancel()
 	sess, err := p.ensure(ctx, bin)
 	if err != nil {
 		return "", nil, err
@@ -277,8 +329,6 @@ func (p *Provider) SetModel(ctx context.Context, modelID string) error {
 		}
 		bin = st.Bin
 	}
-	ctx, cancel := withTimeout(ctx, p.timeout())
-	defer cancel()
 	sess, err := p.ensure(ctx, bin)
 	if err != nil {
 		return err
@@ -303,6 +353,19 @@ func (p *Provider) ContextLimit(ctx context.Context) int {
 	return 0
 }
 
+// renderPromptSince sends the full Rock preamble + transcript on a fresh
+// grok session, and only the new messages on a live session (the child
+// already keeps history — resending everything burns tokens).
+func renderPromptSince(messages []provider.Message, tools []provider.ToolSpec, from int, fresh bool) string {
+	if fresh || from <= 0 {
+		return renderPrompt(messages, tools)
+	}
+	if from > len(messages) {
+		return renderPrompt(messages, tools)
+	}
+	return renderMessages(messages[from:])
+}
+
 func renderPrompt(messages []provider.Message, tools []provider.ToolSpec) string {
 	var b strings.Builder
 	b.WriteString("You are the SuperGrok model backend for Rock. ")
@@ -322,6 +385,12 @@ func renderPrompt(messages []provider.Message, tools []provider.ToolSpec) string
 		}
 		b.WriteByte('\n')
 	}
+	b.WriteString(renderMessages(messages))
+	return b.String()
+}
+
+func renderMessages(messages []provider.Message) string {
+	var b strings.Builder
 	for _, m := range messages {
 		switch m.Role {
 		case provider.RoleSystem:
