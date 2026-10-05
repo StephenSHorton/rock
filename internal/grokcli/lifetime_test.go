@@ -64,8 +64,8 @@ func TestCancelMidPromptSendsSessionCancelKeepsChild(t *testing.T) {
 	}
 	// Give cancel notification a moment to land.
 	time.Sleep(50 * time.Millisecond)
-	if fake.CancelSeen < 1 {
-		t.Fatalf("expected session/cancel, got %d", fake.CancelSeen)
+	if fake.Cancels() < 1 {
+		t.Fatalf("expected session/cancel, got %d", fake.Cancels())
 	}
 	starts := p.StartCount()
 	// Next turn reuses the same child.
@@ -117,7 +117,7 @@ func TestSequentialCompleteReusesChild(t *testing.T) {
 	}
 	// Second prompt should be delta-only (no SuperGrok preamble).
 	fake.mu.Lock()
-	raw := string(fake.promptSeen)
+	raw := string(append([]byte(nil), fake.promptSeen...))
 	fake.mu.Unlock()
 	if strings.Contains(raw, "SuperGrok model backend") {
 		t.Fatalf("live session resent full preamble: %s", raw[:min(200, len(raw))])

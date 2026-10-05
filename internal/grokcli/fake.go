@@ -62,6 +62,12 @@ func (f *FakeScript) AuthCalls() int {
 	return f.authCalls
 }
 
+func (f *FakeScript) Cancels() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.CancelSeen
+}
+
 func (f *FakeScript) setArgs(args []string) {
 	f.mu.Lock()
 	f.args = append([]string(nil), args...)
