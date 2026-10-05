@@ -23,12 +23,24 @@ import (
 type StartFunc func(ctx context.Context, bin string, args []string) (io.WriteCloser, io.ReadCloser, func(), error)
 
 // childProc tracks a real grok process so early exits surface stderr
-// instead of hanging until the probe deadline.
+// instead of hanging until the probe deadline. Lifetime is owned by the
+// Provider — never bound to a per-call context (CommandContext would
+// TerminateProcess on cancel and yield empty-stderr exit status 1 on Windows).
 type childProc struct {
-	cmd     *exec.Cmd
-	stderr  *strings.Builder
-	done    chan struct{}
-	waitErr error
+	cmd          *exec.Cmd
+	stderr       *strings.Builder
+	done         chan struct{}
+	waitErr      error
+	mu           sync.Mutex
+	killedByRock bool
+	killReason   string
+}
+
+func (p *childProc) pid() int {
+	if p == nil || p.cmd == nil || p.cmd.Process == nil {
+		return 0
+	}
+	return p.cmd.Process.Pid
 }
 
 func (p *childProc) finished() bool {
@@ -43,11 +55,30 @@ func (p *childProc) finished() bool {
 	}
 }
 
+func (p *childProc) kill(reason string) {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	p.killedByRock = true
+	if reason != "" {
+		p.killReason = reason
+	}
+	p.mu.Unlock()
+	if p.cmd != nil && p.cmd.Process != nil {
+		debugGrok("kill pid=%d reason=%s", p.pid(), reason)
+		_ = p.cmd.Process.Kill()
+	}
+}
+
 func (p *childProc) exitErr() error {
 	if p == nil || !p.finished() {
 		return nil
 	}
-	return formatChildExit(p.waitErr, p.stderr.String())
+	p.mu.Lock()
+	byRock, reason := p.killedByRock, p.killReason
+	p.mu.Unlock()
+	return formatChildExit(p.waitErr, p.stderr.String(), byRock, reason)
 }
 
 func (p *childProc) waitExit(timeout time.Duration) error {
@@ -56,18 +87,26 @@ func (p *childProc) waitExit(timeout time.Duration) error {
 	}
 	select {
 	case <-p.done:
-		return formatChildExit(p.waitErr, p.stderr.String())
+		p.mu.Lock()
+		byRock, reason := p.killedByRock, p.killReason
+		p.mu.Unlock()
+		return formatChildExit(p.waitErr, p.stderr.String(), byRock, reason)
 	case <-time.After(timeout):
 		if s := strings.TrimSpace(p.stderr.String()); s != "" {
-			return formatChildExit(nil, s)
+			return formatChildExit(nil, s, false, "")
 		}
 		return fmt.Errorf("grok closed stdout")
 	}
 }
 
-func formatChildExit(waitErr error, stderr string) error {
+func formatChildExit(waitErr error, stderr string, killedByRock bool, killReason string) error {
+	if killedByRock {
+		if killReason == "" {
+			killReason = "closed by Rock"
+		}
+		return fmt.Errorf("grok stopped: %s", killReason)
+	}
 	stderr = strings.TrimSpace(stderr)
-	// Strip common CLI noise prefixes.
 	for _, prefix := range []string{"error: ", "Error: "} {
 		if strings.HasPrefix(stderr, prefix) {
 			stderr = strings.TrimSpace(strings.TrimPrefix(stderr, prefix))
@@ -75,9 +114,11 @@ func formatChildExit(waitErr error, stderr string) error {
 		}
 	}
 	if stderr != "" {
-		// First line is enough for the status bar / inspect.
 		if i := strings.IndexAny(stderr, "\r\n"); i >= 0 {
 			stderr = stderr[:i]
+		}
+		if waitErr != nil {
+			return fmt.Errorf("grok exited: %v: %s", waitErr, stderr)
 		}
 		return fmt.Errorf("grok exited: %s", stderr)
 	}
@@ -91,7 +132,12 @@ func startExec(ctx context.Context, bin string, args []string) (io.WriteCloser, 
 	if err := rejectForbidden(args); err != nil {
 		return nil, nil, nil, err
 	}
-	cmd := exec.CommandContext(ctx, bin, args...)
+	if err := ctx.Err(); err != nil {
+		return nil, nil, nil, err
+	}
+	// Provider-lifetime process: do NOT use CommandContext. Per-call
+	// cancel must not TerminateProcess the child.
+	cmd := exec.Command(bin, args...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, nil, nil, err
@@ -110,18 +156,26 @@ func startExec(ctx context.Context, bin string, args []string) (io.WriteCloser, 
 		return nil, nil, nil, err
 	}
 	proc := &childProc{cmd: cmd, stderr: &stderrBuf, done: make(chan struct{})}
+	debugGrok("spawn bin=%s args=%v pid=%d", bin, args, proc.pid())
 	go func() {
 		proc.waitErr = cmd.Wait()
+		debugGrok("exit pid=%d err=%v stderr=%q", proc.pid(), proc.waitErr, truncateDebug(stderrBuf.String()))
 		close(proc.done)
 	}()
 	stop := func() {
 		_ = stdin.Close()
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
+		proc.kill("provider closed")
 		<-proc.done
 	}
 	return &procWriter{WriteCloser: stdin, proc: proc}, &procReader{ReadCloser: stdout, proc: proc}, stop, nil
+}
+
+func truncateDebug(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) > 200 {
+		return s[:200] + "…"
+	}
+	return s
 }
 
 type procWriter struct {
@@ -177,6 +231,10 @@ type client struct {
 	cwd     string
 	permN   atomic.Int64
 	fsN     atomic.Int64
+	// activity is signaled (non-blocking) on each stdout line so prompt
+	// waits can apply an idle timeout without a hard wall clock.
+	activity  chan struct{}
+	sessionID string
 
 	modelConfigID string
 	modelCurrent  string
@@ -205,11 +263,12 @@ func dial(ctx context.Context, bin string, args []string, cwd string, start Star
 		cwd = abs
 	}
 	c := &client{
-		in:   in,
-		out:  out,
-		stop: stop,
-		wait: map[int64]pending{},
-		cwd:  cwd,
+		in:       in,
+		out:      out,
+		stop:     stop,
+		wait:     map[int64]pending{},
+		cwd:      cwd,
+		activity: make(chan struct{}, 1),
 	}
 	if pr, ok := out.(*procReader); ok {
 		c.proc = pr.proc
@@ -228,6 +287,37 @@ func (c *client) Close() {
 	}
 }
 
+func (c *client) alive() bool {
+	if c == nil {
+		return false
+	}
+	if c.proc != nil {
+		return !c.proc.finished()
+	}
+	// Fake children have no proc; treat as alive until Close.
+	c.mu.Lock()
+	stopped := c.stop == nil
+	c.mu.Unlock()
+	return !stopped
+}
+
+func (c *client) pid() int {
+	if c == nil || c.proc == nil {
+		return 0
+	}
+	return c.proc.pid()
+}
+
+func (c *client) noteActivity() {
+	if c.activity == nil {
+		return
+	}
+	select {
+	case c.activity <- struct{}{}:
+	default:
+	}
+}
+
 func (c *client) readLoop() {
 	sc := bufio.NewScanner(c.out)
 	sc.Buffer(make([]byte, 0, 64*1024), 4<<20)
@@ -236,6 +326,8 @@ func (c *client) readLoop() {
 		if len(line) == 0 {
 			continue
 		}
+		c.noteActivity()
+		debugGrok("recv %s", truncateDebug(string(line)))
 		var msg rpc
 		if err := json.Unmarshal(line, &msg); err != nil {
 			continue
@@ -353,6 +445,14 @@ func denyPermission(params json.RawMessage) map[string]any {
 }
 
 func (c *client) request(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	return c.requestIdle(ctx, method, params, 0)
+}
+
+// requestIdle waits for a JSON-RPC response. idle>0 resets on each stdout
+// line (agent streaming). On ctx cancel during a live session prompt,
+// callers should send session/cancel separately — this returns ctx.Err()
+// without killing the child.
+func (c *client) requestIdle(ctx context.Context, method string, params any, idle time.Duration) (json.RawMessage, error) {
 	id := c.next.Add(1)
 	raw, err := json.Marshal(params)
 	if err != nil {
@@ -362,20 +462,48 @@ func (c *client) request(ctx context.Context, method string, params any) (json.R
 	c.mu.Lock()
 	c.wait[id] = pending{done: done}
 	c.mu.Unlock()
+	debugGrok("send %s %s", method, truncateDebug(string(raw)))
 	if err := c.write(rpc{JSONRPC: "2.0", ID: id, Method: method, Params: raw}); err != nil {
 		c.mu.Lock()
 		delete(c.wait, id)
 		c.mu.Unlock()
 		return nil, err
 	}
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case msg := <-done:
-		if msg.Error != nil {
-			return nil, formatRPCError(method, msg.Error)
+	var timer *time.Timer
+	var timerC <-chan time.Time
+	if idle > 0 {
+		timer = time.NewTimer(idle)
+		defer timer.Stop()
+		timerC = timer.C
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			c.mu.Lock()
+			delete(c.wait, id)
+			c.mu.Unlock()
+			return nil, fmt.Errorf("grok stopped: %v", ctx.Err())
+		case msg := <-done:
+			if msg.Error != nil {
+				return nil, formatRPCError(method, msg.Error)
+			}
+			return msg.Result, nil
+		case <-c.activity:
+			if timer != nil {
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				timer.Reset(idle)
+			}
+		case <-timerC:
+			c.mu.Lock()
+			delete(c.wait, id)
+			c.mu.Unlock()
+			return nil, fmt.Errorf("grok stopped: no stdout activity for %s", idle)
 		}
-		return msg.Result, nil
 	}
 }
 
@@ -564,6 +692,7 @@ func (c *client) newSession(ctx context.Context) (string, error) {
 	// Then fill any gaps from the models object (real grok sends both).
 	c.applyModelConfig(out.ConfigOptions)
 	c.applySessionModels(out.Models)
+	c.sessionID = out.SessionID
 	return out.SessionID, nil
 }
 
@@ -688,15 +817,50 @@ func (c *client) setModel(ctx context.Context, sessionID, modelID string) error 
 var errNeedRestartModel = fmt.Errorf("grok-cli: restart child with -m to switch models")
 
 func (c *client) prompt(ctx context.Context, sessionID, text string) error {
+	return c.promptWithIdle(ctx, sessionID, text, PromptIdleTimeout)
+}
+
+func (c *client) promptWithIdle(ctx context.Context, sessionID, text string, idle time.Duration) error {
 	c.mu.Lock()
 	c.text.Reset()
 	c.calls = nil
+	c.sessionID = sessionID
 	c.mu.Unlock()
-	_, err := c.request(ctx, "session/prompt", map[string]any{
+	if idle <= 0 {
+		idle = PromptIdleTimeout
+	}
+	// Watch for cancel while the prompt is in flight so the agent stops
+	// work promptly; also send synchronously if the wait returns ctx.Err()
+	// (covers the race where the wait returns first).
+	doneWatch := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = c.sendCancel(sessionID)
+		case <-doneWatch:
+		}
+	}()
+	_, err := c.requestIdle(ctx, "session/prompt", map[string]any{
 		"sessionId": sessionID,
 		"prompt":    []map[string]string{{"type": "text", "text": text}},
-	})
+	}, idle)
+	close(doneWatch)
+	if err != nil && ctx.Err() != nil {
+		_ = c.sendCancel(sessionID)
+	}
 	return err
+}
+
+func (c *client) sendCancel(sessionID string) error {
+	if strings.TrimSpace(sessionID) == "" {
+		return nil
+	}
+	debugGrok("send session/cancel sessionId=%s", sessionID)
+	return c.write(rpc{
+		JSONRPC: "2.0",
+		Method:  "session/cancel",
+		Params:  mustRaw(map[string]any{"sessionId": sessionID}),
+	})
 }
 
 func (c *client) snapshot() (string, []proposed) {

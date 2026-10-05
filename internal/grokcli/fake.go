@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // FakeScript drives an in-process ACP child for tests.
@@ -37,6 +38,9 @@ type FakeScript struct {
 	// EmitSetupNotes sends unknown _x.ai/* notifications before
 	// session/new responds (client must ignore them).
 	EmitSetupNotes bool
+	// PromptDelay sleeps before answering session/prompt (lifetime tests).
+	PromptDelay time.Duration
+	CancelSeen  int
 
 	mu         sync.Mutex
 	args       []string
@@ -56,6 +60,12 @@ func (f *FakeScript) AuthCalls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.authCalls
+}
+
+func (f *FakeScript) Cancels() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.CancelSeen
 }
 
 func (f *FakeScript) setArgs(args []string) {
@@ -281,6 +291,12 @@ func FakeACP(in io.Reader, out io.Writer, script *FakeScript) {
 		case "session/prompt":
 			script.mu.Lock()
 			script.promptSeen = append(json.RawMessage(nil), msg.Params...)
+			delay := script.PromptDelay
+			reply := script.Reply
+			askFS := script.AskFSWrite
+			askPerm := script.AskPerm
+			toolName := script.ToolName
+			toolArgs := script.ToolArgs
 			script.mu.Unlock()
 			if script.StrictACP {
 				if detail := validateSessionPrompt(msg.Params); detail != "" {
@@ -288,52 +304,66 @@ func FakeACP(in io.Reader, out io.Writer, script *FakeScript) {
 					break
 				}
 			}
-			if script.AskFSWrite {
-				write(rpc{
-					JSONRPC: "2.0",
-					ID:      9001,
-					Method:  "fs/write_text_file",
-					Params:  mustRaw(map[string]any{"path": "/tmp/nope", "content": "x"}),
-				})
-			}
-			if script.AskPerm {
-				write(rpc{
-					JSONRPC: "2.0",
-					ID:      9002,
-					Method:  "session/request_permission",
-					Params: mustRaw(map[string]any{
+			reqID := msg.ID
+			go func() {
+				if delay > 0 {
+					time.Sleep(delay)
+				}
+				if askFS {
+					write(rpc{
+						JSONRPC: "2.0",
+						ID:      9001,
+						Method:  "fs/write_text_file",
+						Params:  mustRaw(map[string]any{"path": "/tmp/nope", "content": "x"}),
+					})
+				}
+				if askPerm {
+					write(rpc{
+						JSONRPC: "2.0",
+						ID:      9002,
+						Method:  "session/request_permission",
+						Params: mustRaw(map[string]any{
+							"sessionId": sessionID,
+							"title":     "run shell",
+							"options": []map[string]string{
+								{"optionId": "allow-once", "kind": "allow_once", "name": "Allow"},
+								{"optionId": "reject-once", "kind": "reject_once", "name": "Reject"},
+							},
+						}),
+					})
+				}
+				if toolName != "" {
+					write(rpc{JSONRPC: "2.0", Method: "session/update", Params: mustRaw(map[string]any{
 						"sessionId": sessionID,
-						"title":     "run shell",
-						"options": []map[string]string{
-							{"optionId": "allow-once", "kind": "allow_once", "name": "Allow"},
-							{"optionId": "reject-once", "kind": "reject_once", "name": "Reject"},
+						"update": map[string]any{
+							"sessionUpdate": "tool_call",
+							"toolCallId":    "call_1",
+							"title":         toolName,
+							"rawInput":      json.RawMessage(orJSON(toolArgs)),
 						},
-					}),
-				})
-			}
-			if script.ToolName != "" {
-				write(rpc{JSONRPC: "2.0", Method: "session/update", Params: mustRaw(map[string]any{
-					"sessionId": sessionID,
-					"update": map[string]any{
-						"sessionUpdate": "tool_call",
-						"toolCallId":    "call_1",
-						"title":         script.ToolName,
-						"rawInput":      json.RawMessage(orJSON(script.ToolArgs)),
-					},
-				})})
-			}
-			if script.Reply != "" {
-				write(rpc{JSONRPC: "2.0", Method: "session/update", Params: mustRaw(map[string]any{
-					"sessionId": sessionID,
-					"update": map[string]any{
-						"sessionUpdate": "agent_message_chunk",
-						"content":       map[string]any{"type": "text", "text": script.Reply},
-					},
-				})})
-			}
-			write(rpc{JSONRPC: "2.0", ID: msg.ID, Result: mustRaw(map[string]any{"stopReason": "end_turn"})})
+					})})
+				}
+				if reply != "" {
+					write(rpc{JSONRPC: "2.0", Method: "session/update", Params: mustRaw(map[string]any{
+						"sessionId": sessionID,
+						"update": map[string]any{
+							"sessionUpdate": "agent_message_chunk",
+							"content":       map[string]any{"type": "text", "text": reply},
+						},
+					})})
+				}
+				write(rpc{JSONRPC: "2.0", ID: reqID, Result: mustRaw(map[string]any{"stopReason": "end_turn"})})
+			}()
+
+		case "session/cancel":
+			script.mu.Lock()
+			script.CancelSeen++
+			script.mu.Unlock()
+			// notification — no response
 		default:
-			write(rpc{JSONRPC: "2.0", ID: msg.ID, Error: &rpcError{Code: -32601, Message: "method not found"}})
+			if msg.ID != nil {
+				write(rpc{JSONRPC: "2.0", ID: msg.ID, Error: &rpcError{Code: -32601, Message: "method not found"}})
+			}
 		}
 	}
 }
