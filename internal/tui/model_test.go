@@ -59,6 +59,9 @@ func TestViewRendersSession(t *testing.T) {
 	if !strings.Contains(view, "Ask Rock") || !strings.Contains(view, "jev:offline") {
 		t.Fatalf("view:\n%s", view)
 	}
+	if strings.Contains(ansi.Strip(view), "DEFAULT") {
+		t.Fatalf("default mode should stay off the status line:\n%s", view)
+	}
 }
 
 func TestLayoutHasNoWordmarkHeader(t *testing.T) {
@@ -81,8 +84,14 @@ func TestLayoutHasNoWordmarkHeader(t *testing.T) {
 	if !strings.Contains(composer, "Ask Rock") || !strings.Contains(composer, "/ for commands") {
 		t.Fatalf("quiet placeholder: %q", composer)
 	}
-	if !strings.Contains(composer, "╭") || !strings.Contains(composer, "gpt-4o-mini") || !strings.Contains(composer, "default") {
-		t.Fatalf("framed composer should carry model · mode chips: %q", composer)
+	if !strings.Contains(composer, "╭") || !strings.Contains(composer, "gpt-4o-mini") {
+		t.Fatalf("framed composer should carry the model on the top border: %q", composer)
+	}
+	if strings.Contains(composer, "default") {
+		t.Fatalf("default mode must not clutter the composer: %q", composer)
+	}
+	if m.geo.composerRows != 1 {
+		t.Fatalf("empty composer should rest at one input row: %+v", m.geo)
 	}
 	if strings.Contains(composer, "/help") || strings.Contains(composer, "/plan") {
 		t.Fatalf("placeholder still lists commands: %q", composer)
@@ -314,15 +323,21 @@ func TestShortHeightKeepsStatusComposerAndHelp(t *testing.T) {
 			rows := assertFrame(t, m, w, h)
 			g := m.geo
 			status := rows[g.statusY()]
-			if !strings.Contains(status, "jev:offline") || !strings.Contains(status, "gpt-4o-mini") || !strings.Contains(status, "ctx") {
+			if !strings.Contains(status, "jev:offline") || !strings.Contains(status, "ctx") {
 				t.Fatalf("%dx%d: status row %q", w, h, status)
+			}
+			if strings.Contains(status, "gpt-4o-mini") {
+				t.Fatalf("%dx%d: model belongs on the composer, not status: %q", w, h, status)
 			}
 			band := strings.Join(rows[g.composerY():g.statusY()], "\n")
 			if !strings.Contains(band, "❯") {
 				t.Fatalf("%dx%d: composer should use ❯, got %q", w, h, band)
 			}
-			if !strings.Contains(rows[g.composerY()], "╭") {
-				t.Fatalf("%dx%d: composer should be framed: %q", w, h, rows[g.composerY()])
+			if !strings.Contains(rows[g.composerY()], "╭") || !strings.Contains(rows[g.composerY()], "gpt-4o-mini") {
+				t.Fatalf("%dx%d: top border should carry the model: %q", w, h, rows[g.composerY()])
+			}
+			if g.composerRows != 1 {
+				t.Fatalf("%dx%d: empty composer should be one row: %+v", w, h, g)
 			}
 			if g.helpRows != 0 {
 				t.Fatalf("%dx%d: idle help row should stay off: %+v %q", w, h, g, rows[h-1])
@@ -335,9 +350,14 @@ func TestStatusLineCarriesModeJevModelAndMeter(t *testing.T) {
 	for _, w := range []int{60, 80, 140} {
 		m := sized(t, w, 24)
 		status := screen(m)[m.geo.statusY()]
-		for _, want := range []string{"DEFAULT", "jev:offline", "gpt-4o-mini", "(offline)", "ctx", "0%"} {
+		for _, want := range []string{"jev:offline", "ctx", "0%"} {
 			if !strings.Contains(status, want) {
 				t.Fatalf("%d cols: status %q lacks %q", w, status, want)
+			}
+		}
+		for _, ban := range []string{"DEFAULT", "gpt-4o-mini", "(offline)"} {
+			if strings.Contains(status, ban) {
+				t.Fatalf("%d cols: status should not carry %q: %q", w, ban, status)
 			}
 		}
 		if !strings.Contains(status, "│") {
@@ -349,13 +369,34 @@ func TestStatusLineCarriesModeJevModelAndMeter(t *testing.T) {
 		if i, j := strings.Index(status, "0%"), strings.Index(status, "─"); w >= 80 && i >= 0 && j >= 0 && i > j {
 			t.Fatalf("%d cols: percent should come before the meter: %q", w, status)
 		}
+		top := screen(m)[m.geo.composerY()]
+		if !strings.Contains(top, "gpt-4o-mini") {
+			t.Fatalf("%d cols: model should sit on the top border: %q", w, top)
+		}
 	}
 	m := sized(t, 120, 24)
+	m.deps.Mode = perms.ModePlan
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	if status := screen(m)[m.geo.statusY()]; !strings.Contains(status, "plan mode") {
+		t.Fatalf("non-default mode should show on the status line: %q", status)
+	}
+	m.deps.Mode = perms.ModeYolo
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	if status := screen(m)[m.geo.statusY()]; !strings.Contains(status, "yolo") || strings.Contains(status, "DEFAULT") {
+		t.Fatalf("yolo should show, default must not: %q", status)
+	}
+	m = sized(t, 120, 24)
+	m.deps.JevMode = "live"
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	if status := screen(m)[m.geo.statusY()]; strings.Contains(status, "jev:") {
+		t.Fatalf("live Jev should stay off the status line: %q", status)
+	}
+	m = sized(t, 120, 24)
 	m.Update(eventMsg{harness.Event{Kind: harness.EvJev, Name: "turn", Text: "offline model=strong stuck=false"}})
 	m.deps.StrongModel = "gpt-4o"
 	m.Update(eventMsg{harness.Event{Kind: harness.EvJev, Name: "turn", Text: "offline model=strong stuck=false"}})
-	if status := screen(m)[m.geo.statusY()]; !strings.Contains(status, "gpt-4o ") {
-		t.Fatalf("strong turn should show the strong model: %q", status)
+	if top := screen(m)[m.geo.composerY()]; !strings.Contains(top, "gpt-4o") {
+		t.Fatalf("strong turn should show the strong model on the composer: %q", top)
 	}
 	if strings.Contains(transcriptText(m), "◇ jev") {
 		t.Fatalf("turn diagnostics should stay off the transcript by default:\n%s", transcriptText(m))
@@ -433,14 +474,17 @@ func TestStatusLineSitsUnderTheComposer(t *testing.T) {
 	if !strings.Contains(rows[g.statusY()], "│") || !strings.Contains(rows[g.statusY()], "jev:offline") {
 		t.Fatalf("status: %q", rows[g.statusY()])
 	}
+	if !strings.Contains(rows[g.composerY()], "gpt-4o-mini") {
+		t.Fatalf("model should be on the top border: %q", rows[g.composerY()])
+	}
 }
 
-func TestStatusLineShowsSessionNameAndTurnTimer(t *testing.T) {
+func TestStatusLineShowsTurnTimerNotSessionTitle(t *testing.T) {
 	m := sized(t, 140, 24)
 	m.deps.CWD = "/tmp/rock"
 	m.layout()
-	if status := screen(m)[m.geo.statusY()]; !strings.Contains(status, "demo") {
-		t.Fatalf("titled session should name itself: %q", status)
+	if status := screen(m)[m.geo.statusY()]; strings.Contains(status, "demo") {
+		t.Fatalf("session title should stay off the status line: %q", status)
 	}
 	m.busy = true
 	m.turnAt = time.Now().Add(-12 * time.Second)
@@ -548,8 +592,8 @@ func TestPlanPaneSaysShellIsBlockedBesideAReadableTranscript(t *testing.T) {
 				t.Fatalf("%d cols: plan pane lacks %q: %q", w, want, plan)
 			}
 		}
-		if !strings.Contains(rows[m.geo.statusY()], "PLAN") {
-			t.Fatalf("%d cols: status should show PLAN", w)
+		if !strings.Contains(rows[m.geo.statusY()], "plan mode") {
+			t.Fatalf("%d cols: status should show plan mode: %q", w, rows[m.geo.statusY()])
 		}
 		if !strings.Contains(transcriptText(m), readyText) {
 			t.Fatalf("%d cols: transcript beside the plan: %q", w, transcriptText(m))
@@ -712,7 +756,7 @@ func TestPlaceholderIsQuietAndEverySlashCommandWorks(t *testing.T) {
 	all := []string{"/help", "/plan", "/yolo", "/default", "/sessions", "/permissions", "/agents", "/ready", "/verbose", "/fork", "/provider", "/update", "/quit"}
 	m := sized(t, 80, 24)
 	g := m.geo
-	composer := flat(strings.Join(screen(m)[g.composerY():g.composerY()+g.composerRows+g.infoRows], " "))
+	composer := flat(strings.Join(screen(m)[g.composerY():g.statusY()], " "))
 	if placeholder != "Ask Rock" || !strings.Contains(composer, "Ask Rock") {
 		t.Fatalf("placeholder should be Ask Rock: %q %q", placeholder, composer)
 	}

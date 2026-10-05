@@ -127,12 +127,17 @@ func root(args []string) error {
 	verbose := fs.Bool("verbose", false, "show Jev turn and risk diagnostics in the TUI")
 	mode := fs.String("mode", "", "default, plan, or yolo")
 	cwd := fs.String("cwd", "", "workspace")
+	showVersion := fs.Bool("version", false, "print version and exit")
 	fs.Usage = func() { fmt.Fprint(fs.Output(), usage) }
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
 		return err
+	}
+	if *showVersion {
+		fmt.Println(version.Version)
+		return nil
 	}
 	rest := strings.TrimSpace(strings.Join(fs.Args(), " "))
 	dir := *cwd
@@ -535,6 +540,7 @@ const usage = `rock is a coding agent.
   rock update                  install the latest GitHub release
   rock update --check          print current -> latest
   rock version
+  rock --version
 
 A working Jev key is required to run the agent. The TUI asks on first launch. Scripts use rock setup jev.
 Headless -p, serve, and acp fail without a valid key.

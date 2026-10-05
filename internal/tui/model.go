@@ -51,6 +51,8 @@ const (
 	// compactAt is the height at which outer padding drops and the
 	// composer shrinks, matching Grok's auto-compact cut.
 	compactAt = 20
+	// maxComposerRows caps multi-line paste / shift+enter growth.
+	maxComposerRows = 8
 	// shortAt is the height that also drops outer padding so the
 	// transcript keeps a floor.
 	shortAt = 16
@@ -369,7 +371,10 @@ func New(deps Deps) *Model {
 		return "  "
 	})
 	ta.KeyMap.InsertNewline = m.keys.newline
-	ta.SetHeight(3)
+	ta.DynamicHeight = true
+	ta.MinHeight = 1
+	ta.MaxHeight = maxComposerRows
+	ta.SetHeight(1)
 	ta.SetWidth(40)
 	m.input = ta
 

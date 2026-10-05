@@ -141,7 +141,7 @@ func (m *Model) finishJevGate(msg jevGateDone) tea.Cmd {
 
 func (m *Model) clearJevGate() tea.Cmd {
 	m.gate = nil
-	m.status = "Jev is live"
+	m.status = "ready"
 	cmds := []tea.Cmd{m.input.Focus(), m.retarget()}
 	if m.avail.Newer && !m.updateDismissed {
 		m.openOverlay(updateOverlay)
