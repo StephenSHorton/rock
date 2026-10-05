@@ -68,7 +68,8 @@ type RunFunc func(ctx context.Context, sess *session.Session, prompt string, ask
 
 // GrokModel is one subscription model from the official grok child.
 type GrokModel struct {
-	ID, Name string
+	ID, Name      string
+	ContextTokens int
 }
 
 // Deps is everything the screen needs from the process.
@@ -83,6 +84,7 @@ type Deps struct {
 	Auth         string
 	FastModel    string
 	StrongModel  string
+	ContextLimit int // bytes; 0 = use default contextLimit
 	Run          RunFunc
 	LoadSession  func(id string) (*session.Session, error)
 	ListSessions func() []session.Meta
@@ -1111,6 +1113,18 @@ func (m *Model) pickCurrent() tea.Cmd {
 					} else {
 						m.deps.FastModel = id
 						m.status, m.alert = "model "+id, false
+						if m.deps.ListGrokModels != nil {
+							if cur, models, err := m.deps.ListGrokModels(); err == nil {
+								for _, gm := range models {
+									if gm.ID == id || gm.ID == cur {
+										if gm.ContextTokens > 0 {
+											m.deps.ContextLimit = gm.ContextTokens
+										}
+										break
+									}
+								}
+							}
+						}
 					}
 				}
 				return m.closePicker()
@@ -1644,10 +1658,17 @@ func eventBytes(ev harness.Event) int {
 	return 0
 }
 
+func (m *Model) contextCap() float64 {
+	if m.deps.ContextLimit > 0 {
+		return float64(m.deps.ContextLimit)
+	}
+	return float64(contextLimit)
+}
+
 // retarget points the context meter at the current session size and starts
 // the spring if it has somewhere to go.
 func (m *Model) retarget() tea.Cmd {
-	m.target = math.Min(1, math.Max(0, float64(m.ctxBytes)/contextLimit))
+	m.target = math.Min(1, math.Max(0, float64(m.ctxBytes)/float64(m.contextCap())))
 	if m.ticking || m.settled() {
 		return nil
 	}
@@ -1741,7 +1762,7 @@ func (m *Model) seedTranscript() {
 		}
 		m.ctxBytes = m.deps.Session.Bytes()
 	}
-	m.target = math.Min(1, float64(m.ctxBytes)/contextLimit)
+	m.target = math.Min(1, float64(m.ctxBytes)/float64(m.contextCap()))
 	m.follow = true
 	m.syncView()
 }

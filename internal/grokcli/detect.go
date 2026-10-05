@@ -69,10 +69,21 @@ func notSignedIn() string {
 	return "grok is not signed in. Run grok login in the official binary. Rock never automates Grok sign-in and never reads Grok token files."
 }
 
-// ChildArgs is grok agent stdio. Never --always-approve, --yolo, or a
-// bypass permission mode. Those would let the child run tools.
+// ChildArgs is grok agent stdio. grok 1.0.41 rejected --no-auto-update;
+// keep --no-leader. Never --always-approve, --yolo, or a bypass
+// permission mode — those would let the child run tools.
 func ChildArgs() []string {
-	return []string{"agent", "--no-auto-update", "--no-leader", "stdio"}
+	return []string{"agent", "--no-leader", "stdio"}
+}
+
+// ChildArgsModel is ChildArgs with -m <model> for agents that only
+// accept the model on the command line (no ACP set_model / config option).
+func ChildArgsModel(model string) []string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return ChildArgs()
+	}
+	return []string{"agent", "--no-leader", "-m", model, "stdio"}
 }
 
 func forbiddenFlag(arg string) bool {

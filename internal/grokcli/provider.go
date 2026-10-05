@@ -3,6 +3,7 @@ package grokcli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -21,8 +22,9 @@ type Provider struct {
 	Start   StartFunc
 	Timeout time.Duration
 
-	mu   sync.Mutex
-	sess *session
+	mu        sync.Mutex
+	sess      *session
+	wantModel string // pending -m restart target
 }
 
 type session struct {
@@ -30,12 +32,15 @@ type session struct {
 	id     string
 }
 
-// ModelInfo is one subscription model advertised by the grok child via
-// ACP session config options (category "model"). Names come from the
-// child only — Rock never invents them.
+// ModelInfo is one subscription model advertised by the grok child.
+// Names and ids come from the child only — Rock never invents them.
+// Prefer initialize _meta.modelState; fall back to session/new
+// configOptions (category "model").
 type ModelInfo struct {
-	ID   string
-	Name string
+	ID            string
+	Name          string
+	Description   string
+	ContextTokens int
 }
 
 func (p *Provider) Name() string { return AuthClass }
@@ -102,10 +107,12 @@ func (p *Provider) ensure(ctx context.Context, bin string) (*session, error) {
 	if p.sess != nil {
 		return p.sess, nil
 	}
-	c, err := dial(ctx, bin, ChildArgs(), p.CWD, p.Start)
+	args := ChildArgsModel(p.wantModel)
+	c, err := dial(ctx, bin, args, p.CWD, p.Start)
 	if err != nil {
 		return nil, err
 	}
+	c.modelArg = p.wantModel
 	methods, err := c.initialize(ctx)
 	if err != nil {
 		c.Close()
@@ -119,6 +126,11 @@ func (p *Provider) ensure(ctx context.Context, bin string) (*session, error) {
 	if err != nil {
 		c.Close()
 		return nil, err
+	}
+	// -m may be the only switch path; trust it when initialize did not
+	// echo the selection yet.
+	if p.wantModel != "" && c.modelCurrent == "" {
+		c.modelCurrent = p.wantModel
 	}
 	p.sess = &session{client: c, id: id}
 	return p.sess, nil
@@ -176,7 +188,9 @@ func ProbeSignedInCached(ctx context.Context, bin, cwd string, start StartFunc) 
 		return cached
 	}
 	st = ProbeSignedIn(ctx, st.Bin, cwd, start)
-	if st.Found {
+	// Only cache successful signed-in probes. Child crashes (bad flags,
+	// unexpected args) must not stick for five minutes.
+	if st.Found && st.SignedIn {
 		saveProbeCache(st)
 	}
 	return st
@@ -204,8 +218,9 @@ func (p *Provider) Models(ctx context.Context) (current string, models []ModelIn
 	return sess.client.modelCurrent, append([]ModelInfo(nil), sess.client.models...), nil
 }
 
-// SetModel switches the child model through session/set_config_option.
-// No-op with a clear error when the child never advertised a model option.
+// SetModel switches the subscription model. Order: session/set_config_option
+// (category model), then session/set_model, then restart the child with
+// grok agent -m <model> --no-leader stdio.
 func (p *Provider) SetModel(ctx context.Context, modelID string) error {
 	modelID = strings.TrimSpace(modelID)
 	if modelID == "" {
@@ -225,10 +240,41 @@ func (p *Provider) SetModel(ctx context.Context, modelID string) error {
 	if err != nil {
 		return err
 	}
-	if sess.client.modelConfigID == "" {
-		return fmt.Errorf("grok-cli: child did not advertise a model list over ACP")
+	err = sess.client.setModel(ctx, sess.id, modelID)
+	if err == nil {
+		return nil
 	}
-	return sess.client.setModel(ctx, sess.id, modelID)
+	if !errors.Is(err, errNeedRestartModel) && sess.client.modelConfigID != "" {
+		// set_config_option failed for a reason other than missing support;
+		// still try restart as last resort below.
+	}
+	// Restart with -m.
+	p.mu.Lock()
+	if p.sess != nil {
+		p.sess.client.Close()
+		p.sess = nil
+	}
+	p.wantModel = modelID
+	p.mu.Unlock()
+	_, err = p.ensure(ctx, bin)
+	return err
+}
+
+// ContextLimit returns totalContextTokens for the current model, or 0.
+func (p *Provider) ContextLimit(ctx context.Context) int {
+	cur, models, err := p.Models(ctx)
+	if err != nil {
+		return 0
+	}
+	for _, m := range models {
+		if m.ID == cur && m.ContextTokens > 0 {
+			return m.ContextTokens
+		}
+	}
+	if len(models) > 0 && models[0].ContextTokens > 0 {
+		return models[0].ContextTokens
+	}
+	return 0
 }
 
 func renderPrompt(messages []provider.Message, tools []provider.ToolSpec) string {

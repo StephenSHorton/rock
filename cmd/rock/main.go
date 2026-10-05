@@ -220,16 +220,22 @@ func envOn(key string) bool {
 func startTUI(app *cli.App, sess *session.Session, initial string, rules []string, verbose bool) error {
 	needGate := app.RequireJev(context.Background()) != nil
 	model := tui.New(tui.Deps{
-		CWD:           app.CWD,
-		Session:       sess,
-		Mode:          app.Policy().Mode,
-		ReviewOnly:    app.Policy().ReviewOnly,
-		JevMode:       app.Gates.Mode(),
-		Gates:         app.Gates,
-		Provider:      app.Provider.Name(),
-		Auth:          app.Auth,
-		FastModel:     app.FastModel(),
-		StrongModel:   app.StrongModel(),
+		CWD:         app.CWD,
+		Session:     sess,
+		Mode:        app.Policy().Mode,
+		ReviewOnly:  app.Policy().ReviewOnly,
+		JevMode:     app.Gates.Mode(),
+		Gates:       app.Gates,
+		Provider:    app.Provider.Name(),
+		Auth:        app.Auth,
+		FastModel:   app.FastModel(),
+		StrongModel: app.StrongModel(),
+		ContextLimit: func() int {
+			if p, ok := app.Provider.(*grokcli.Provider); ok {
+				return p.ContextLimit(context.Background())
+			}
+			return 0
+		}(),
 		InitialPrompt: initial,
 		Run:           app.RunTurn,
 		ListSessions: func() []session.Meta {
@@ -267,7 +273,7 @@ func startTUI(app *cli.App, sess *session.Session, initial string, rules []strin
 			}
 			out := make([]tui.GrokModel, 0, len(models))
 			for _, m := range models {
-				out = append(out, tui.GrokModel{ID: m.ID, Name: m.Name})
+				out = append(out, tui.GrokModel{ID: m.ID, Name: m.Name, ContextTokens: m.ContextTokens})
 			}
 			return cur, out, nil
 		},

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -223,9 +224,13 @@ func TestAutoDetectsSignedInGrok(t *testing.T) {
 	}
 	t.Setenv("ROCK_GROK_BIN", bin)
 	// Seed cache as signed-in so Open does not need a real ACP child.
-	// ProbeSignedInCached reads this before dialing.
+	// ProbeSignedInCached reads this before dialing (v2 + bin_mtime).
 	home := os.Getenv("ROCK_HOME")
-	raw := []byte(`{"bin":"` + bin + `","signed_in":true,"detail":"official grok binary (signed in)","checked":"2099-01-01T00:00:00Z"}`)
+	fi, err := os.Stat(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte(fmt.Sprintf(`{"version":2,"bin":%q,"bin_mtime":%d,"signed_in":true,"detail":"official grok binary (signed in)","checked":"2099-01-01T00:00:00Z"}`, bin, fi.ModTime().UnixNano()))
 	if err := os.WriteFile(filepath.Join(home, "grok-probe.json"), raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
