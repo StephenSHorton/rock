@@ -583,6 +583,10 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return nil
 	case tea.KeyPressMsg:
 		return m.onKey(msg)
+	case tea.PasteMsg:
+		if m.gating() {
+			return m.gatePaste(msg)
+		}
 	}
 	if m.gating() || m.pending != nil || m.overlay != noOverlay {
 		return nil
