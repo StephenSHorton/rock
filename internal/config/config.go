@@ -24,7 +24,11 @@ type File struct {
 	// Provider is an alias for Auth. `provider = "grok-cli"` is the SuperGrok pick.
 	Provider string `toml:"provider,omitempty"`
 	// GrokBin is an optional path to the official grok binary.
-	GrokBin     string               `toml:"grok_bin,omitempty"`
+	GrokBin string `toml:"grok_bin,omitempty"`
+	// GrokModel is the user-picked subscription model id from the grok
+	// child (e.g. grok-4.7-build-fast). It is separate from model /
+	// fast_model / strong_model, which stay OpenAI-compatible defaults.
+	GrokModel   string               `toml:"grok_model,omitempty"`
 	Mode        string               `toml:"mode"`
 	MaxSteps    int                  `toml:"max_steps"`
 	Permissions Perms                `toml:"permissions"`
@@ -229,6 +233,9 @@ func merge(dst *File, src File) {
 	}
 	if src.GrokBin != "" {
 		dst.GrokBin = src.GrokBin
+	}
+	if src.GrokModel != "" {
+		dst.GrokModel = src.GrokModel
 	}
 	if src.Mode != "" {
 		dst.Mode = src.Mode

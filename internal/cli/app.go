@@ -118,7 +118,7 @@ func (a *App) applyProvider() {
 	switch {
 	case prefer == grokcli.AuthClass:
 		a.Auth = grokcli.AuthClass
-		a.Provider = &grokcli.Provider{Bin: a.Loaded.File.GrokBin, CWD: a.CWD}
+		a.Provider = &grokcli.Provider{Bin: a.Loaded.File.GrokBin, CWD: a.CWD, OverrideModel: a.Loaded.File.GrokModel}
 		a.GrokStatus = grokcli.Look(a.Loaded.File.GrokBin)
 		return
 	case prefer != "":
@@ -140,7 +140,7 @@ func (a *App) applyProvider() {
 		if st.SignedIn {
 			a.GrokAuto = true
 			a.Auth = grokcli.AuthClass
-			a.Provider = &grokcli.Provider{Bin: a.Loaded.File.GrokBin, CWD: a.CWD}
+			a.Provider = &grokcli.Provider{Bin: a.Loaded.File.GrokBin, CWD: a.CWD, OverrideModel: a.Loaded.File.GrokModel}
 			return
 		}
 	}
@@ -244,11 +244,7 @@ func (a *App) NewHarness(cwd string) (*tools.Set, error) {
 
 func (a *App) FastModel() string {
 	if a.Auth == grokcli.AuthClass {
-		if p, ok := a.Provider.(*grokcli.Provider); ok {
-			if cur, _, err := p.Models(context.Background()); err == nil && cur != "" {
-				return cur
-			}
-		}
+		return a.grokTierModel(true)
 	}
 	if a.Auth == siwc.AuthOfflineModel || a.Provider.Name() == "offline" {
 		return ""
@@ -260,10 +256,34 @@ func (a *App) FastModel() string {
 }
 
 func (a *App) StrongModel() string {
+	if a.Auth == grokcli.AuthClass {
+		return a.grokTierModel(false)
+	}
 	if a.Loaded.File.StrongModel != "" {
 		return a.Loaded.File.StrongModel
 	}
 	return a.Loaded.File.Model
+}
+
+// grokTierModel maps Jev fast/strong onto child-advertised ids. Never
+// returns OpenAI defaults under grok-cli. Empty means "use child default".
+func (a *App) grokTierModel(fast bool) string {
+	if g := strings.TrimSpace(a.Loaded.File.GrokModel); g != "" {
+		return g
+	}
+	p, ok := a.Provider.(*grokcli.Provider)
+	if !ok {
+		return ""
+	}
+	cur, models, err := p.Models(context.Background())
+	if err != nil {
+		return ""
+	}
+	f, s := grokcli.DeriveGrokTiers(models, cur)
+	if fast {
+		return f
+	}
+	return s
 }
 
 func (a *App) OpenSession(id string, create bool, title string) (*session.Session, error) {
@@ -319,7 +339,9 @@ func (a *App) Inspect(w io.Writer) {
 		fmt.Fprintf(w, "model auth: official grok agent stdio. Rock runs tools and Jev. The child does not.\n")
 		if p, ok := a.Provider.(*grokcli.Provider); ok {
 			cur, models, err := p.Models(context.Background())
-			if err == nil && len(models) > 0 {
+			if err != nil {
+				fmt.Fprintf(w, "grok models: (%s)\n", err)
+			} else if len(models) > 0 {
 				fmt.Fprintf(w, "grok models:")
 				for _, m := range models {
 					mark := ""
@@ -329,8 +351,16 @@ func (a *App) Inspect(w io.Writer) {
 					fmt.Fprintf(w, " %s%s", m.ID, mark)
 				}
 				fmt.Fprintln(w)
-			} else if err == nil {
-				fmt.Fprintf(w, "grok models: (child did not advertise a list; showing current label only)\n")
+				fmt.Fprintf(w, "fast model: %s\n", a.FastModel())
+				fmt.Fprintf(w, "strong model: %s\n", a.StrongModel())
+			} else {
+				fmt.Fprintf(w, "grok models: (child did not advertise a list)\n")
+				if cur != "" {
+					fmt.Fprintf(w, "fast model: %s\n", cur)
+				}
+			}
+			if g := strings.TrimSpace(a.Loaded.File.GrokModel); g != "" {
+				fmt.Fprintf(w, "grok_model: %s\n", g)
 			}
 		}
 	case siwc.AuthSIWC:

@@ -282,7 +282,13 @@ func startTUI(app *cli.App, sess *session.Session, initial string, rules []strin
 			if !ok {
 				return nil
 			}
-			return p.SetModel(context.Background(), id)
+			if err := p.SetModel(context.Background(), id); err != nil {
+				return err
+			}
+			app.Loaded.File.GrokModel = id
+			p.OverrideModel = id
+			_ = config.Write(config.ConfigPath(), app.Loaded.File)
+			return nil
 		},
 		Output:      os.Stdout,
 		Verbose:     verbose,
