@@ -14,6 +14,9 @@ import (
 func TestComposerAndStatusBottomRender(t *testing.T) {
 	m := sized(t, 100, 24)
 	m.deps.JevMode = "live"
+	m.deps.Provider = "offline"
+	m.deps.Auth = "offline_model"
+	m.deps.FastModel = "gpt-4o-mini" // ignored when offline
 	m.deps.CWD = os.Getenv("HOME")
 	if m.deps.CWD == "" {
 		m.deps.CWD = "/home/user"
@@ -32,8 +35,8 @@ func TestComposerAndStatusBottomRender(t *testing.T) {
 	t.Logf("after render:\n%s", got)
 
 	top, mid, bot, status := band[0], band[1], band[2], band[3]
-	if !strings.Contains(top, "╭") || !strings.Contains(top, "gpt-4o-mini") || !strings.Contains(top, "╮") {
-		t.Fatalf("top border should carry the model: %q", top)
+	if !strings.Contains(top, "╭") || !strings.Contains(top, "no model") || !strings.Contains(top, "/provider") || !strings.Contains(top, "╮") {
+		t.Fatalf("top border should carry actionable offline label: %q", top)
 	}
 	if strings.Contains(top, "default") {
 		t.Fatalf("default mode on top border: %q", top)
@@ -41,7 +44,7 @@ func TestComposerAndStatusBottomRender(t *testing.T) {
 	if !strings.Contains(mid, "❯") || !strings.Contains(mid, "Ask Rock") {
 		t.Fatalf("input row: %q", mid)
 	}
-	if !strings.Contains(bot, "╰") || strings.Contains(bot, "gpt-4o-mini") {
+	if !strings.Contains(bot, "╰") || strings.Contains(bot, "no model") {
 		t.Fatalf("bottom border should be plain: %q", bot)
 	}
 	if strings.Contains(status, "DEFAULT") || strings.Contains(status, "jev:") || strings.Contains(status, "gpt-4o-mini") || strings.Contains(status, "ready") {

@@ -30,6 +30,14 @@ type session struct {
 	id     string
 }
 
+// ModelInfo is one subscription model advertised by the grok child via
+// ACP session config options (category "model"). Names come from the
+// child only — Rock never invents them.
+type ModelInfo struct {
+	ID   string
+	Name string
+}
+
 func (p *Provider) Name() string { return AuthClass }
 
 func (p *Provider) denied() (perm, fs int64) {
@@ -118,12 +126,13 @@ func (p *Provider) ensure(ctx context.Context, bin string) (*session, error) {
 
 // ProbeSignedIn starts a short ACP initialize against bin and reports
 // whether grok offered cached_token (or xai.api_key with XAI_API_KEY set).
+// Timeout defaults to ProbeTimeout (2s) so auto-detect stays snappy.
 func ProbeSignedIn(ctx context.Context, bin, cwd string, start StartFunc) Status {
 	st := Look(bin)
 	if !st.Found {
 		return st
 	}
-	ctx, cancel := withTimeout(ctx, 8*time.Second)
+	ctx, cancel := withTimeout(ctx, ProbeTimeout)
 	defer cancel()
 	c, err := dial(ctx, st.Bin, ChildArgs(), cwd, start)
 	if err != nil {
@@ -153,6 +162,73 @@ func ProbeSignedIn(ctx context.Context, bin, cwd string, start StartFunc) Status
 	}
 	st.Detail = notSignedIn()
 	return st
+}
+
+// ProbeSignedInCached is ProbeSignedIn with a brief ROCK_HOME cache so
+// repeated Open() calls do not re-spawn grok. Cache miss pays ProbeTimeout
+// once; hits are instantaneous and keep the TUI's first frame snappy.
+func ProbeSignedInCached(ctx context.Context, bin, cwd string, start StartFunc) Status {
+	st := Look(bin)
+	if !st.Found {
+		return st
+	}
+	if cached, ok := loadProbeCache(st.Bin); ok {
+		return cached
+	}
+	st = ProbeSignedIn(ctx, st.Bin, cwd, start)
+	if st.Found {
+		saveProbeCache(st)
+	}
+	return st
+}
+
+// Models returns the subscription models the child advertised on
+// session/new, plus the current selection. Empty when the child did not
+// expose a model config option — callers should fall back to showing
+// whatever FastModel/current label they already have, not invent names.
+func (p *Provider) Models(ctx context.Context) (current string, models []ModelInfo, err error) {
+	bin := p.Bin
+	if p.Start == nil {
+		st := Look(p.Bin)
+		if !st.Found {
+			return "", nil, fmt.Errorf("%s", st.Detail)
+		}
+		bin = st.Bin
+	}
+	ctx, cancel := withTimeout(ctx, p.timeout())
+	defer cancel()
+	sess, err := p.ensure(ctx, bin)
+	if err != nil {
+		return "", nil, err
+	}
+	return sess.client.modelCurrent, append([]ModelInfo(nil), sess.client.models...), nil
+}
+
+// SetModel switches the child model through session/set_config_option.
+// No-op with a clear error when the child never advertised a model option.
+func (p *Provider) SetModel(ctx context.Context, modelID string) error {
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return fmt.Errorf("grok-cli: empty model id")
+	}
+	bin := p.Bin
+	if p.Start == nil {
+		st := Look(p.Bin)
+		if !st.Found {
+			return fmt.Errorf("%s", st.Detail)
+		}
+		bin = st.Bin
+	}
+	ctx, cancel := withTimeout(ctx, p.timeout())
+	defer cancel()
+	sess, err := p.ensure(ctx, bin)
+	if err != nil {
+		return err
+	}
+	if sess.client.modelConfigID == "" {
+		return fmt.Errorf("grok-cli: child did not advertise a model list over ACP")
+	}
+	return sess.client.setModel(ctx, sess.id, modelID)
 }
 
 func renderPrompt(messages []provider.Message, tools []provider.ToolSpec) string {

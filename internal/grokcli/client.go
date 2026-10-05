@@ -80,6 +80,10 @@ type client struct {
 	cwd     string
 	permN   atomic.Int64
 	fsN     atomic.Int64
+
+	modelConfigID string
+	modelCurrent  string
+	models        []ModelInfo
 }
 
 type proposed struct {
@@ -336,7 +340,16 @@ func (c *client) newSession(ctx context.Context) (string, error) {
 		return "", err
 	}
 	var out struct {
-		SessionID string `json:"sessionId"`
+		SessionID     string            `json:"sessionId"`
+		ConfigOptions []json.RawMessage `json:"configOptions"`
+		// Legacy/unstable field some agents still send.
+		Models *struct {
+			CurrentModelID string `json:"currentModelId"`
+			Available      []struct {
+				ModelID string `json:"modelId"`
+				Name    string `json:"name"`
+			} `json:"availableModels"`
+		} `json:"models"`
 	}
 	if err := json.Unmarshal(res, &out); err != nil {
 		return "", err
@@ -344,7 +357,87 @@ func (c *client) newSession(ctx context.Context) (string, error) {
 	if out.SessionID == "" {
 		return "", fmt.Errorf("grok-cli: session/new returned no sessionId")
 	}
+	c.applyModelConfig(out.ConfigOptions)
+	if len(c.models) == 0 && out.Models != nil {
+		c.modelCurrent = strings.TrimSpace(out.Models.CurrentModelID)
+		for _, m := range out.Models.Available {
+			id := strings.TrimSpace(m.ModelID)
+			if id == "" {
+				continue
+			}
+			name := strings.TrimSpace(m.Name)
+			if name == "" {
+				name = id
+			}
+			c.models = append(c.models, ModelInfo{ID: id, Name: name})
+		}
+	}
 	return out.SessionID, nil
+}
+
+func (c *client) applyModelConfig(options []json.RawMessage) {
+	c.modelConfigID = ""
+	c.modelCurrent = ""
+	c.models = nil
+	for _, raw := range options {
+		var opt struct {
+			ConfigID     string `json:"configId"`
+			Category     string `json:"category"`
+			Type         string `json:"type"`
+			CurrentValue string `json:"currentValue"`
+			Options      []struct {
+				Value string `json:"value"`
+				Name  string `json:"name"`
+			} `json:"options"`
+		}
+		if json.Unmarshal(raw, &opt) != nil {
+			continue
+		}
+		if strings.ToLower(opt.Category) != "model" && opt.ConfigID != "model" {
+			continue
+		}
+		c.modelConfigID = opt.ConfigID
+		if c.modelConfigID == "" {
+			c.modelConfigID = "model"
+		}
+		c.modelCurrent = strings.TrimSpace(opt.CurrentValue)
+		for _, o := range opt.Options {
+			id := strings.TrimSpace(o.Value)
+			if id == "" {
+				continue
+			}
+			name := strings.TrimSpace(o.Name)
+			if name == "" {
+				name = id
+			}
+			c.models = append(c.models, ModelInfo{ID: id, Name: name})
+		}
+		return
+	}
+}
+
+func (c *client) setModel(ctx context.Context, sessionID, modelID string) error {
+	if c.modelConfigID == "" {
+		return fmt.Errorf("grok-cli: child did not advertise a model list over ACP")
+	}
+	res, err := c.request(ctx, "session/set_config_option", map[string]any{
+		"sessionId": sessionID,
+		"configId":  c.modelConfigID,
+		"value":     modelID,
+	})
+	if err != nil {
+		return err
+	}
+	var out struct {
+		ConfigOptions []json.RawMessage `json:"configOptions"`
+	}
+	_ = json.Unmarshal(res, &out)
+	if len(out.ConfigOptions) > 0 {
+		c.applyModelConfig(out.ConfigOptions)
+	} else {
+		c.modelCurrent = modelID
+	}
+	return nil
 }
 
 func (c *client) prompt(ctx context.Context, sessionID, text string) error {

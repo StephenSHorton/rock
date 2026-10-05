@@ -76,7 +76,7 @@ go build -o rock ./cmd/rock
 | `rock update` | Install the latest GitHub release (checksum + atomic replace). `--check` prints current → latest |
 | `rock version` | Print the build version (`dev` unless a release injected one) |
 
-In the TUI: `/plan`, `/yolo`, `/default`, `/permissions`, `/agents` (subagents this session), `/ready` (Jev plan-readiness — **never approves**), `/verbose`, `/fork [prompt]`, `/sessions`, `/provider` (ChatGPT / SuperGrok / API key / offline model), `/update`, `/help`, `/quit`. The TUI asks for a Jev key before any turn. SuperGrok needs the official `grok` binary and `grok login`; Rock does not sign you in.
+In the TUI: `/plan`, `/yolo`, `/default`, `/permissions`, `/agents` (subagents this session), `/ready` (Jev plan-readiness — **never approves**), `/verbose`, `/fork [prompt]`, `/sessions`, `/provider` (ChatGPT / SuperGrok / API key / offline model), `/update`, `/help`, `/quit`. The TUI asks for a Jev key before any turn. A signed-in official `grok` binary on PATH is picked up automatically for SuperGrok models; Rock never runs `grok login` and never reads `~/.grok` token files. Set `auth = "grok-cli"` to force it.
 
 The public page is [stephenshorton.github.io/rock](https://stephenshorton.github.io/rock/). Source for it is [`site/`](site/), a Vite app. The page swaps one install command by operating system. macOS and Linux:
 

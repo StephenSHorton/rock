@@ -66,30 +66,39 @@ const (
 // RunFunc executes one turn against the session the screen is showing.
 type RunFunc func(ctx context.Context, sess *session.Session, prompt string, ask harness.AskFunc, sink func(harness.Event)) error
 
+// GrokModel is one subscription model from the official grok child.
+type GrokModel struct {
+	ID, Name string
+}
+
 // Deps is everything the screen needs from the process.
 type Deps struct {
-	CWD           string
-	Session       *session.Session
-	Mode          perms.Mode
-	ReviewOnly    bool
-	JevMode       string
-	Gates         jev.Gates
-	Provider      string
-	Auth          string
-	FastModel     string
-	StrongModel   string
-	Run           RunFunc
-	LoadSession   func(id string) (*session.Session, error)
-	ListSessions  func() []session.Meta
-	Rules         []string
-	Fork          func(prompt string) (string, error)
-	SetMode       func(perms.Mode)
-	SetAuth       func(class string) (provider, auth string, err error)
-	HasAPIKey     bool
-	HasSIWC       bool
-	HasGrokCLI    bool
-	InitialPrompt string
-	Output        io.Writer
+	CWD          string
+	Session      *session.Session
+	Mode         perms.Mode
+	ReviewOnly   bool
+	JevMode      string
+	Gates        jev.Gates
+	Provider     string
+	Auth         string
+	FastModel    string
+	StrongModel  string
+	Run          RunFunc
+	LoadSession  func(id string) (*session.Session, error)
+	ListSessions func() []session.Meta
+	Rules        []string
+	Fork         func(prompt string) (string, error)
+	SetMode      func(perms.Mode)
+	SetAuth      func(class string) (provider, auth string, err error)
+	HasAPIKey    bool
+	HasSIWC      bool
+	HasGrokCLI   bool
+	// ListGrokModels / SetGrokModel are set when auth is grok-cli so the
+	// model chip can show subscription models from the child ACP session.
+	ListGrokModels func() (current string, models []GrokModel, err error)
+	SetGrokModel   func(id string) error
+	InitialPrompt  string
+	Output         io.Writer
 	// Verbose starts the TUI with Jev turn/risk diagnostics in the
 	// transcript. /verbose toggles it after that.
 	Verbose bool
@@ -968,6 +977,32 @@ func (m *Model) syncPicker() {
 }
 
 func (m *Model) openModelPicker() {
+	if m.deps.Auth == "grok-cli" && m.deps.ListGrokModels != nil {
+		cur, models, err := m.deps.ListGrokModels()
+		if err == nil && len(models) > 0 {
+			items := make([]rowItem, 0, len(models)+1)
+			for _, gm := range models {
+				title := gm.Name
+				if title == "" {
+					title = gm.ID
+				}
+				tag := ""
+				if gm.ID == cur {
+					tag = "current"
+				}
+				items = append(items, rowItem{title: title, desc: gm.ID, id: "grok-model:" + gm.ID, tag: tag})
+			}
+			items = append(items, rowItem{title: "Change provider…", desc: "/provider", id: "providers"})
+			m.picker.set(modelPicker, "Model", items)
+			for i, it := range items {
+				if it.tag == "current" {
+					m.picker.sel = i
+				}
+			}
+			m.input.Blur()
+			return
+		}
+	}
 	m.refreshProviders()
 	m.picker.set(modelPicker, "Model", listItems(m.providers))
 	m.input.Blur()
@@ -1064,6 +1099,22 @@ func (m *Model) pickCurrent() tea.Cmd {
 		return m.submit()
 	case modelPicker:
 		if it, ok := m.picker.selected(); ok {
+			if it.id == "providers" {
+				m.refreshProviders()
+				m.picker.set(modelPicker, "Model", listItems(m.providers))
+				return nil
+			}
+			if id, ok := strings.CutPrefix(it.id, "grok-model:"); ok {
+				if m.deps.SetGrokModel != nil {
+					if err := m.deps.SetGrokModel(id); err != nil {
+						m.setAlert(err.Error())
+					} else {
+						m.deps.FastModel = id
+						m.status, m.alert = "model "+id, false
+					}
+				}
+				return m.closePicker()
+			}
 			m.selectProviderItem(it)
 		}
 		return m.closePicker()

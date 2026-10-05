@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -28,7 +30,7 @@ func TestHeadlessOfflineAndInspect(t *testing.T) {
 	var inspect bytes.Buffer
 	app.Inspect(&inspect)
 	text := inspect.String()
-	for _, want := range []string{"provider: offline", "auth: offline_model", "does not skip the Jev key", "jev: offline", "jev.nudge: every 2", "jev.triage: on", "jev.filter: on", "jev.clip_bytes: 1500", "Permissions are not a sandbox", "redirections are not inspected"} {
+	for _, want := range []string{"provider: offline", "auth: offline_model", "no model · /provider", "grok auto:", "jev: offline", "jev.nudge: every 2", "jev.triage: on", "jev.filter: on", "jev.clip_bytes: 1500", "Permissions are not a sandbox", "redirections are not inspected"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("inspect missing %q\n%s", want, text)
 		}
@@ -202,5 +204,62 @@ func TestForkSequenceNamesRock(t *testing.T) {
 	}
 	if !strings.HasSuffix(seq, "\a") {
 		t.Fatal("missing BEL")
+	}
+}
+
+func TestAutoDetectsSignedInGrok(t *testing.T) {
+	t.Setenv("ROCK_HOME", t.TempDir())
+	t.Setenv("ROCK_CONFIG", t.TempDir()+"/config.toml")
+	t.Setenv("ROCK_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("JEV_API_KEY", "")
+	t.Setenv("TYPESAFE_API_KEY", "")
+	grokcli.ClearProbeCache()
+
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "grok")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ROCK_GROK_BIN", bin)
+	// Seed cache as signed-in so Open does not need a real ACP child.
+	// ProbeSignedInCached reads this before dialing.
+	home := os.Getenv("ROCK_HOME")
+	raw := []byte(`{"bin":"` + bin + `","signed_in":true,"detail":"official grok binary (signed in)","checked":"2099-01-01T00:00:00Z"}`)
+	if err := os.WriteFile(filepath.Join(home, "grok-probe.json"), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	app, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	if app.Auth != grokcli.AuthClass || !app.GrokAuto {
+		t.Fatalf("auth=%q auto=%v provider=%s", app.Auth, app.GrokAuto, app.Provider.Name())
+	}
+	var buf bytes.Buffer
+	app.Inspect(&buf)
+	if !strings.Contains(buf.String(), "grok auto: yes") {
+		t.Fatal(buf.String())
+	}
+}
+
+func TestExplicitAuthBeatsGrokAuto(t *testing.T) {
+	t.Setenv("ROCK_HOME", t.TempDir())
+	t.Setenv("ROCK_CONFIG", t.TempDir()+"/config.toml")
+	t.Setenv("ROCK_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	grokcli.ClearProbeCache()
+	app, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	if err := app.SetAuth(siwc.AuthOfflineModel); err != nil {
+		t.Fatal(err)
+	}
+	if app.GrokAuto || app.Auth != siwc.AuthOfflineModel {
+		t.Fatalf("auth=%q auto=%v", app.Auth, app.GrokAuto)
 	}
 }

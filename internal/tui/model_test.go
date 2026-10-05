@@ -174,7 +174,8 @@ func sized(t *testing.T, w, h int) *Model {
 	t.Helper()
 	m := testModel(t)
 	m.deps.FastModel = "gpt-4o-mini"
-	m.deps.Provider = "offline"
+	m.deps.Provider = "openai"
+	m.deps.Auth = "api_key"
 	m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	return m
 }

@@ -253,9 +253,31 @@ func startTUI(app *cli.App, sess *session.Session, initial string, rules []strin
 			}
 			return app.Provider.Name(), app.Auth, nil
 		},
-		HasAPIKey:   config.APIKey() != "",
-		HasSIWC:     siwc.LoggedIn(),
-		HasGrokCLI:  grokcli.Look(app.Loaded.File.GrokBin).Found,
+		HasAPIKey:  config.APIKey() != "",
+		HasSIWC:    siwc.LoggedIn(),
+		HasGrokCLI: grokcli.Look(app.Loaded.File.GrokBin).Found,
+		ListGrokModels: func() (string, []tui.GrokModel, error) {
+			p, ok := app.Provider.(*grokcli.Provider)
+			if !ok {
+				return "", nil, nil
+			}
+			cur, models, err := p.Models(context.Background())
+			if err != nil {
+				return "", nil, err
+			}
+			out := make([]tui.GrokModel, 0, len(models))
+			for _, m := range models {
+				out = append(out, tui.GrokModel{ID: m.ID, Name: m.Name})
+			}
+			return cur, out, nil
+		},
+		SetGrokModel: func(id string) error {
+			p, ok := app.Provider.(*grokcli.Provider)
+			if !ok {
+				return nil
+			}
+			return p.SetModel(context.Background(), id)
+		},
 		Output:      os.Stdout,
 		Verbose:     verbose,
 		JevGate:     needGate,
@@ -549,7 +571,7 @@ before Jev setup and never start the agent.
 
 Sessions live under ~/.rock (ROCK_HOME). Config is ~/.config/rock/config.toml (ROCK_CONFIG).
 Model keys: ROCK_API_KEY or OPENAI_API_KEY. ChatGPT plan: rock login chatgpt.
-SuperGrok: official grok on PATH, then grok login. Config: auth = "grok-cli" (or provider = "grok-cli").
+SuperGrok: a signed-in official grok on PATH is picked up automatically. Or set auth = "grok-cli". Rock never runs grok login.
 Jev keys: JEV_API_KEY, TYPESAFE_API_KEY, the OS keychain, or ROCK_HOME/jev.key.
 ROCK_VERBOSE=1 is the same as --verbose: Jev turn/risk lines stay in the TUI transcript.
 
