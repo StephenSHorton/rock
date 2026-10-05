@@ -8,9 +8,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/StephenSHorton/rock/internal/config"
+	"github.com/StephenSHorton/rock/internal/version"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -152,8 +154,9 @@ type rpc struct {
 }
 
 type rpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+	Code    int             `json:"code"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data,omitempty"`
 }
 
 type pending struct {
@@ -197,6 +200,9 @@ func dial(ctx context.Context, bin string, args []string, cwd string, start Star
 	in, out, stop, err := start(ctx, bin, args)
 	if err != nil {
 		return nil, err
+	}
+	if abs, err := filepath.Abs(cwd); err == nil && abs != "" {
+		cwd = abs
 	}
 	c := &client{
 		in:   in,
@@ -367,7 +373,7 @@ func (c *client) request(ctx context.Context, method string, params any) (json.R
 		return nil, ctx.Err()
 	case msg := <-done:
 		if msg.Error != nil {
-			return nil, fmt.Errorf("grok-cli %s: %s", method, msg.Error.Message)
+			return nil, formatRPCError(method, msg.Error)
 		}
 		return msg.Result, nil
 	}
@@ -403,17 +409,39 @@ func (c *client) fail(id any, err error) error {
 	return c.write(rpc{JSONRPC: "2.0", ID: id, Error: &rpcError{Code: -32000, Message: err.Error()}})
 }
 
-func (c *client) initialize(ctx context.Context) ([]string, error) {
-	// Empty fs/terminal caps: a well-behaved child should not ask us to
-	// execute files or a PTY. We still reject those methods if it does.
-	res, err := c.request(ctx, "initialize", map[string]any{
+// InitializeParams is the ACP initialize body shared by the probe and
+// the turn-path client. Real grok 1.0.41 rejects clientInfo without a
+// version string (-32602 Invalid params); the working shape is
+// protocolVersion integer 1 + clientCapabilities object + clientInfo
+// {name, version} (title optional per ACP).
+func InitializeParams() map[string]any {
+	return map[string]any{
 		"protocolVersion": 1,
 		"clientCapabilities": map[string]any{
 			"fs":       map[string]any{"readTextFile": false, "writeTextFile": false},
 			"terminal": false,
 		},
-		"clientInfo": map[string]any{"name": "rock", "title": "Rock"},
-	})
+		"clientInfo": map[string]any{
+			"name":    "rock",
+			"title":   "Rock",
+			"version": version.Version,
+		},
+	}
+}
+
+func formatRPCError(method string, e *rpcError) error {
+	if e == nil {
+		return fmt.Errorf("grok-cli %s: unknown error", method)
+	}
+	msg := strings.TrimSpace(e.Message)
+	if len(e.Data) > 0 && string(e.Data) != "null" {
+		msg = msg + " (" + string(e.Data) + ")"
+	}
+	return fmt.Errorf("grok-cli %s: %s", method, msg)
+}
+
+func (c *client) initialize(ctx context.Context) ([]string, error) {
+	res, err := c.request(ctx, "initialize", InitializeParams())
 	if err != nil {
 		return nil, err
 	}
@@ -486,8 +514,9 @@ func (c *client) authenticate(ctx context.Context, methods []string) error {
 	}
 	switch {
 	case has["cached_token"]:
-		_, err := c.request(ctx, "authenticate", map[string]any{"methodId": "cached_token"})
-		return err
+		// Real grok 1.0.41 lists cached_token and defaultAuthMethodId
+		// after initialize; no authenticate round-trip is required.
+		return nil
 	case has["xai.api_key"] && strings.TrimSpace(os.Getenv("XAI_API_KEY")) != "":
 		// Grok's own API-key path. Rock does not mint or store this key.
 		_, err := c.request(ctx, "authenticate", map[string]any{"methodId": "xai.api_key"})
@@ -500,11 +529,11 @@ func (c *client) authenticate(ctx context.Context, methods []string) error {
 }
 
 func (c *client) newSession(ctx context.Context) (string, error) {
+	// ACP session/new requires absolute cwd + mcpServers array.
+	// Extra fields (permission, _meta) are rejected by strict agents.
 	res, err := c.request(ctx, "session/new", map[string]any{
 		"cwd":        c.cwd,
 		"mcpServers": []any{},
-		"permission": "default",
-		"_meta":      map[string]any{"yoloMode": false},
 	})
 	if err != nil {
 		return "", err
@@ -512,12 +541,16 @@ func (c *client) newSession(ctx context.Context) (string, error) {
 	var out struct {
 		SessionID     string            `json:"sessionId"`
 		ConfigOptions []json.RawMessage `json:"configOptions"`
-		// Legacy/unstable field some agents still send.
+		// Real grok 1.0.41 also returns models here (and via notifications).
 		Models *struct {
 			CurrentModelID string `json:"currentModelId"`
 			Available      []struct {
-				ModelID string `json:"modelId"`
-				Name    string `json:"name"`
+				ModelID     string `json:"modelId"`
+				Name        string `json:"name"`
+				Description string `json:"description"`
+				Meta        *struct {
+					TotalContextTokens int `json:"totalContextTokens"`
+				} `json:"_meta"`
 			} `json:"availableModels"`
 		} `json:"models"`
 	}
@@ -527,30 +560,57 @@ func (c *client) newSession(ctx context.Context) (string, error) {
 	if out.SessionID == "" {
 		return "", fmt.Errorf("grok-cli: session/new returned no sessionId")
 	}
+	// Prefer configOptions (sets modelConfigID for set_config_option).
+	// Then fill any gaps from the models object (real grok sends both).
 	c.applyModelConfig(out.ConfigOptions)
-	if len(c.models) == 0 && out.Models != nil {
-		c.modelCurrent = strings.TrimSpace(out.Models.CurrentModelID)
-		for _, m := range out.Models.Available {
-			id := strings.TrimSpace(m.ModelID)
-			if id == "" {
-				continue
-			}
-			name := strings.TrimSpace(m.Name)
-			if name == "" {
-				name = id
-			}
-			c.models = append(c.models, ModelInfo{ID: id, Name: name})
-		}
-	}
+	c.applySessionModels(out.Models)
 	return out.SessionID, nil
+}
+
+func (c *client) applySessionModels(models *struct {
+	CurrentModelID string `json:"currentModelId"`
+	Available      []struct {
+		ModelID     string `json:"modelId"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Meta        *struct {
+			TotalContextTokens int `json:"totalContextTokens"`
+		} `json:"_meta"`
+	} `json:"availableModels"`
+}) {
+	if models == nil {
+		return
+	}
+	if cur := strings.TrimSpace(models.CurrentModelID); cur != "" {
+		c.modelCurrent = cur
+	}
+	var list []ModelInfo
+	for _, m := range models.Available {
+		id := strings.TrimSpace(m.ModelID)
+		if id == "" {
+			continue
+		}
+		name := strings.TrimSpace(m.Name)
+		if name == "" {
+			name = id
+		}
+		info := ModelInfo{ID: id, Name: name, Description: strings.TrimSpace(m.Description)}
+		if m.Meta != nil {
+			info.ContextTokens = m.Meta.TotalContextTokens
+		}
+		list = append(list, info)
+	}
+	if len(list) > 0 {
+		c.models = list
+	}
 }
 
 func (c *client) applyModelConfig(options []json.RawMessage) {
 	// Do not clear initialize _meta.modelState when session/new has no
-	// model configOptions — real grok 1.0.41 advertises models only on
-	// initialize.
+	// model configOptions. Real grok 1.0.41 uses "id" (not only configId).
 	for _, raw := range options {
 		var opt struct {
+			ID           string `json:"id"`
 			ConfigID     string `json:"configId"`
 			Category     string `json:"category"`
 			Type         string `json:"type"`
@@ -563,10 +623,14 @@ func (c *client) applyModelConfig(options []json.RawMessage) {
 		if json.Unmarshal(raw, &opt) != nil {
 			continue
 		}
-		if strings.ToLower(opt.Category) != "model" && opt.ConfigID != "model" {
+		cfgID := strings.TrimSpace(opt.ConfigID)
+		if cfgID == "" {
+			cfgID = strings.TrimSpace(opt.ID)
+		}
+		if strings.ToLower(opt.Category) != "model" && cfgID != "model" {
 			continue
 		}
-		c.modelConfigID = opt.ConfigID
+		c.modelConfigID = cfgID
 		if c.modelConfigID == "" {
 			c.modelConfigID = "model"
 		}

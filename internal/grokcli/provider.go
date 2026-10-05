@@ -21,10 +21,13 @@ type Provider struct {
 	CWD     string
 	Start   StartFunc
 	Timeout time.Duration
+	// OverrideModel is config grok_model — a user pick from the child's
+	// advertised list. It overrides Jev fast/strong mapping.
+	OverrideModel string
 
 	mu        sync.Mutex
 	sess      *session
-	wantModel string // pending -m restart target
+	wantModel string // pending -m restart target (last resort only)
 }
 
 type session struct {
@@ -70,7 +73,7 @@ func (p *Provider) Close() {
 	}
 }
 
-func (p *Provider) Complete(ctx context.Context, _ string, messages []provider.Message, tools []provider.ToolSpec) (provider.Message, error) {
+func (p *Provider) Complete(ctx context.Context, model string, messages []provider.Message, tools []provider.ToolSpec) (provider.Message, error) {
 	bin := p.Bin
 	if p.Start == nil {
 		st := Look(p.Bin)
@@ -84,6 +87,16 @@ func (p *Provider) Complete(ctx context.Context, _ string, messages []provider.M
 	sess, err := p.ensure(ctx, bin)
 	if err != nil {
 		return provider.Message{}, err
+	}
+	target := MapGrokTarget(model, sess.client.models, sess.client.modelCurrent, p.OverrideModel)
+	if target != "" && target != sess.client.modelCurrent {
+		if err := p.switchModel(ctx, bin, sess, target); err != nil {
+			return provider.Message{}, err
+		}
+		sess, err = p.ensure(ctx, bin)
+		if err != nil {
+			return provider.Message{}, err
+		}
 	}
 	if err := sess.client.prompt(ctx, sess.id, renderPrompt(messages, tools)); err != nil {
 		return provider.Message{}, err
@@ -99,6 +112,32 @@ func (p *Provider) Complete(ctx context.Context, _ string, messages []provider.M
 		msg.ToolCalls = calls
 	}
 	return msg, nil
+}
+
+// switchModel prefers session/set_config_option, then session/set_model.
+// Restarts with -m only when both fail and target is a child-advertised id
+// (never OpenAI / Jev tier labels).
+func (p *Provider) switchModel(ctx context.Context, bin string, sess *session, target string) error {
+	err := sess.client.setModel(ctx, sess.id, target)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, errNeedRestartModel) {
+		return err
+	}
+	if LooksLikeForeignModel(target) || target == "" {
+		// Keep the live session on the child's current model.
+		return nil
+	}
+	p.mu.Lock()
+	if p.sess != nil {
+		p.sess.client.Close()
+		p.sess = nil
+	}
+	p.wantModel = target
+	p.mu.Unlock()
+	_, err = p.ensure(ctx, bin)
+	return err
 }
 
 func (p *Provider) ensure(ctx context.Context, bin string) (*session, error) {
@@ -197,9 +236,9 @@ func ProbeSignedInCached(ctx context.Context, bin, cwd string, start StartFunc) 
 }
 
 // Models returns the subscription models the child advertised on
-// session/new, plus the current selection. Empty when the child did not
-// expose a model config option — callers should fall back to showing
-// whatever FastModel/current label they already have, not invent names.
+// initialize _meta.modelState and/or session/new (models + configOptions),
+// plus the current selection. Empty when the child did not expose any —
+// callers must not invent names.
 func (p *Provider) Models(ctx context.Context) (current string, models []ModelInfo, err error) {
 	bin := p.Bin
 	if p.Start == nil {
@@ -219,12 +258,16 @@ func (p *Provider) Models(ctx context.Context) (current string, models []ModelIn
 }
 
 // SetModel switches the subscription model. Order: session/set_config_option
-// (category model), then session/set_model, then restart the child with
-// grok agent -m <model> --no-leader stdio.
+// (id/configId "model"), then session/set_model, then restart with
+// grok agent -m <model> --no-leader stdio (last resort only; never for
+// OpenAI / Jev tier labels).
 func (p *Provider) SetModel(ctx context.Context, modelID string) error {
 	modelID = strings.TrimSpace(modelID)
 	if modelID == "" {
 		return fmt.Errorf("grok-cli: empty model id")
+	}
+	if LooksLikeForeignModel(modelID) {
+		return fmt.Errorf("grok-cli: refusing to set OpenAI/tier model %q on grok child", modelID)
 	}
 	bin := p.Bin
 	if p.Start == nil {
@@ -240,24 +283,7 @@ func (p *Provider) SetModel(ctx context.Context, modelID string) error {
 	if err != nil {
 		return err
 	}
-	err = sess.client.setModel(ctx, sess.id, modelID)
-	if err == nil {
-		return nil
-	}
-	if !errors.Is(err, errNeedRestartModel) && sess.client.modelConfigID != "" {
-		// set_config_option failed for a reason other than missing support;
-		// still try restart as last resort below.
-	}
-	// Restart with -m.
-	p.mu.Lock()
-	if p.sess != nil {
-		p.sess.client.Close()
-		p.sess = nil
-	}
-	p.wantModel = modelID
-	p.mu.Unlock()
-	_, err = p.ensure(ctx, bin)
-	return err
+	return p.switchModel(ctx, bin, sess, modelID)
 }
 
 // ContextLimit returns totalContextTokens for the current model, or 0.

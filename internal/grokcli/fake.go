@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -19,24 +20,42 @@ type FakeScript struct {
 	AskFSWrite  bool
 	AuthSeen    string
 	// Models, when non-nil, are advertised on initialize _meta.modelState
-	// (matching real grok 1.0.41). Set ConfigOptionsModels to also put
-	// them on session/new configOptions.
+	// (matching real grok 1.0.41). ConfigOptionsModels also puts them on
+	// session/new (with real "id" field). SessionModels puts the models
+	// object on session/new (real grok sends both).
 	Models              []ModelInfo
 	CurrentModel        string
 	ConfigOptionsModels bool
+	SessionModels       bool // include models{} on session/new
 	AcceptSetModel      bool // respond to session/set_model
 	RejectConfigOption  bool // force set_config_option to fail
 	SetModelSeen        string
 	SetModelVia         string // "config" | "set_model" | ""
+	// StrictACP rejects initialize / session/new / session/prompt that
+	// do not match real grok 1.0.41 expectations (Invalid params -32602).
+	StrictACP bool
+	// EmitSetupNotes sends unknown _x.ai/* notifications before
+	// session/new responds (client must ignore them).
+	EmitSetupNotes bool
 
-	mu   sync.Mutex
-	args []string
+	mu         sync.Mutex
+	args       []string
+	initSeen   json.RawMessage
+	newSeen    json.RawMessage
+	promptSeen json.RawMessage
+	authCalls  int
 }
 
 func (f *FakeScript) Args() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.args...)
+}
+
+func (f *FakeScript) AuthCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.authCalls
 }
 
 func (f *FakeScript) setArgs(args []string) {
@@ -48,6 +67,7 @@ func (f *FakeScript) setArgs(args []string) {
 func (f *FakeScript) setAuth(id string) {
 	f.mu.Lock()
 	f.AuthSeen = id
+	f.authCalls++
 	f.mu.Unlock()
 }
 
@@ -85,6 +105,13 @@ func FakeACP(in io.Reader, out io.Writer, script *FakeScript) {
 		raw, _ := json.Marshal(v)
 		_, _ = out.Write(append(raw, '\n'))
 	}
+	invalid := func(id any, detail string) {
+		write(rpc{JSONRPC: "2.0", ID: id, Error: &rpcError{
+			Code:    -32602,
+			Message: "Invalid params",
+			Data:    mustRaw(map[string]any{"detail": detail}),
+		}})
+	}
 	sc := bufio.NewScanner(in)
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	sessionID := "sess_fake"
@@ -95,6 +122,15 @@ func FakeACP(in io.Reader, out io.Writer, script *FakeScript) {
 		}
 		switch msg.Method {
 		case "initialize":
+			script.mu.Lock()
+			script.initSeen = append(json.RawMessage(nil), msg.Params...)
+			script.mu.Unlock()
+			if script.StrictACP {
+				if detail := validateInitialize(msg.Params); detail != "" {
+					invalid(msg.ID, detail)
+					break
+				}
+			}
 			methods := script.AuthMethods
 			if methods == nil {
 				methods = []string{"cached_token", "grok.com"}
@@ -106,12 +142,10 @@ func FakeACP(in io.Reader, out io.Writer, script *FakeScript) {
 			meta := map[string]any{
 				"grokShell":           true,
 				"defaultAuthMethodId": "cached_token",
+				"agentVersion":        "1.0.41",
 			}
 			if script.Models != nil {
-				cur := script.CurrentModel
-				if cur == "" && len(script.Models) > 0 {
-					cur = script.Models[0].ID
-				}
+				cur := script.current()
 				var avail []map[string]any
 				for _, m := range script.Models {
 					entry := map[string]any{"modelId": m.ID, "name": m.Name, "description": m.Description}
@@ -127,8 +161,15 @@ func FakeACP(in io.Reader, out io.Writer, script *FakeScript) {
 			}
 			write(rpc{JSONRPC: "2.0", ID: msg.ID, Result: mustRaw(map[string]any{
 				"protocolVersion": 1,
-				"authMethods":     listed,
-				"_meta":           meta,
+				"agentCapabilities": map[string]any{
+					"loadSession": true,
+					"promptCapabilities": map[string]any{
+						"image": false, "audio": false, "embeddedContext": true,
+					},
+					"mcpCapabilities": map[string]any{"http": true, "sse": true},
+				},
+				"authMethods": listed,
+				"_meta":       meta,
 			})})
 		case "authenticate":
 			var p struct {
@@ -138,18 +179,52 @@ func FakeACP(in io.Reader, out io.Writer, script *FakeScript) {
 			script.setAuth(p.MethodID)
 			write(rpc{JSONRPC: "2.0", ID: msg.ID, Result: mustRaw(map[string]any{})})
 		case "session/new":
-			result := map[string]any{"sessionId": sessionID}
-			if script.ConfigOptionsModels && script.Models != nil {
-				cur := script.CurrentModel
-				if cur == "" && len(script.Models) > 0 {
-					cur = script.Models[0].ID
+			script.mu.Lock()
+			script.newSeen = append(json.RawMessage(nil), msg.Params...)
+			script.mu.Unlock()
+			if script.StrictACP {
+				if detail := validateSessionNew(msg.Params); detail != "" {
+					invalid(msg.ID, detail)
+					break
 				}
+			}
+			if script.EmitSetupNotes {
+				for _, method := range []string{
+					"_x.ai/session/setup",
+					"_x.ai/mcp/servers_updated",
+					"_x.ai/models/update",
+					"_x.ai/settings/update",
+					"_x.ai/announcements/update",
+				} {
+					write(rpc{JSONRPC: "2.0", Method: method, Params: mustRaw(map[string]any{"ok": true})})
+				}
+			}
+			result := map[string]any{"sessionId": sessionID}
+			cur := script.current()
+			if (script.SessionModels || script.ConfigOptionsModels) && script.Models != nil {
+				var avail []map[string]any
+				for _, m := range script.Models {
+					entry := map[string]any{"modelId": m.ID, "name": m.Name, "description": m.Description}
+					if m.ContextTokens > 0 {
+						entry["_meta"] = map[string]any{"totalContextTokens": m.ContextTokens}
+					}
+					avail = append(avail, entry)
+				}
+				if script.SessionModels || script.ConfigOptionsModels {
+					result["models"] = map[string]any{
+						"currentModelId":  cur,
+						"availableModels": avail,
+					}
+				}
+			}
+			if script.ConfigOptionsModels && script.Models != nil {
 				var opts []map[string]string
 				for _, m := range script.Models {
 					opts = append(opts, map[string]string{"value": m.ID, "name": m.Name})
 				}
+				// Real grok 1.0.41 uses "id", not only "configId".
 				result["configOptions"] = []map[string]any{{
-					"configId":     "model",
+					"id":           "model",
 					"name":         "Model",
 					"category":     "model",
 					"type":         "select",
@@ -180,7 +255,7 @@ func FakeACP(in io.Reader, out io.Writer, script *FakeScript) {
 			}
 			write(rpc{JSONRPC: "2.0", ID: msg.ID, Result: mustRaw(map[string]any{
 				"configOptions": []map[string]any{{
-					"configId":     "model",
+					"id":           "model",
 					"name":         "Model",
 					"category":     "model",
 					"type":         "select",
@@ -204,6 +279,15 @@ func FakeACP(in io.Reader, out io.Writer, script *FakeScript) {
 			script.mu.Unlock()
 			write(rpc{JSONRPC: "2.0", ID: msg.ID, Result: mustRaw(map[string]any{})})
 		case "session/prompt":
+			script.mu.Lock()
+			script.promptSeen = append(json.RawMessage(nil), msg.Params...)
+			script.mu.Unlock()
+			if script.StrictACP {
+				if detail := validateSessionPrompt(msg.Params); detail != "" {
+					invalid(msg.ID, detail)
+					break
+				}
+			}
 			if script.AskFSWrite {
 				write(rpc{
 					JSONRPC: "2.0",
@@ -252,6 +336,103 @@ func FakeACP(in io.Reader, out io.Writer, script *FakeScript) {
 			write(rpc{JSONRPC: "2.0", ID: msg.ID, Error: &rpcError{Code: -32601, Message: "method not found"}})
 		}
 	}
+}
+
+func (f *FakeScript) current() string {
+	cur := f.CurrentModel
+	if cur == "" && len(f.Models) > 0 {
+		cur = f.Models[0].ID
+	}
+	return cur
+}
+
+func validateInitialize(params json.RawMessage) string {
+	var p struct {
+		ProtocolVersion json.RawMessage `json:"protocolVersion"`
+		Caps            json.RawMessage `json:"clientCapabilities"`
+		Info            *struct {
+			Name    string `json:"name"`
+			Version string `json:"version"`
+		} `json:"clientInfo"`
+	}
+	if json.Unmarshal(params, &p) != nil {
+		return "unmarshal"
+	}
+	var ver any
+	if json.Unmarshal(p.ProtocolVersion, &ver) != nil {
+		return "protocolVersion"
+	}
+	switch v := ver.(type) {
+	case float64:
+		if v != 1 {
+			return "protocolVersion not 1"
+		}
+	default:
+		return "protocolVersion must be integer 1"
+	}
+	if len(p.Caps) == 0 || string(p.Caps) == "null" {
+		return "clientCapabilities required object"
+	}
+	var capsObj map[string]any
+	if json.Unmarshal(p.Caps, &capsObj) != nil {
+		return "clientCapabilities must be object"
+	}
+	if p.Info == nil || strings.TrimSpace(p.Info.Name) == "" {
+		return "clientInfo.name required"
+	}
+	if strings.TrimSpace(p.Info.Version) == "" {
+		return "clientInfo.version required"
+	}
+	return ""
+}
+
+func validateSessionNew(params json.RawMessage) string {
+	var p struct {
+		CWD        string          `json:"cwd"`
+		MCPServers json.RawMessage `json:"mcpServers"`
+	}
+	if json.Unmarshal(params, &p) != nil {
+		return "unmarshal"
+	}
+	if p.CWD == "" || !filepath.IsAbs(p.CWD) {
+		return "cwd must be absolute"
+	}
+	if len(p.MCPServers) == 0 || string(p.MCPServers) == "null" {
+		return "mcpServers required array"
+	}
+	if p.MCPServers[0] != '[' {
+		return "mcpServers must be array"
+	}
+	// Reject known-bad extras that older Rock sent.
+	var raw map[string]json.RawMessage
+	_ = json.Unmarshal(params, &raw)
+	if _, ok := raw["permission"]; ok {
+		return "unexpected permission field"
+	}
+	return ""
+}
+
+func validateSessionPrompt(params json.RawMessage) string {
+	var p struct {
+		SessionID string `json:"sessionId"`
+		Prompt    []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"prompt"`
+	}
+	if json.Unmarshal(params, &p) != nil {
+		return "unmarshal"
+	}
+	if strings.TrimSpace(p.SessionID) == "" {
+		return "sessionId required"
+	}
+	if len(p.Prompt) == 0 {
+		return "prompt required array"
+	}
+	if p.Prompt[0].Type != "text" {
+		return "prompt[0].type must be text"
+	}
+	return ""
 }
 
 func orJSON(s string) string {
