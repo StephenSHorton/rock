@@ -74,6 +74,27 @@ func (m *Model) gateKey(msg tea.KeyPressMsg) tea.Cmd {
 	return cmd
 }
 
+// gatePaste inserts a pasted Jev key. Terminals deliver Ctrl+V and
+// right-click as a bracketed paste, not key presses, so without this the
+// masked field silently ignored pastes. Surrounding whitespace and line
+// breaks are dropped; a key never contains them.
+func (m *Model) gatePaste(msg tea.PasteMsg) tea.Cmd {
+	if m.gate.phase == gateValidating || m.gate.phase == gateSuccess {
+		return nil
+	}
+	text := strings.Join(strings.Fields(msg.Content), "")
+	if text == "" {
+		return nil
+	}
+	m.gate.input.SetValue(m.gate.input.Value() + text)
+	m.gate.input.CursorEnd()
+	if m.gate.phase == gateError {
+		m.gate.phase = gateEmpty
+		m.gate.err = ""
+	}
+	return nil
+}
+
 func (m *Model) beginJevCheck() tea.Cmd {
 	key := strings.TrimSpace(m.gate.input.Value())
 	if key == "" {

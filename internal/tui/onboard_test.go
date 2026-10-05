@@ -164,3 +164,43 @@ func TestOnboardValidatingState(t *testing.T) {
 		t.Fatalf("phase %v", m.gate.phase)
 	}
 }
+
+func TestOnboardAcceptsPastedKey(t *testing.T) {
+	t.Setenv("ROCK_HOME", t.TempDir())
+	sess, err := session.Create(t.TempDir(), "", "gate-paste")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var checked, saved string
+	m := New(Deps{
+		CWD:     sess.Meta.CWD,
+		Session: sess,
+		Mode:    perms.ModeDefault,
+		JevMode: "offline",
+		Gates:   jev.Gates{Client: &jev.Client{}},
+		JevGate: true,
+		CheckJev: func(ctx context.Context, key string) error {
+			checked = key
+			return nil
+		},
+		SaveJev: func(key string) (string, error) {
+			saved = key
+			return "OS keychain", nil
+		},
+	})
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	_ = m.Init()
+	m.Update(tea.PasteMsg{Content: "  jev_live_abc123\r\n"})
+	if got := m.gate.input.Value(); got != "jev_live_abc123" {
+		t.Fatalf("pasted value = %q", got)
+	}
+	view := ansi.Strip(m.View().Content)
+	if strings.Contains(view, "jev_live_abc123") {
+		t.Fatal("pasted key must stay masked")
+	}
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
+	feed(m, cmd)
+	if checked != "jev_live_abc123" || saved != "jev_live_abc123" {
+		t.Fatalf("checked=%q saved=%q", checked, saved)
+	}
+}
