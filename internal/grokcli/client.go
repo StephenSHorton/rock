@@ -20,6 +20,71 @@ import (
 // the official binary with ChildArgs.
 type StartFunc func(ctx context.Context, bin string, args []string) (io.WriteCloser, io.ReadCloser, func(), error)
 
+// childProc tracks a real grok process so early exits surface stderr
+// instead of hanging until the probe deadline.
+type childProc struct {
+	cmd     *exec.Cmd
+	stderr  *strings.Builder
+	done    chan struct{}
+	waitErr error
+}
+
+func (p *childProc) finished() bool {
+	if p == nil {
+		return false
+	}
+	select {
+	case <-p.done:
+		return true
+	default:
+		return false
+	}
+}
+
+func (p *childProc) exitErr() error {
+	if p == nil || !p.finished() {
+		return nil
+	}
+	return formatChildExit(p.waitErr, p.stderr.String())
+}
+
+func (p *childProc) waitExit(timeout time.Duration) error {
+	if p == nil {
+		return nil
+	}
+	select {
+	case <-p.done:
+		return formatChildExit(p.waitErr, p.stderr.String())
+	case <-time.After(timeout):
+		if s := strings.TrimSpace(p.stderr.String()); s != "" {
+			return formatChildExit(nil, s)
+		}
+		return fmt.Errorf("grok closed stdout")
+	}
+}
+
+func formatChildExit(waitErr error, stderr string) error {
+	stderr = strings.TrimSpace(stderr)
+	// Strip common CLI noise prefixes.
+	for _, prefix := range []string{"error: ", "Error: "} {
+		if strings.HasPrefix(stderr, prefix) {
+			stderr = strings.TrimSpace(strings.TrimPrefix(stderr, prefix))
+			break
+		}
+	}
+	if stderr != "" {
+		// First line is enough for the status bar / inspect.
+		if i := strings.IndexAny(stderr, "\r\n"); i >= 0 {
+			stderr = stderr[:i]
+		}
+		return fmt.Errorf("grok exited: %s", stderr)
+	}
+	if waitErr != nil {
+		return fmt.Errorf("grok exited: %v", waitErr)
+	}
+	return fmt.Errorf("grok exited")
+}
+
 func startExec(ctx context.Context, bin string, args []string) (io.WriteCloser, io.ReadCloser, func(), error) {
 	if err := rejectForbidden(args); err != nil {
 		return nil, nil, nil, err
@@ -34,19 +99,47 @@ func startExec(ctx context.Context, bin string, args []string) (io.WriteCloser, 
 		_ = stdin.Close()
 		return nil, nil, nil, err
 	}
-	cmd.Stderr = io.Discard
+	var stderrBuf strings.Builder
+	cmd.Stderr = &stderrBuf
 	config.ScrubCmdEnv(cmd)
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()
 		return nil, nil, nil, err
 	}
+	proc := &childProc{cmd: cmd, stderr: &stderrBuf, done: make(chan struct{})}
+	go func() {
+		proc.waitErr = cmd.Wait()
+		close(proc.done)
+	}()
 	stop := func() {
 		_ = stdin.Close()
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		<-proc.done
 	}
-	return stdin, stdout, stop, nil
+	return &procWriter{WriteCloser: stdin, proc: proc}, &procReader{ReadCloser: stdout, proc: proc}, stop, nil
+}
+
+type procWriter struct {
+	io.WriteCloser
+	proc *childProc
+}
+
+type procReader struct {
+	io.ReadCloser
+	proc *childProc
+}
+
+func (r *procReader) Read(p []byte) (int, error) {
+	n, err := r.ReadCloser.Read(p)
+	if err != nil && r.proc != nil {
+		if exit := r.proc.exitErr(); exit != nil {
+			return n, exit
+		}
+	}
+	return n, err
 }
 
 type rpc struct {
@@ -71,6 +164,7 @@ type client struct {
 	in      io.WriteCloser
 	out     io.ReadCloser
 	stop    func()
+	proc    *childProc
 	mu      sync.Mutex
 	writeMu sync.Mutex
 	next    atomic.Int64
@@ -84,6 +178,7 @@ type client struct {
 	modelConfigID string
 	modelCurrent  string
 	models        []ModelInfo
+	modelArg      string // -m value used to start; empty = default ChildArgs
 }
 
 type proposed struct {
@@ -109,6 +204,9 @@ func dial(ctx context.Context, bin string, args []string, cwd string, start Star
 		stop: stop,
 		wait: map[int64]pending{},
 		cwd:  cwd,
+	}
+	if pr, ok := out.(*procReader); ok {
+		c.proc = pr.proc
 	}
 	go c.readLoop()
 	return c, nil
@@ -155,6 +253,26 @@ func (c *client) readLoop() {
 				p.done <- msg
 			}
 		}
+	}
+	// Stdout closed: fail any waiters with the child's exit reason when
+	// we have one, so probes do not hang until the deadline.
+	errMsg := "grok closed stdout"
+	if c.proc != nil {
+		errMsg = c.proc.waitExit(200 * time.Millisecond).Error()
+	} else if err := sc.Err(); err != nil {
+		errMsg = err.Error()
+	}
+	c.failPending(errMsg)
+}
+
+func (c *client) failPending(message string) {
+	c.mu.Lock()
+	waiters := c.wait
+	c.wait = map[int64]pending{}
+	c.mu.Unlock()
+	msg := rpc{JSONRPC: "2.0", Error: &rpcError{Code: -32000, Message: message}}
+	for _, p := range waiters {
+		p.done <- msg
 	}
 }
 
@@ -269,6 +387,11 @@ func (c *client) write(msg rpc) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	_, err = w.Write(append(raw, '\n'))
+	if err != nil && c.proc != nil {
+		if exit := c.proc.waitExit(200 * time.Millisecond); exit != nil {
+			return exit
+		}
+	}
 	return err
 }
 
@@ -298,8 +421,10 @@ func (c *client) initialize(ctx context.Context) ([]string, error) {
 		AuthMethods []struct {
 			ID string `json:"id"`
 		} `json:"authMethods"`
+		Meta json.RawMessage `json:"_meta"`
 	}
 	_ = json.Unmarshal(res, &out)
+	c.applyModelStateMeta(out.Meta)
 	var ids []string
 	for _, m := range out.AuthMethods {
 		if m.ID != "" {
@@ -307,6 +432,51 @@ func (c *client) initialize(ctx context.Context) ([]string, error) {
 		}
 	}
 	return ids, nil
+}
+
+// applyModelStateMeta reads grok's initialize _meta.modelState
+// (currentModelId + availableModels). Real grok 1.0.41 puts the
+// subscription catalog here rather than only on session/new.
+func (c *client) applyModelStateMeta(meta json.RawMessage) {
+	if len(meta) == 0 {
+		return
+	}
+	var m struct {
+		ModelState *struct {
+			CurrentModelID string `json:"currentModelId"`
+			Available      []struct {
+				ModelID     string `json:"modelId"`
+				Name        string `json:"name"`
+				Description string `json:"description"`
+				Meta        *struct {
+					TotalContextTokens int `json:"totalContextTokens"`
+				} `json:"_meta"`
+			} `json:"availableModels"`
+		} `json:"modelState"`
+	}
+	if json.Unmarshal(meta, &m) != nil || m.ModelState == nil {
+		return
+	}
+	c.modelCurrent = strings.TrimSpace(m.ModelState.CurrentModelID)
+	var models []ModelInfo
+	for _, am := range m.ModelState.Available {
+		id := strings.TrimSpace(am.ModelID)
+		if id == "" {
+			continue
+		}
+		name := strings.TrimSpace(am.Name)
+		if name == "" {
+			name = id
+		}
+		info := ModelInfo{ID: id, Name: name, Description: strings.TrimSpace(am.Description)}
+		if am.Meta != nil {
+			info.ContextTokens = am.Meta.TotalContextTokens
+		}
+		models = append(models, info)
+	}
+	if len(models) > 0 {
+		c.models = models
+	}
 }
 
 func (c *client) authenticate(ctx context.Context, methods []string) error {
@@ -376,9 +546,9 @@ func (c *client) newSession(ctx context.Context) (string, error) {
 }
 
 func (c *client) applyModelConfig(options []json.RawMessage) {
-	c.modelConfigID = ""
-	c.modelCurrent = ""
-	c.models = nil
+	// Do not clear initialize _meta.modelState when session/new has no
+	// model configOptions — real grok 1.0.41 advertises models only on
+	// initialize.
 	for _, raw := range options {
 		var opt struct {
 			ConfigID     string `json:"configId"`
@@ -401,6 +571,7 @@ func (c *client) applyModelConfig(options []json.RawMessage) {
 			c.modelConfigID = "model"
 		}
 		c.modelCurrent = strings.TrimSpace(opt.CurrentValue)
+		var models []ModelInfo
 		for _, o := range opt.Options {
 			id := strings.TrimSpace(o.Value)
 			if id == "" {
@@ -410,35 +581,47 @@ func (c *client) applyModelConfig(options []json.RawMessage) {
 			if name == "" {
 				name = id
 			}
-			c.models = append(c.models, ModelInfo{ID: id, Name: name})
+			models = append(models, ModelInfo{ID: id, Name: name})
+		}
+		if len(models) > 0 {
+			c.models = models
 		}
 		return
 	}
 }
 
 func (c *client) setModel(ctx context.Context, sessionID, modelID string) error {
-	if c.modelConfigID == "" {
-		return fmt.Errorf("grok-cli: child did not advertise a model list over ACP")
+	if c.modelConfigID != "" {
+		res, err := c.request(ctx, "session/set_config_option", map[string]any{
+			"sessionId": sessionID,
+			"configId":  c.modelConfigID,
+			"value":     modelID,
+		})
+		if err == nil {
+			var out struct {
+				ConfigOptions []json.RawMessage `json:"configOptions"`
+			}
+			_ = json.Unmarshal(res, &out)
+			if len(out.ConfigOptions) > 0 {
+				c.applyModelConfig(out.ConfigOptions)
+			} else {
+				c.modelCurrent = modelID
+			}
+			return nil
+		}
 	}
-	res, err := c.request(ctx, "session/set_config_option", map[string]any{
+	// Some agents still accept the older unstable method.
+	if _, err := c.request(ctx, "session/set_model", map[string]any{
 		"sessionId": sessionID,
-		"configId":  c.modelConfigID,
-		"value":     modelID,
-	})
-	if err != nil {
-		return err
-	}
-	var out struct {
-		ConfigOptions []json.RawMessage `json:"configOptions"`
-	}
-	_ = json.Unmarshal(res, &out)
-	if len(out.ConfigOptions) > 0 {
-		c.applyModelConfig(out.ConfigOptions)
-	} else {
+		"modelId":   modelID,
+	}); err == nil {
 		c.modelCurrent = modelID
+		return nil
 	}
-	return nil
+	return errNeedRestartModel
 }
+
+var errNeedRestartModel = fmt.Errorf("grok-cli: restart child with -m to switch models")
 
 func (c *client) prompt(ctx context.Context, sessionID, text string) error {
 	c.mu.Lock()

@@ -10,7 +10,10 @@ import (
 
 const (
 	probeCacheName = "grok-probe.json"
-	probeCacheTTL  = 5 * time.Minute
+	// probeCacheVersion bumps invalidate stale 1.0.5 entries that cached
+	// "context deadline exceeded" from the bad --no-auto-update ChildArgs.
+	probeCacheVersion = 2
+	probeCacheTTL     = 5 * time.Minute
 	// ProbeTimeout caps the ACP initialize used for auto-detect and
 	// inspect. Keep it short so a missing or hung grok does not stall
 	// Open() (and therefore the TUI's first frame).
@@ -18,7 +21,9 @@ const (
 )
 
 type probeCache struct {
+	Version  int       `json:"version"`
 	Bin      string    `json:"bin"`
+	BinMtime int64     `json:"bin_mtime"`
 	SignedIn bool      `json:"signed_in"`
 	Detail   string    `json:"detail"`
 	Checked  time.Time `json:"checked"`
@@ -39,6 +44,14 @@ func probeCachePath() string {
 	return filepath.Join(rockHome(), probeCacheName)
 }
 
+func binMtime(bin string) int64 {
+	fi, err := os.Stat(bin)
+	if err != nil {
+		return 0
+	}
+	return fi.ModTime().UnixNano()
+}
+
 func loadProbeCache(bin string) (Status, bool) {
 	raw, err := os.ReadFile(probeCachePath())
 	if err != nil {
@@ -48,19 +61,27 @@ func loadProbeCache(bin string) (Status, bool) {
 	if json.Unmarshal(raw, &c) != nil {
 		return Status{}, false
 	}
-	if c.Bin != bin || c.Checked.IsZero() || time.Since(c.Checked) > probeCacheTTL {
+	if c.Version != probeCacheVersion {
 		return Status{}, false
 	}
-	return Status{Bin: c.Bin, Found: true, SignedIn: c.SignedIn, Detail: c.Detail}, true
+	if c.Bin != bin || !c.SignedIn || c.Checked.IsZero() || time.Since(c.Checked) > probeCacheTTL {
+		return Status{}, false
+	}
+	if mt := binMtime(bin); mt == 0 || c.BinMtime != mt {
+		return Status{}, false
+	}
+	return Status{Bin: c.Bin, Found: true, SignedIn: true, Detail: c.Detail}, true
 }
 
 func saveProbeCache(st Status) {
-	if !st.Found || st.Bin == "" {
+	if !st.Found || !st.SignedIn || st.Bin == "" {
 		return
 	}
 	c := probeCache{
+		Version:  probeCacheVersion,
 		Bin:      st.Bin,
-		SignedIn: st.SignedIn,
+		BinMtime: binMtime(st.Bin),
+		SignedIn: true,
 		Detail:   st.Detail,
 		Checked:  time.Now().UTC(),
 	}

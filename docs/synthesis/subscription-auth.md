@@ -284,7 +284,7 @@ This is the only documented third-party subscription OAuth that Rock implements 
 
 ### 3. SuperGrok: official `grok`, not Grok Build's client id (shipped)
 
-`auth = "grok-cli"` (alias `provider = "grok-cli"`) and the TUI `/provider` SuperGrok row spawn the user's unmodified `grok` as `grok agent --no-auto-update --no-leader stdio`. The user runs `grok login` themselves. Rock never copies `b1a00492-073a-47ea-816f-4c329264a828`, never runs `grok login`, and never reads `~/.grok` token files. Missing binary or a child that offers no `cached_token` is a plain error pointing at https://x.ai/cli.
+`auth = "grok-cli"` (alias `provider = "grok-cli"`) and the TUI `/provider` SuperGrok row spawn the user's unmodified `grok` as `grok agent --no-leader stdio`. The user runs `grok login` themselves. Rock never copies `b1a00492-073a-47ea-816f-4c329264a828`, never runs `grok login`, and never reads `~/.grok` token files. Missing binary or a child that offers no `cached_token` is a plain error pointing at https://x.ai/cli.
 
 **Who runs what**
 

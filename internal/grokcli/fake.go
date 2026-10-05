@@ -18,11 +18,16 @@ type FakeScript struct {
 	AskPerm     bool
 	AskFSWrite  bool
 	AuthSeen    string
-	// Models, when non-nil, are advertised as an ACP configOptions
-	// model selector on session/new. CurrentModel is the selected value.
-	Models       []ModelInfo
-	CurrentModel string
-	SetModelSeen string
+	// Models, when non-nil, are advertised on initialize _meta.modelState
+	// (matching real grok 1.0.41). Set ConfigOptionsModels to also put
+	// them on session/new configOptions.
+	Models              []ModelInfo
+	CurrentModel        string
+	ConfigOptionsModels bool
+	AcceptSetModel      bool // respond to session/set_model
+	RejectConfigOption  bool // force set_config_option to fail
+	SetModelSeen        string
+	SetModelVia         string // "config" | "set_model" | ""
 
 	mu   sync.Mutex
 	args []string
@@ -92,16 +97,38 @@ func FakeACP(in io.Reader, out io.Writer, script *FakeScript) {
 		case "initialize":
 			methods := script.AuthMethods
 			if methods == nil {
-				methods = []string{"cached_token"}
+				methods = []string{"cached_token", "grok.com"}
 			}
-			var listed []map[string]string
+			var listed []map[string]any
 			for _, id := range methods {
-				listed = append(listed, map[string]string{"id": id})
+				listed = append(listed, map[string]any{"id": id, "name": id})
+			}
+			meta := map[string]any{
+				"grokShell":           true,
+				"defaultAuthMethodId": "cached_token",
+			}
+			if script.Models != nil {
+				cur := script.CurrentModel
+				if cur == "" && len(script.Models) > 0 {
+					cur = script.Models[0].ID
+				}
+				var avail []map[string]any
+				for _, m := range script.Models {
+					entry := map[string]any{"modelId": m.ID, "name": m.Name, "description": m.Description}
+					if m.ContextTokens > 0 {
+						entry["_meta"] = map[string]any{"totalContextTokens": m.ContextTokens}
+					}
+					avail = append(avail, entry)
+				}
+				meta["modelState"] = map[string]any{
+					"currentModelId":  cur,
+					"availableModels": avail,
+				}
 			}
 			write(rpc{JSONRPC: "2.0", ID: msg.ID, Result: mustRaw(map[string]any{
 				"protocolVersion": 1,
 				"authMethods":     listed,
-				"_meta":           map[string]any{"grokShell": true},
+				"_meta":           meta,
 			})})
 		case "authenticate":
 			var p struct {
@@ -112,7 +139,7 @@ func FakeACP(in io.Reader, out io.Writer, script *FakeScript) {
 			write(rpc{JSONRPC: "2.0", ID: msg.ID, Result: mustRaw(map[string]any{})})
 		case "session/new":
 			result := map[string]any{"sessionId": sessionID}
-			if script.Models != nil {
+			if script.ConfigOptionsModels && script.Models != nil {
 				cur := script.CurrentModel
 				if cur == "" && len(script.Models) > 0 {
 					cur = script.Models[0].ID
@@ -132,6 +159,10 @@ func FakeACP(in io.Reader, out io.Writer, script *FakeScript) {
 			}
 			write(rpc{JSONRPC: "2.0", ID: msg.ID, Result: mustRaw(result)})
 		case "session/set_config_option":
+			if script.RejectConfigOption || !script.ConfigOptionsModels {
+				write(rpc{JSONRPC: "2.0", ID: msg.ID, Error: &rpcError{Code: -32601, Message: "method not found"}})
+				break
+			}
 			var p struct {
 				ConfigID string `json:"configId"`
 				Value    string `json:"value"`
@@ -139,6 +170,7 @@ func FakeACP(in io.Reader, out io.Writer, script *FakeScript) {
 			_ = json.Unmarshal(msg.Params, &p)
 			script.mu.Lock()
 			script.SetModelSeen = p.Value
+			script.SetModelVia = "config"
 			script.CurrentModel = p.Value
 			models := append([]ModelInfo(nil), script.Models...)
 			script.mu.Unlock()
@@ -156,6 +188,21 @@ func FakeACP(in io.Reader, out io.Writer, script *FakeScript) {
 					"options":      opts,
 				}},
 			})})
+		case "session/set_model":
+			if !script.AcceptSetModel {
+				write(rpc{JSONRPC: "2.0", ID: msg.ID, Error: &rpcError{Code: -32601, Message: "method not found"}})
+				break
+			}
+			var p struct {
+				ModelID string `json:"modelId"`
+			}
+			_ = json.Unmarshal(msg.Params, &p)
+			script.mu.Lock()
+			script.SetModelSeen = p.ModelID
+			script.SetModelVia = "set_model"
+			script.CurrentModel = p.ModelID
+			script.mu.Unlock()
+			write(rpc{JSONRPC: "2.0", ID: msg.ID, Result: mustRaw(map[string]any{})})
 		case "session/prompt":
 			if script.AskFSWrite {
 				write(rpc{

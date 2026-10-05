@@ -1,0 +1,48 @@
+{
+  "protocolVersion": 1,
+  "agentCapabilities": {
+    "loadSession": true,
+    "promptCapabilities": {"image": false, "audio": false, "embeddedContext": true},
+    "mcpCapabilities": {"http": true, "sse": true},
+    "sessionCapabilities": {"list": {}, "resume": {}, "close": {}},
+    "auth": {}
+  },
+  "authMethods": [
+    {"id": "cached_token", "name": "cached_token", "description": "Cached token from ~/.grok/auth.json"},
+    {"id": "grok.com", "name": "Grok", "description": "Sign in with Grok"}
+  ],
+  "_meta": {
+    "grokShell": true,
+    "defaultAuthMethodId": "cached_token",
+    "agentVersion": "1.0.41",
+    "modelState": {
+      "currentModelId": "grok-4.7-build-fast",
+      "availableModels": [
+        {
+          "modelId": "grok-4.7",
+          "name": "Grok 4.7",
+          "description": "SpaceXAI's latest frontier model",
+          "_meta": {"totalContextTokens": 256000, "agentType": "grok-build-plan", "supportsReasoningEffort": true}
+        },
+        {
+          "modelId": "grok-4.7-build-fast",
+          "name": "Grok 4.7 Fast",
+          "description": "Fast variant. 2x the price.",
+          "_meta": {"totalContextTokens": 256000}
+        },
+        {
+          "modelId": "grok-4.6",
+          "name": "Grok 4.6",
+          "description": "Previous generation",
+          "_meta": {"totalContextTokens": 256000}
+        },
+        {
+          "modelId": "grok-4.5",
+          "name": "Grok 4.5",
+          "description": "Earlier generation",
+          "_meta": {"totalContextTokens": 128000}
+        }
+      ]
+    }
+  }
+}
