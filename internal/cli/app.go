@@ -44,6 +44,12 @@ type App struct {
 	Log        *log.Logger
 	Checkpoint bool
 	mcpDone    bool
+	// GrokAuto is true when applyProvider picked grok-cli because a
+	// signed-in official binary was auto-detected (no explicit auth).
+	GrokAuto bool
+	// GrokStatus is the last Look/Probe result used for auto-detect or
+	// inspect. Empty when grok was never considered.
+	GrokStatus grokcli.Status
 }
 
 func Open(cwd string) (*App, error) {
@@ -87,20 +93,61 @@ func Open(cwd string) (*App, error) {
 }
 
 // applyProvider swaps only the model client. It never touches Jev gates or keys.
+//
+// Selection when auth/provider is unset:
+//  1. ROCK_API_KEY / OPENAI_API_KEY
+//  2. stored ChatGPT (siwc) login
+//  3. official grok on PATH and signed in (ACP ProbeSignedInCached, 2s)
+//  4. offline stub
+//
+// Explicit auth/provider in config always wins. Probe results are cached
+// under ROCK_HOME/grok-probe.json for 5 minutes so Open() stays snappy.
 func (a *App) applyProvider() {
+	if p, ok := a.Provider.(*grokcli.Provider); ok {
+		p.Close()
+	}
+	a.GrokAuto = false
+	a.GrokStatus = grokcli.Status{}
+
 	prefer := strings.TrimSpace(a.Loaded.File.Auth)
 	if prefer == "" {
 		prefer = strings.TrimSpace(a.Loaded.File.Provider)
 	}
-	if prefer == grokcli.AuthClass {
-		if p, ok := a.Provider.(*grokcli.Provider); ok {
-			p.Close()
-		}
+	key := config.APIKey()
+
+	switch {
+	case prefer == grokcli.AuthClass:
 		a.Auth = grokcli.AuthClass
 		a.Provider = &grokcli.Provider{Bin: a.Loaded.File.GrokBin, CWD: a.CWD}
+		a.GrokStatus = grokcli.Look(a.Loaded.File.GrokBin)
+		return
+	case prefer != "":
+		a.setResolvedProvider(siwc.Resolve(prefer, key))
+		return
+	case key != "":
+		a.setResolvedProvider(siwc.AuthAPIKey)
+		return
+	case siwc.LoggedIn():
+		a.setResolvedProvider(siwc.AuthSIWC)
 		return
 	}
-	class := siwc.Resolve(prefer, config.APIKey())
+
+	st := grokcli.Look(a.Loaded.File.GrokBin)
+	a.GrokStatus = st
+	if st.Found {
+		st = grokcli.ProbeSignedInCached(context.Background(), st.Bin, a.CWD, nil)
+		a.GrokStatus = st
+		if st.SignedIn {
+			a.GrokAuto = true
+			a.Auth = grokcli.AuthClass
+			a.Provider = &grokcli.Provider{Bin: a.Loaded.File.GrokBin, CWD: a.CWD}
+			return
+		}
+	}
+	a.setResolvedProvider(siwc.AuthOfflineModel)
+}
+
+func (a *App) setResolvedProvider(class string) {
 	a.Auth = class
 	switch class {
 	case siwc.AuthSIWC:
@@ -147,6 +194,22 @@ func (a *App) Close() {
 	}
 }
 
+func (a *App) writeGrokAutoMiss(w io.Writer) {
+	st := a.GrokStatus
+	if !st.Found && st.Detail == "" {
+		st = grokcli.Look(a.Loaded.File.GrokBin)
+		a.GrokStatus = st
+	}
+	switch {
+	case !st.Found:
+		fmt.Fprintf(w, "grok auto: no (binary not found)\n")
+	case st.SignedIn:
+		fmt.Fprintf(w, "grok auto: available but not selected (explicit or higher-priority auth)\n")
+	default:
+		fmt.Fprintf(w, "grok auto: no (%s)\n", st.Detail)
+	}
+}
+
 func (a *App) Policy() perms.Policy {
 	p := a.Loaded.Policy
 	if a.Loaded.File.Git.ReviewOnly {
@@ -180,6 +243,16 @@ func (a *App) NewHarness(cwd string) (*tools.Set, error) {
 }
 
 func (a *App) FastModel() string {
+	if a.Auth == grokcli.AuthClass {
+		if p, ok := a.Provider.(*grokcli.Provider); ok {
+			if cur, _, err := p.Models(context.Background()); err == nil && cur != "" {
+				return cur
+			}
+		}
+	}
+	if a.Auth == siwc.AuthOfflineModel || a.Provider.Name() == "offline" {
+		return ""
+	}
 	if a.Loaded.File.FastModel != "" {
 		return a.Loaded.File.FastModel
 	}
@@ -219,28 +292,60 @@ func (a *App) Inspect(w io.Writer) {
 	}
 	fmt.Fprintf(w, "provider: %s\n", a.Provider.Name())
 	if a.Auth == grokcli.AuthClass {
-		fmt.Fprintf(w, "auth: grok-cli (subscription via official binary)\n")
+		if a.GrokAuto {
+			fmt.Fprintf(w, "auth: grok-cli (auto-detected signed-in binary)\n")
+		} else {
+			fmt.Fprintf(w, "auth: grok-cli (subscription via official binary)\n")
+		}
 	} else {
 		fmt.Fprintf(w, "auth: %s\n", a.Auth)
 	}
 	switch a.Auth {
 	case grokcli.AuthClass:
-		st := grokcli.Look(a.Loaded.File.GrokBin)
-		if st.Found {
-			st = grokcli.ProbeSignedIn(context.Background(), a.Loaded.File.GrokBin, a.CWD, nil)
+		st := a.GrokStatus
+		if !st.Found {
+			st = grokcli.Look(a.Loaded.File.GrokBin)
+			if st.Found {
+				st = grokcli.ProbeSignedInCached(context.Background(), st.Bin, a.CWD, nil)
+			}
+			a.GrokStatus = st
 		}
 		fmt.Fprintf(w, "grok: %s\n", st.Detail)
+		if a.GrokAuto {
+			fmt.Fprintf(w, "grok auto: yes (signed in)\n")
+		} else {
+			fmt.Fprintf(w, "grok auto: no (explicit config)\n")
+		}
 		fmt.Fprintf(w, "model auth: official grok agent stdio. Rock runs tools and Jev. The child does not.\n")
+		if p, ok := a.Provider.(*grokcli.Provider); ok {
+			cur, models, err := p.Models(context.Background())
+			if err == nil && len(models) > 0 {
+				fmt.Fprintf(w, "grok models:")
+				for _, m := range models {
+					mark := ""
+					if m.ID == cur {
+						mark = " (current)"
+					}
+					fmt.Fprintf(w, " %s%s", m.ID, mark)
+				}
+				fmt.Fprintln(w)
+			} else if err == nil {
+				fmt.Fprintf(w, "grok models: (child did not advertise a list; showing current label only)\n")
+			}
+		}
 	case siwc.AuthSIWC:
 		fmt.Fprintf(w, "model auth: Sign in with ChatGPT (siwc). Jev is a separate required key.\n")
 		fmt.Fprintf(w, "fast model: %s\n", a.FastModel())
 		fmt.Fprintf(w, "strong model: %s\n", a.StrongModel())
+		a.writeGrokAutoMiss(w)
 	case siwc.AuthAPIKey:
 		fmt.Fprintf(w, "base_url: %s\n", a.Loaded.File.BaseURL)
 		fmt.Fprintf(w, "fast model: %s\n", a.FastModel())
 		fmt.Fprintf(w, "strong model: %s\n", a.StrongModel())
+		a.writeGrokAutoMiss(w)
 	default:
-		fmt.Fprintf(w, "model key: unset (ROCK_API_KEY or OPENAI_API_KEY). Replies come from the offline model provider. That stub is not Jev and does not skip the Jev key.\n")
+		fmt.Fprintf(w, "model: no model · /provider (offline stub). Not Jev; does not skip the Jev key.\n")
+		a.writeGrokAutoMiss(w)
 	}
 	fmt.Fprintf(w, "jev: %s\n", a.Gates.Mode())
 	if a.Gates.Mode() == "offline" {

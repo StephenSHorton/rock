@@ -18,6 +18,11 @@ type FakeScript struct {
 	AskPerm     bool
 	AskFSWrite  bool
 	AuthSeen    string
+	// Models, when non-nil, are advertised as an ACP configOptions
+	// model selector on session/new. CurrentModel is the selected value.
+	Models       []ModelInfo
+	CurrentModel string
+	SetModelSeen string
 
 	mu   sync.Mutex
 	args []string
@@ -106,7 +111,51 @@ func FakeACP(in io.Reader, out io.Writer, script *FakeScript) {
 			script.setAuth(p.MethodID)
 			write(rpc{JSONRPC: "2.0", ID: msg.ID, Result: mustRaw(map[string]any{})})
 		case "session/new":
-			write(rpc{JSONRPC: "2.0", ID: msg.ID, Result: mustRaw(map[string]any{"sessionId": sessionID})})
+			result := map[string]any{"sessionId": sessionID}
+			if script.Models != nil {
+				cur := script.CurrentModel
+				if cur == "" && len(script.Models) > 0 {
+					cur = script.Models[0].ID
+				}
+				var opts []map[string]string
+				for _, m := range script.Models {
+					opts = append(opts, map[string]string{"value": m.ID, "name": m.Name})
+				}
+				result["configOptions"] = []map[string]any{{
+					"configId":     "model",
+					"name":         "Model",
+					"category":     "model",
+					"type":         "select",
+					"currentValue": cur,
+					"options":      opts,
+				}}
+			}
+			write(rpc{JSONRPC: "2.0", ID: msg.ID, Result: mustRaw(result)})
+		case "session/set_config_option":
+			var p struct {
+				ConfigID string `json:"configId"`
+				Value    string `json:"value"`
+			}
+			_ = json.Unmarshal(msg.Params, &p)
+			script.mu.Lock()
+			script.SetModelSeen = p.Value
+			script.CurrentModel = p.Value
+			models := append([]ModelInfo(nil), script.Models...)
+			script.mu.Unlock()
+			var opts []map[string]string
+			for _, m := range models {
+				opts = append(opts, map[string]string{"value": m.ID, "name": m.Name})
+			}
+			write(rpc{JSONRPC: "2.0", ID: msg.ID, Result: mustRaw(map[string]any{
+				"configOptions": []map[string]any{{
+					"configId":     "model",
+					"name":         "Model",
+					"category":     "model",
+					"type":         "select",
+					"currentValue": p.Value,
+					"options":      opts,
+				}},
+			})})
 		case "session/prompt":
 			if script.AskFSWrite {
 				write(rpc{

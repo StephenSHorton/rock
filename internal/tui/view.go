@@ -726,18 +726,19 @@ func (m *Model) chipSpans() (string, []chipHit) {
 }
 
 func (m *Model) modelChipLabel() string {
+	if m.deps.Provider == "offline" || m.deps.Auth == "offline_model" {
+		return "no model · /provider"
+	}
 	name := m.deps.FastModel
 	if m.turnModel != "" {
 		name = m.turnModel
 	}
 	if name == "" {
-		name = "no model"
+		return "no model · /provider"
 	}
 	switch {
 	case m.deps.Auth == "siwc" || m.deps.Provider == "chatgpt":
 		return name + " (siwc)"
-	case m.deps.Provider == "offline":
-		return name + " (offline)"
 	}
 	return name
 }
