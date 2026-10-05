@@ -107,3 +107,11 @@ func TestHeadlessStillNeedsJevWhenChatGPTIsLoggedIn(t *testing.T) {
 		t.Fatalf("SIWC must not bypass the Jev gate: %v", err)
 	}
 }
+
+func TestVersionFlag(t *testing.T) {
+	for _, args := range [][]string{{"version"}, {"--version"}} {
+		if err := run(args); err != nil {
+			t.Fatalf("run(%q) = %v", args, err)
+		}
+	}
+}

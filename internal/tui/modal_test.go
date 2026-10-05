@@ -110,13 +110,16 @@ func TestComposerFrameAndChipState(t *testing.T) {
 	if !strings.Contains(band, "Ask Rock") || !strings.Contains(band, "/ for commands") {
 		t.Fatalf("quiet placeholder missing:\n%s", band)
 	}
-	if !strings.Contains(band, "gpt-4o-mini") || !strings.Contains(band, "default") {
-		t.Fatalf("chips missing:\n%s", band)
+	if !strings.Contains(rows[g.composerY()], "gpt-4o-mini") {
+		t.Fatalf("model chip missing on top border:\n%s", band)
 	}
-	if m.geo.frameRows != 2 || m.geo.infoRows != 0 {
-		t.Fatalf("chips live on the frame, not an extra info row: %+v", m.geo)
+	if strings.Contains(band, "default") {
+		t.Fatalf("default mode must not appear on the composer:\n%s", band)
 	}
-	if len(m.chips) != 2 || m.chips[0].id != "model" || m.chips[1].id != "mode" {
+	if m.geo.frameRows != 2 || m.geo.infoRows != 0 || m.geo.composerRows != 1 {
+		t.Fatalf("resting composer is one input row + frame: %+v", m.geo)
+	}
+	if len(m.chips) != 1 || m.chips[0].id != "model" {
 		t.Fatalf("chip hits: %+v", m.chips)
 	}
 
@@ -145,9 +148,8 @@ func TestComposerFrameAndChipState(t *testing.T) {
 	if m.deps.Mode != perms.ModePlan || m.picker.open() {
 		t.Fatalf("mode select: mode=%s picker=%d", m.deps.Mode, m.picker.kind)
 	}
-	band = strings.Join(screen(m)[m.geo.composerY():m.geo.statusY()], "\n")
-	if !strings.Contains(band, "plan") {
-		t.Fatalf("mode chip should follow selection:\n%s", band)
+	if status := screen(m)[m.geo.statusY()]; !strings.Contains(status, "plan mode") {
+		t.Fatalf("plan mode should show on the status line: %q", status)
 	}
 }
 
@@ -195,18 +197,15 @@ func TestSessionsAndAtFilePickers(t *testing.T) {
 func TestChipClickOpensModal(t *testing.T) {
 	m := sized(t, 100, 24)
 	_ = m.View()
-	if len(m.chips) < 2 {
+	if len(m.chips) != 1 || m.chips[0].id != "model" {
 		t.Fatal(m.chips)
 	}
 	model := m.chips[0]
+	if m.chipY != m.geo.composerY() {
+		t.Fatalf("model chip should sit on the top border: chipY=%d composerY=%d", m.chipY, m.geo.composerY())
+	}
 	m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: model.x, Y: m.chipY})
 	if m.picker.kind != modelPicker {
 		t.Fatalf("click model chip: kind=%d x=%d y=%d chips=%+v", m.picker.kind, model.x, m.chipY, m.chips)
-	}
-	m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	mode := m.chips[1]
-	m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: mode.x, Y: m.chipY})
-	if m.picker.kind != modePicker {
-		t.Fatalf("click mode chip: kind=%d", m.picker.kind)
 	}
 }

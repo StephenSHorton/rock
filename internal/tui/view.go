@@ -32,7 +32,7 @@ const sandboxNote = "Permissions are not a sandbox. Plan mode blocks every shell
 // bar is gone unless a permission card is asking. There is no branded header.
 func (m *Model) layout() {
 	w, h := max(m.width, 20), max(m.height, 6)
-	g := geometry{w: w, h: h, composerRows: 3, frameRows: 2}
+	g := geometry{w: w, h: h, composerRows: 1, frameRows: 2}
 	g.compact = h <= compactAt
 	if !g.compact && h > shortAt {
 		g.padT, g.padB, g.padL, g.padR = 1, 1, 1, 1
@@ -42,11 +42,20 @@ func (m *Model) layout() {
 	if m.pending != nil {
 		g.helpRows = 1
 	}
-	if m.overlay != noOverlay {
-		g.composerRows = 1
-	}
 	if m.showUpdateNotice() {
 		g.noticeRows = 1
+	}
+
+	// Frame sides leave innerW-2 for the textarea. DynamicHeight grows
+	// with paste / shift+enter; resting empty height is one row.
+	m.input.DynamicHeight = true
+	m.input.MinHeight = 1
+	m.input.MaxHeight = maxComposerRows
+	m.input.SetWidth(max(1, g.innerW-2))
+	if m.overlay != noOverlay {
+		g.composerRows = 1
+	} else {
+		g.composerRows = max(1, min(m.input.Height(), maxComposerRows))
 	}
 
 	chrome := func() int {
@@ -82,8 +91,6 @@ func (m *Model) layout() {
 	g.barX = g.padL + g.transcriptW - 1
 	m.geo = g
 
-	// Frame sides leave innerW-2 for the textarea.
-	m.input.SetWidth(max(1, g.innerW-2))
 	m.input.SetHeight(g.composerRows)
 	m.help.SetWidth(max(1, g.innerW-1))
 	m.meter.SetWidth(meterWidth(g.innerW))
@@ -524,37 +531,32 @@ func (m *Model) preview(tool, detail string, w int) []string {
 
 func (m *Model) statusView() string {
 	t, w := m.th, m.geo.innerW
-	mode := string(m.deps.Mode)
-	badges := t.badge(mode).Render(strings.ToUpper(mode))
+	// Permission mode only when non-default — default is noise.
+	badges := ""
+	switch m.deps.Mode {
+	case perms.ModePlan:
+		badges = t.badge("plan").Render("plan mode")
+	case perms.ModeYolo:
+		badges = t.badge("yolo").Render("yolo")
+	}
 	if m.deps.ReviewOnly {
-		badges += " " + t.badgeReview.Render("REVIEW")
+		if badges != "" {
+			badges += " "
+		}
+		badges += t.badgeReview.Render("REVIEW")
 	}
-	jevSeg := t.chrome.Render("jev:" + m.deps.JevMode)
+	// Jev is required to run; only surface it when something is wrong.
+	jevSeg := ""
+	if jm := strings.TrimSpace(m.deps.JevMode); jm != "" && jm != "live" {
+		jevSeg = t.alarm.Render("jev:" + jm)
+	}
 
-	name := m.deps.FastModel
-	if m.turnModel != "" {
-		name = m.turnModel
-	}
-	if name == "" {
-		name = "no model"
-	}
-	note := ""
-	switch {
-	case m.deps.Auth == "siwc" || m.deps.Provider == "chatgpt":
-		note = " (siwc)"
-	case m.deps.Provider == "offline":
-		note = " (offline)"
-	}
 	pct := fmt.Sprintf("%.0f%%", m.meterP*100)
 	pctStyle := t.plain
 	if m.meterP >= 0.8 {
 		pctStyle = t.alarm
 	}
 	cwd := shortPath(m.deps.CWD)
-	title := ""
-	if m.deps.Session != nil {
-		title = strings.TrimSpace(m.deps.Session.Meta.Title)
-	}
 	timer := ""
 	if m.busy && !m.turnAt.IsZero() {
 		timer = fmtDuration(time.Since(m.turnAt))
@@ -583,15 +585,8 @@ func (m *Model) statusView() string {
 		}
 		return s
 	}
-	modelSeg := func(withNote bool) string {
-		s := t.plain.Render(name)
-		if withNote {
-			s += t.faint.Render(note)
-		}
-		return s
-	}
 
-	build := func(barW int, withNote, withTitle, withTimer, withCwd bool, cwdW int) string {
+	build := func(barW int, withTimer, withCwd bool, cwdW int) string {
 		cwdSeg := ""
 		if withCwd {
 			path := cwd
@@ -600,10 +595,7 @@ func (m *Model) statusView() string {
 			}
 			cwdSeg = t.faint.Render(path)
 		}
-		parts := []string{badges, jevSeg, cwdSeg, modelSeg(withNote), ctxSeg(barW)}
-		if withTitle && title != "" {
-			parts = append(parts, t.faint.Render(title))
-		}
+		parts := []string{badges, jevSeg, cwdSeg, ctxSeg(barW)}
 		if withTimer && timer != "" {
 			parts = append(parts, t.chrome.Render(timer))
 		}
@@ -617,24 +609,23 @@ func (m *Model) statusView() string {
 	}
 
 	bar := m.meter.Width()
-	left := build(bar, true, true, true, true, 0)
+	left := build(bar, true, true, 0)
 	for _, try := range []struct {
-		bar                         int
-		note, title, timer, withCwd bool
-		cwdW                        int
+		bar            int
+		timer, withCwd bool
+		cwdW           int
 	}{
-		{bar, true, true, true, true, 24},
-		{bar, true, true, false, true, 16},
-		{bar, true, false, false, true, 12},
-		{bar, true, false, false, false, 0},
-		{6, true, false, false, false, 0},
-		{0, true, false, false, false, 0},
-		{0, false, false, false, false, 0},
+		{bar, true, true, 24},
+		{bar, false, true, 16},
+		{bar, false, true, 12},
+		{bar, false, false, 0},
+		{6, false, false, 0},
+		{0, false, false, 0},
 	} {
 		if ansi.StringWidth(left) <= w-reserve {
 			break
 		}
-		left = build(try.bar, try.note, try.title, try.timer, try.withCwd, try.cwdW)
+		left = build(try.bar, try.timer, try.withCwd, try.cwdW)
 	}
 	left = ansi.Truncate(left, max(1, w-reserve), "…")
 
@@ -649,7 +640,7 @@ func (m *Model) statusView() string {
 		right = m.spin.View() + " "
 	}
 	room := w - ansi.StringWidth(left) - 3 - ansi.StringWidth(right)
-	if room >= 6 {
+	if room >= 6 && status != "" && status != "ready" {
 		right += statusStyle.Render(clip(status, room))
 	} else if right == "" {
 		return left
@@ -687,11 +678,6 @@ func (m *Model) composerView() string {
 	if m.input.Focused() || m.picker.open() {
 		border = t.accent
 	}
-	top := border.Render("╭" + strings.Repeat("─", inner) + "╮")
-	mid := make([]string, len(rows))
-	for i, row := range rows {
-		mid[i] = border.Render("│") + padRight(row, inner) + border.Render("│")
-	}
 	chips, hits := m.chipSpans()
 	chipW := ansi.StringWidth(ansi.Strip(chips))
 	fill := max(1, inner-chipW-1)
@@ -700,8 +686,8 @@ func (m *Model) composerView() string {
 		chipW = ansi.StringWidth(ansi.Strip(chips))
 		fill = max(1, inner-chipW-1)
 	}
-	// Grok right-aligns model · mode on the bottom border. Hits are
-	// recorded in screen cells so a click opens that picker.
+	// Model sits on the top border (Grok-style). Hits are screen cells
+	// so a click opens the model picker.
 	startX := g.padL + 1 + fill
 	x := startX
 	for i := range hits {
@@ -709,8 +695,13 @@ func (m *Model) composerView() string {
 		x += hits[i].w + ansi.StringWidth(" · ")
 	}
 	m.chips = hits
-	m.chipY = g.composerY() + g.frameRows + g.composerRows - 1
-	bot := border.Render("╰"+strings.Repeat("─", fill)) + chips + border.Render("─╯")
+	m.chipY = g.composerY()
+	top := border.Render("╭"+strings.Repeat("─", fill)) + chips + border.Render("─╮")
+	mid := make([]string, len(rows))
+	for i, row := range rows {
+		mid[i] = border.Render("│") + padRight(row, inner) + border.Render("│")
+	}
+	bot := border.Render("╰" + strings.Repeat("─", inner) + "╯")
 	out := append([]string{top}, mid...)
 	out = append(out, bot)
 	if g.infoRows > 0 {
@@ -722,25 +713,15 @@ func (m *Model) composerView() string {
 func (m *Model) chipSpans() (string, []chipHit) {
 	t := m.th
 	model := m.modelChipLabel()
-	mode := string(m.deps.Mode)
-	if mode == "" {
-		mode = "default"
-	}
-	modelSt, modeSt := t.faint, t.faint
+	modelSt := t.faint
 	if m.input.Focused() || m.picker.open() {
-		modelSt, modeSt = t.chrome, t.chrome
+		modelSt = t.chrome
 	}
 	if m.picker.kind == modelPicker {
 		modelSt = t.accent
 	}
-	if m.picker.kind == modePicker {
-		modeSt = t.accent
-	}
-	sep := t.faint.Render(" · ")
-	painted := modelSt.Render(model) + sep + modeSt.Render(mode)
-	return painted, []chipHit{
+	return modelSt.Render(model), []chipHit{
 		{id: "model", w: ansi.StringWidth(model)},
-		{id: "mode", w: ansi.StringWidth(mode)},
 	}
 }
 
@@ -750,7 +731,13 @@ func (m *Model) modelChipLabel() string {
 		name = m.turnModel
 	}
 	if name == "" {
-		return "no model"
+		name = "no model"
+	}
+	switch {
+	case m.deps.Auth == "siwc" || m.deps.Provider == "chatgpt":
+		return name + " (siwc)"
+	case m.deps.Provider == "offline":
+		return name + " (offline)"
 	}
 	return name
 }
