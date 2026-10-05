@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"golang.org/x/term"
 
@@ -219,23 +220,27 @@ func envOn(key string) bool {
 
 func startTUI(app *cli.App, sess *session.Session, initial string, rules []string, verbose bool) error {
 	needGate := app.RequireJev(context.Background()) != nil
+	// With grok-cli these start the ACP child (it is cached for the turns),
+	// so log how long that took.
+	warm := time.Now()
+	fastModel, strongModel := app.FastModel(), app.StrongModel()
+	ctxLimit := 0
+	if p, ok := app.Provider.(*grokcli.Provider); ok {
+		ctxLimit = p.ContextLimit(context.Background())
+	}
+	app.Log.Info("tui models", "fast", fastModel, "strong", strongModel, "ctx", ctxLimit, "ms", time.Since(warm).Milliseconds())
 	model := tui.New(tui.Deps{
-		CWD:         app.CWD,
-		Session:     sess,
-		Mode:        app.Policy().Mode,
-		ReviewOnly:  app.Policy().ReviewOnly,
-		JevMode:     app.Gates.Mode(),
-		Gates:       app.Gates,
-		Provider:    app.Provider.Name(),
-		Auth:        app.Auth,
-		FastModel:   app.FastModel(),
-		StrongModel: app.StrongModel(),
-		ContextLimit: func() int {
-			if p, ok := app.Provider.(*grokcli.Provider); ok {
-				return p.ContextLimit(context.Background())
-			}
-			return 0
-		}(),
+		CWD:           app.CWD,
+		Session:       sess,
+		Mode:          app.Policy().Mode,
+		ReviewOnly:    app.Policy().ReviewOnly,
+		JevMode:       app.Gates.Mode(),
+		Gates:         app.Gates,
+		Provider:      app.Provider.Name(),
+		Auth:          app.Auth,
+		FastModel:     fastModel,
+		StrongModel:   strongModel,
+		ContextLimit:  ctxLimit,
 		InitialPrompt: initial,
 		Run:           app.RunTurn,
 		ListSessions: func() []session.Meta {
@@ -296,6 +301,16 @@ func startTUI(app *cli.App, sess *session.Session, initial string, rules []strin
 		CheckJev:    app.CheckJevKey,
 		SaveJev:     config.SaveJevKey,
 		UpdateCheck: app.Loaded.File.Update.CheckOn() && update.AutoCheck(),
+		Log: func(level, msg string, keyvals ...any) {
+			switch level {
+			case "error":
+				app.Log.Error(msg, keyvals...)
+			case "warn":
+				app.Log.Warn(msg, keyvals...)
+			default:
+				app.Log.Info(msg, keyvals...)
+			}
+		},
 	})
 	return tui.Run(model)
 }

@@ -111,6 +111,9 @@ type Deps struct {
 	SaveJev  func(key string) (store string, err error)
 	// UpdateCheck starts the 24h background release check. Tests leave this false.
 	UpdateCheck bool
+	// Log writes TUI lifecycle lines (size, turn start/finish/error) to
+	// rock.log. Nil in tests that do not care.
+	Log LogFunc
 }
 
 type line struct {
@@ -192,6 +195,7 @@ type turnEvent struct {
 type turnDone struct {
 	err error
 	ctx int
+	at  time.Time // turn start, for the rock.log duration
 }
 
 type tickMsg time.Time
@@ -347,6 +351,13 @@ type Model struct {
 	ctxBytes int
 	ticking  bool
 	turnAt   time.Time
+	// turnFrom is len(lines) when the turn started; turnDone uses it to
+	// make sure every turn leaves something visible.
+	turnFrom   int
+	userCancel bool
+	seen       *sizeSeen
+	sizeLogAt  time.Time
+	resizes    int
 
 	send     func(tea.Msg)
 	cancel   context.CancelFunc
@@ -361,6 +372,7 @@ func New(deps Deps) *Model {
 	}
 	m := &Model{
 		deps:     deps,
+		seen:     &sizeSeen{},
 		keys:     newKeys(),
 		follow:   true,
 		status:   "ready",
@@ -490,7 +502,15 @@ func (m *Model) Send(fn func(tea.Msg)) { m.send = fn }
 func Run(m *Model) error {
 	p := tea.NewProgram(m)
 	m.send = p.Send
+	stop := startResizePoll(m.seen, p.Send)
+	defer stop()
+	m.log("info", "tui open", "auth", m.deps.Auth, "provider", m.deps.Provider, "model", m.deps.FastModel, "poll_resize", resizePollOn())
 	_, err := p.Run()
+	if err != nil {
+		m.log("error", "tui exit", "err", oneLineErr(err))
+	} else {
+		m.log("info", "tui exit")
+	}
 	return err
 }
 
@@ -534,6 +554,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		// Always applied, whatever state the UI is in (gate, overlay,
+		// picker, busy). Update re-runs layout() after this.
+		m.noteSize(msg.Width, msg.Height)
 		m.width, m.height = msg.Width, msg.Height
 		return nil
 	case tea.BackgroundColorMsg:
@@ -575,10 +598,27 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 			m.cancel()
 			m.cancel = nil
 		}
-		if msg.err != nil && !errors.Is(msg.err, context.Canceled) {
+		var dur time.Duration
+		if !msg.at.IsZero() {
+			dur = time.Since(msg.at).Round(time.Millisecond)
+		}
+		userCancel := m.userCancel
+		m.userCancel = false
+		switch {
+		case msg.err != nil && errors.Is(msg.err, context.Canceled) && userCancel:
+			m.log("info", "tui turn cancelled", "dur", dur)
+		case msg.err != nil:
+			m.log("error", "tui turn error", "dur", dur, "err", oneLineErr(msg.err))
 			m.setAlert(msg.err.Error())
 			m.lines = append(m.lines, line{kind: "error", text: msg.err.Error()})
 			m.syncView()
+		case m.turnFrom <= len(m.lines) && m.visibleSince(m.turnFrom) == 0:
+			m.log("warn", "tui turn empty", "dur", dur)
+			m.setAlert("empty reply")
+			m.lines = append(m.lines, line{kind: "error", text: m.emptyReplyText()})
+			m.syncView()
+		default:
+			m.log("info", "tui turn done", "dur", dur, "shown", m.visibleSince(m.turnFrom))
 		}
 		if msg.ctx > 0 {
 			m.ctxBytes = msg.ctx
@@ -808,6 +848,7 @@ func diagnosticJev(ln line) bool {
 
 func (m *Model) cancelTurn() tea.Cmd {
 	if m.cancel != nil {
+		m.userCancel = true
 		m.cancel()
 	}
 	m.status, m.alert = "cancelled. the draft stays in the composer", false
@@ -1335,6 +1376,7 @@ func (m *Model) quit() tea.Cmd {
 		m.answer(perms.Deny)
 	}
 	if m.cancel != nil {
+		m.userCancel = true
 		m.cancel()
 	}
 	return tea.Quit
@@ -1535,19 +1577,35 @@ func (m *Model) start(prompt string) tea.Cmd {
 	}
 	m.busy = true
 	m.turnAt = time.Now()
+	m.turnFrom = len(m.lines)
+	m.userCancel = false
 	m.status, m.alert = "working", false
+	m.log("info", "tui turn start", "chars", len(prompt), "auth", m.deps.Auth, "model", m.deps.FastModel, "w", m.width, "h", m.height)
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	sess := m.deps.Session
-	run := func() tea.Msg {
-		err := m.deps.Run(ctx, sess, prompt, m.ask, func(ev harness.Event) {
+	at := m.turnAt
+	run := func() (out tea.Msg) {
+		var err error
+		defer func() {
+			// A panic in the harness or provider must still end the
+			// turn with a visible error instead of a frozen spinner.
+			if r := recover(); r != nil {
+				err = fmt.Errorf("turn crashed: %v", r)
+			}
+			done := turnDone{err: err, ctx: sessionBytes(sess), at: at}
+			if m.send != nil {
+				m.send(done)
+				out = nil
+				return
+			}
+			out = done
+		}()
+		err = m.deps.Run(ctx, sess, prompt, m.ask, func(ev harness.Event) {
 			if m.send != nil {
 				m.send(turnEvent{ev: ev, ctx: sessionBytes(sess)})
 			}
 		})
-		if m.send != nil {
-			m.send(turnDone{err: err, ctx: sessionBytes(sess)})
-		}
 		return nil
 	}
 	return tea.Batch(run, m.spin.Tick)
