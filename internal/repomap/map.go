@@ -3,9 +3,12 @@
 package repomap
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -20,20 +23,77 @@ var skipDirs = map[string]bool{
 	"dist": true, ".rock": true, ".venv": true, "venv": true,
 }
 
+// Walk budgets. The map is a hint in the system prompt, so it must stay
+// cheap even when Rock is opened in a huge directory (a home folder with
+// AppData, OneDrive placeholders, module caches...). Unbounded, a home
+// directory took 28s on Linux with a warm cache and far longer on Windows,
+// which looked like a hung turn.
+var (
+	MaxVisit  = 6000                    // directory entries looked at
+	MaxRead   = 600                     // files opened for symbols
+	MaxWalk   = 1500 * time.Millisecond // wall clock for the whole walk
+	homeDir   = os.UserHomeDir
+	skipNames = map[string]bool{
+		// Windows / macOS profile trees that are never the project.
+		"AppData": true, "Application Data": true, "Library": true,
+		"OneDrive": true, "Downloads": true, "Pictures": true, "Music": true, "Videos": true,
+		"__pycache__": true, ".cache": true, ".cargo": true, ".rustup": true, ".npm": true,
+		".gradle": true, ".m2": true, ".nuget": true, ".vscode-server": true, ".grok": true,
+	}
+)
+
+// Stats describes one walk for rock.log.
+type Stats struct {
+	Visited int
+	Read    int
+	Elapsed time.Duration
+	// Stopped is why the walk ended early: "", "visit cap", "read cap",
+	// "time cap", or "home dir" / "volume root" when it did not walk.
+	Stopped string
+}
+
+var errStop = errors.New("repomap: budget")
+
 func Build(root, prompt string, limit int) ([]Hit, error) {
+	hits, _, err := BuildStats(root, prompt, limit)
+	return hits, err
+}
+
+// BuildStats is Build plus walk statistics.
+func BuildStats(root, prompt string, limit int) ([]Hit, Stats, error) {
+	start := time.Now()
+	var st Stats
 	if limit <= 0 {
 		limit = 12
 	}
+	if why := unmappable(root); why != "" {
+		st.Stopped = why
+		return nil, st, nil
+	}
+	deadline := start.Add(MaxWalk)
 	words := tokens(prompt)
 	var hits []Hit
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
+		st.Visited++
+		if st.Visited > MaxVisit {
+			st.Stopped = "visit cap"
+			return errStop
+		}
+		if st.Visited%64 == 0 && time.Now().After(deadline) {
+			st.Stopped = "time cap"
+			return errStop
+		}
 		if d.IsDir() {
-			if skipDirs[d.Name()] {
+			name := d.Name()
+			if path != root && (skipDirs[name] || skipNames[name]) {
 				return filepath.SkipDir
 			}
+			return nil
+		}
+		if !d.Type().IsRegular() {
 			return nil
 		}
 		rel, err := filepath.Rel(root, path)
@@ -54,6 +114,11 @@ func Build(root, prompt string, limit int) ([]Hit, error) {
 		if err != nil || info.Size() > 200_000 {
 			return nil
 		}
+		if st.Read >= MaxRead {
+			st.Stopped = "read cap"
+			return errStop
+		}
+		st.Read++
 		raw, err := os.ReadFile(path)
 		if err != nil || looksBinary(raw) {
 			return nil
@@ -70,14 +135,39 @@ func Build(root, prompt string, limit int) ([]Hit, error) {
 		hits = append(hits, Hit{Path: rel, Symbols: syms, Score: score})
 		return nil
 	})
-	if err != nil {
-		return nil, err
+	st.Elapsed = time.Since(start)
+	if err != nil && !errors.Is(err, errStop) {
+		return nil, st, err
 	}
 	sortHits(hits)
 	if len(hits) > limit {
 		hits = hits[:limit]
 	}
-	return hits, nil
+	return hits, st, nil
+}
+
+// unmappable reports why root should not be walked at all: the user's
+// home directory or a filesystem/volume root is never one project.
+func unmappable(root string) string {
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return ""
+	}
+	abs = filepath.Clean(abs)
+	if filepath.Dir(abs) == abs {
+		return "volume root"
+	}
+	if home, err := homeDir(); err == nil && home != "" && sameDir(abs, filepath.Clean(home)) {
+		return "home dir"
+	}
+	return ""
+}
+
+func sameDir(a, b string) bool {
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 func Render(hits []Hit) string {

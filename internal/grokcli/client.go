@@ -17,6 +17,7 @@ import (
 
 	"github.com/StephenSHorton/rock/internal/childproc"
 	"github.com/StephenSHorton/rock/internal/config"
+	"github.com/StephenSHorton/rock/internal/trace"
 	"github.com/StephenSHorton/rock/internal/version"
 )
 
@@ -240,6 +241,10 @@ type client struct {
 	// waits can apply an idle timeout without a hard wall clock.
 	activity  chan struct{}
 	sessionID string
+	// promptAt / updates time the in-flight prompt for rock.log stage
+	// lines (first update, done).
+	promptAt time.Time
+	updates  int
 
 	modelConfigID string
 	modelCurrent  string
@@ -398,6 +403,15 @@ func (c *client) handleNote(msg rpc) {
 	}
 	if err := json.Unmarshal(msg.Params, &p); err != nil {
 		return
+	}
+	c.mu.Lock()
+	c.updates++
+	first, at := c.updates == 1, c.promptAt
+	c.mu.Unlock()
+	if first && !at.IsZero() {
+		trace.Info("grok first update", "kind", p.Update.SessionUpdate, "ms", trace.Since(at))
+	} else {
+		trace.Mark("grok streaming")
 	}
 	switch p.Update.SessionUpdate {
 	case "agent_message_chunk", "agent_message":
@@ -830,7 +844,11 @@ func (c *client) promptWithIdle(ctx context.Context, sessionID, text string, idl
 	c.text.Reset()
 	c.calls = nil
 	c.sessionID = sessionID
+	c.promptAt = time.Now()
+	c.updates = 0
+	at := c.promptAt
 	c.mu.Unlock()
+	trace.Info("grok prompt sent", "chars", len(text))
 	if idle <= 0 {
 		idle = PromptIdleTimeout
 	}
@@ -852,6 +870,15 @@ func (c *client) promptWithIdle(ctx context.Context, sessionID, text string, idl
 	close(doneWatch)
 	if err != nil && ctx.Err() != nil {
 		_ = c.sendCancel(sessionID)
+	}
+	c.mu.Lock()
+	n, chars := c.updates, c.text.Len()
+	c.promptAt = time.Time{}
+	c.mu.Unlock()
+	if err != nil {
+		trace.Error("grok prompt error", "ms", trace.Since(at), "updates", n, "err", err.Error())
+	} else {
+		trace.Info("grok prompt done", "ms", trace.Since(at), "updates", n, "chars", chars)
 	}
 	return err
 }

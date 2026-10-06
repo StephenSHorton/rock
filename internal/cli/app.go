@@ -27,6 +27,7 @@ import (
 	"github.com/StephenSHorton/rock/internal/skills"
 	"github.com/StephenSHorton/rock/internal/suzuri"
 	"github.com/StephenSHorton/rock/internal/tools"
+	"github.com/StephenSHorton/rock/internal/trace"
 	"github.com/StephenSHorton/rock/internal/version"
 )
 
@@ -87,6 +88,7 @@ func Open(cwd string) (*App, error) {
 		Log:        lg,
 		Checkpoint: loaded.File.Git.Checkpoint,
 	}
+	trace.SetLogger(app.LogAt)
 	app.applyProvider()
 	lg.Info("open", "cwd", abs, "provider", app.Provider.Name(), "auth", app.Auth, "jev", gates.Mode(), "skills", len(sk))
 	return app, nil
@@ -181,9 +183,30 @@ func (a *App) ConnectMCP(ctx context.Context) {
 		return
 	}
 	a.mcpDone = true
+	at := time.Now()
+	trace.Info("mcp connect start", "servers", len(a.Loaded.File.MCP))
 	a.attachMCP(ctx)
-	a.Log.Info("mcp", "tools", len(a.Extras), "notes", len(a.MCPNotes))
+	trace.Info("mcp", "tools", len(a.Extras), "notes", len(a.MCPNotes), "ms", trace.Since(at))
 }
+
+// LogAt writes one rock.log line at level "info", "warn" or "error".
+func (a *App) LogAt(level, msg string, keyvals ...any) {
+	if a == nil || a.Log == nil {
+		return
+	}
+	switch level {
+	case "error":
+		a.Log.Error(msg, keyvals...)
+	case "warn":
+		a.Log.Warn(msg, keyvals...)
+	default:
+		a.Log.Info(msg, keyvals...)
+	}
+}
+
+// mcpStartTimeout bounds starting one MCP server and listing its tools so
+// a server that never answers cannot hang the first turn.
+var mcpStartTimeout = 15 * time.Second
 
 func (a *App) Close() {
 	if p, ok := a.Provider.(*grokcli.Provider); ok {
@@ -603,12 +626,16 @@ func (a *App) attachMCP(ctx context.Context) {
 			a.MCPNotes = append(a.MCPNotes, fmt.Sprintf("%s: %s not on PATH", name, spec.Command))
 			continue
 		}
-		client, err := mcp.Start(ctx, mcp.Server{Name: name, Command: spec.Command, Args: spec.Args})
+		sctx, cancel := context.WithTimeout(ctx, mcpStartTimeout)
+		trace.Info("mcp server start", "name", name)
+		client, err := mcp.Start(sctx, mcp.Server{Name: name, Command: spec.Command, Args: spec.Args})
 		if err != nil {
+			cancel()
 			a.MCPNotes = append(a.MCPNotes, fmt.Sprintf("%s: %s", name, err.Error()))
 			continue
 		}
-		listed, err := client.Tools(ctx, name)
+		listed, err := client.Tools(sctx, name)
+		cancel()
 		if err != nil {
 			_ = client.Close()
 			a.MCPNotes = append(a.MCPNotes, fmt.Sprintf("%s: tools/list: %s", name, err.Error()))

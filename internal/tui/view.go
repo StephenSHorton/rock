@@ -603,6 +603,9 @@ func (m *Model) statusView() string {
 	}
 
 	status := sanitize(m.status)
+	if m.busy && m.stall != "" {
+		status = sanitize(m.stall)
+	}
 	reserve := 0
 	if status != "" && status != "ready" {
 		reserve = min(ansi.StringWidth(status)+3, max(20, w/2))

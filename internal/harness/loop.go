@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/StephenSHorton/rock/internal/childproc"
 	"github.com/StephenSHorton/rock/internal/config"
@@ -19,6 +20,7 @@ import (
 	"github.com/StephenSHorton/rock/internal/session"
 	"github.com/StephenSHorton/rock/internal/skills"
 	"github.com/StephenSHorton/rock/internal/tools"
+	"github.com/StephenSHorton/rock/internal/trace"
 )
 
 type EventKind string
@@ -111,7 +113,10 @@ func (h *Harness) Run(ctx context.Context, sess *session.Session, prompt string,
 	if strings.TrimSpace(prompt) != "" {
 		sess.Append(provider.Message{Role: provider.RoleUser, Content: prompt})
 	}
+	routeAt := time.Now()
+	trace.Info("turn jev route start", "jev", h.Gates.Mode())
 	turn := h.Gates.BeforeTurn(ctx, prompt, skillNames(h.Skills), sess.RecentTools(), sess.Bytes())
+	trace.Info("turn jev route done", "ms", trace.Since(routeAt), "source", turn.Source, "model", turn.Model)
 	sink(jevEvent("turn", turn.Result, fmt.Sprintf("%s model=%s stuck=%v compact=%v skills=%s (%s)", turn.Source, turn.Model, turn.Stuck, turn.Compact, strings.Join(turn.Skills, ","), turn.Detail)))
 	if turn.Stuck {
 		sess.Append(provider.Message{Role: provider.RoleAssistant, Content: "Stopping. The last tool calls repeated without progress."})
@@ -130,17 +135,24 @@ func (h *Harness) Run(ctx context.Context, sess *session.Session, prompt string,
 	if model == "" {
 		model = h.StrongModel
 	}
+	ctxAt := time.Now()
+	trace.Info("turn context start")
 	sess.ReplaceSystem(h.system(prompt, turn.Skills))
+	trace.Info("turn context done", "ms", trace.Since(ctxAt))
 	mutated := false
 	for step := 0; step < h.MaxSteps; step++ {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		callAt := time.Now()
+		trace.Info("turn model call start", "step", step, "model", model, "provider", h.Provider.Name())
 		msg, err := h.Provider.Complete(ctx, model, sess.Messages, h.Tools.Specs())
 		if err != nil {
+			trace.Error("turn model call error", "step", step, "ms", trace.Since(callAt), "err", err.Error())
 			sink(Event{Kind: EvStatus, Text: err.Error()})
 			return err
 		}
+		trace.Info("turn model call done", "step", step, "ms", trace.Since(callAt), "chars", len(msg.Content), "tools", len(msg.ToolCalls))
 		sess.Append(msg)
 		if msg.Content != "" {
 			sink(Event{Kind: EvAssistant, Text: msg.Content})
@@ -229,7 +241,9 @@ func (h *Harness) system(prompt string, chosen []string) string {
 	if h.Tools != nil {
 		b.WriteString("Workspace: " + h.Tools.Env.Root + "\n")
 	}
-	if hits, err := repomap.Build(h.Tools.Env.Root, prompt, 8); err == nil && len(hits) > 0 {
+	hits, st, err := repomap.BuildStats(h.Tools.Env.Root, prompt, 8)
+	trace.Info("turn repo map", "ms", st.Elapsed.Milliseconds(), "visited", st.Visited, "read", st.Read, "hits", len(hits), "stopped", st.Stopped)
+	if err == nil && len(hits) > 0 {
 		b.WriteString("Repo map:\n")
 		b.WriteString(repomap.Render(hits))
 	}
