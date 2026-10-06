@@ -112,6 +112,10 @@ type Deps struct {
 	SaveJev  func(key string) (store string, err error)
 	// UpdateCheck starts the 24h background release check. Tests leave this false.
 	UpdateCheck bool
+	// Usage returns the current provider's usage query, or nil when it
+	// reports none. It runs on the UI goroutine (so it may read the live
+	// provider); the returned func runs in the background.
+	Usage func() UsageFetch
 	// Log writes TUI lifecycle lines (size, turn start/finish/error) to
 	// rock.log. Nil in tests that do not care.
 	Log LogFunc
@@ -360,6 +364,12 @@ type Model struct {
 	// make sure every turn leaves something visible.
 	turnFrom int
 	stall    string // set by the stall watchdog; cleared on progress
+
+	usage     *Usage    // last subscription usage; nil hides the indicator
+	usageAt   time.Time // last fetch start (throttle)
+	usageBusy bool
+	usageShow bool // /usage asked; report the next answer on the status line
+	usageGen  int
 	// liveThought / liveText index the streaming thinking and reply lines
 	// of the current model call (-1 when none); liveRaw is the raw reply
 	// text so far (tool fences included).
@@ -544,6 +554,9 @@ func (m *Model) Init() tea.Cmd {
 			cmds = append(cmds, m.pollUpdate(false))
 		}
 	}
+	if c := m.fetchUsage(true, false); c != nil {
+		cmds = append(cmds, c)
+	}
 	if m.gating() {
 		return tea.Batch(append(cmds, m.gate.input.Focus(), m.gate.spin.Tick)...)
 	}
@@ -643,7 +656,10 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		if msg.ctx > 0 {
 			m.ctxBytes = msg.ctx
 		}
-		return m.retarget()
+		return tea.Batch(m.retarget(), m.fetchUsage(false, false))
+	case usageMsg:
+		m.onUsage(msg)
+		return nil
 	case askMsg:
 		m.openAsk(msg)
 		return nil
@@ -924,6 +940,7 @@ func slashCommands() []rowItem {
 		{title: "/verbose", desc: "show or hide Jev turn/risk diagnostics", id: "cmd:/verbose"},
 		{title: "/fork", desc: "new Rock pane in Suzuri (OSC 7880)", id: "cmd:/fork"},
 		{title: "/provider", desc: "ChatGPT, SuperGrok, API key, or offline model", id: "cmd:/provider"},
+		{title: "/usage", desc: "subscription limit used this period", id: "cmd:/usage"},
 		{title: "/update", desc: "install the latest Rock release", id: "cmd:/update"},
 		{title: "/quit", desc: "quit", id: "cmd:/quit"},
 	}
@@ -1468,6 +1485,8 @@ func (m *Model) slash(text string) tea.Cmd {
 		return m.emitFork(rest)
 	case "/provider":
 		m.openModelPicker()
+	case "/usage":
+		return m.fetchUsage(true, true)
 	case "/update":
 		return m.askUpdate()
 	case "/quit":
@@ -2018,6 +2037,7 @@ func (m *Model) selectProviderItem(item rowItem) {
 		}
 		m.deps.Provider = name
 		m.deps.Auth = auth
+		m.resetUsage()
 	} else {
 		m.deps.Auth = item.id
 		switch item.id {

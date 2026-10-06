@@ -18,6 +18,7 @@ import (
 	"github.com/StephenSHorton/rock/internal/config"
 	"github.com/StephenSHorton/rock/internal/grokcli"
 	"github.com/StephenSHorton/rock/internal/perms"
+	"github.com/StephenSHorton/rock/internal/provider"
 	"github.com/StephenSHorton/rock/internal/serve"
 	"github.com/StephenSHorton/rock/internal/session"
 	"github.com/StephenSHorton/rock/internal/siwc"
@@ -295,6 +296,16 @@ func startTUI(app *cli.App, sess *session.Session, initial string, rules []strin
 			p.OverrideModel = id
 			_ = config.Write(config.ConfigPath(), app.Loaded.File)
 			return nil
+		},
+		Usage: func() tui.UsageFetch {
+			r, ok := app.Provider.(provider.UsageReporter)
+			if !ok {
+				return nil
+			}
+			return func(ctx context.Context) (tui.Usage, bool, error) {
+				u, ok, err := r.SubscriptionUsage(ctx)
+				return tui.Usage{Percent: u.Percent, Label: u.Label, ResetsAt: u.ResetsAt, Plan: u.Plan}, ok, err
+			}
 		},
 		Output:      os.Stdout,
 		Verbose:     verbose,

@@ -501,10 +501,15 @@ func (c *client) requestIdle(ctx context.Context, method string, params any, idl
 	}
 	var timer *time.Timer
 	var timerC <-chan time.Time
+	// Only idle-timed requests (session/prompt) watch activity. A plain
+	// request running beside a prompt (the billing query) must not eat the
+	// prompt's activity signals.
+	var activity <-chan struct{}
 	if idle > 0 {
 		timer = time.NewTimer(idle)
 		defer timer.Stop()
 		timerC = timer.C
+		activity = c.activity
 	}
 	for {
 		select {
@@ -518,7 +523,7 @@ func (c *client) requestIdle(ctx context.Context, method string, params any, idl
 				return nil, formatRPCError(method, msg.Error)
 			}
 			return msg.Result, nil
-		case <-c.activity:
+		case <-activity:
 			if timer != nil {
 				if !timer.Stop() {
 					select {
