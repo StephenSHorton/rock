@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/charmbracelet/x/ansi"
@@ -216,15 +217,27 @@ var skipFileDirs = map[string]bool{
 
 // listWorkspaceFiles is the @ picker source. Hidden names stay out (Grok's
 // @! toggle is a skip). .git / node_modules / vendor match the glob tool.
+const (
+	filePickerMaxVisit = 20000
+	filePickerBudget   = 250 * time.Millisecond
+)
+
 func listWorkspaceFiles(root, query string, limit int) []rowItem {
 	if root == "" || limit <= 0 {
 		return nil
 	}
 	q := strings.ToLower(query)
 	var items []rowItem
+	// This runs inside Update, so it must never walk a whole home
+	// directory: cap entries and wall clock.
+	visited, deadline := 0, time.Now().Add(filePickerBudget)
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
+		}
+		visited++
+		if visited > filePickerMaxVisit || (visited%128 == 0 && time.Now().After(deadline)) {
+			return os.ErrExist
 		}
 		name := d.Name()
 		if d.IsDir() {

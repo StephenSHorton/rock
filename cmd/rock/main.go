@@ -301,16 +301,7 @@ func startTUI(app *cli.App, sess *session.Session, initial string, rules []strin
 		CheckJev:    app.CheckJevKey,
 		SaveJev:     config.SaveJevKey,
 		UpdateCheck: app.Loaded.File.Update.CheckOn() && update.AutoCheck(),
-		Log: func(level, msg string, keyvals ...any) {
-			switch level {
-			case "error":
-				app.Log.Error(msg, keyvals...)
-			case "warn":
-				app.Log.Warn(msg, keyvals...)
-			default:
-				app.Log.Info(msg, keyvals...)
-			}
-		},
+		Log:         app.LogAt,
 	})
 	return tui.Run(model)
 }

@@ -170,7 +170,7 @@ type logRec struct {
 func (l *logRec) fn(level, msg string, kv ...any) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.lines = append(l.lines, level+" "+msg+" "+fmt.Sprint(kv...))
+	l.lines = append(l.lines, strings.TrimSpace(level+" "+msg+" "+strings.TrimSuffix(fmt.Sprintln(kv...), "\n")))
 }
 
 func (l *logRec) has(sub string) bool {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/StephenSHorton/rock/internal/provider"
+	"github.com/StephenSHorton/rock/internal/trace"
 )
 
 // Provider is the grok-cli model backend. Rock's harness still runs
@@ -118,12 +119,17 @@ func (p *Provider) Complete(ctx context.Context, model string, messages []provid
 	}
 	// No wall-clock timeout on the turn — caller's ctx (interrupt) plus
 	// prompt idle timeout govern waits. Child lifetime is independent.
+	ensureAt := time.Now()
+	trace.Info("grok ensure start")
 	sess, err := p.ensure(ctx, bin)
 	if err != nil {
+		trace.Error("grok ensure error", "ms", trace.Since(ensureAt), "err", err.Error())
 		return provider.Message{}, err
 	}
+	trace.Info("grok ensure done", "ms", trace.Since(ensureAt), "pid", p.ChildPID(), "starts", p.StartCount())
 	target := MapGrokTarget(model, sess.client.models, sess.client.modelCurrent, p.OverrideModel)
 	if target != "" && target != sess.client.modelCurrent {
+		trace.Info("grok switch model", "from", sess.client.modelCurrent, "to", target)
 		if err := p.switchModel(ctx, bin, sess, target); err != nil {
 			return provider.Message{}, err
 		}

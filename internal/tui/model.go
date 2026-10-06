@@ -33,6 +33,7 @@ import (
 	"github.com/StephenSHorton/rock/internal/perms"
 	"github.com/StephenSHorton/rock/internal/provider"
 	"github.com/StephenSHorton/rock/internal/session"
+	"github.com/StephenSHorton/rock/internal/trace"
 	"github.com/StephenSHorton/rock/internal/update"
 	"github.com/StephenSHorton/rock/internal/version"
 )
@@ -354,6 +355,7 @@ type Model struct {
 	// turnFrom is len(lines) when the turn started; turnDone uses it to
 	// make sure every turn leaves something visible.
 	turnFrom   int
+	stall      string // set by the stall watchdog; cleared on progress
 	userCancel bool
 	seen       *sizeSeen
 	sizeLogAt  time.Time
@@ -583,6 +585,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		m.spin, cmd = m.spin.Update(msg)
 		return cmd
 	case turnEvent:
+		m.stall = ""
 		m.ctxBytes = msg.ctx
 		m.apply(msg.ev)
 		return m.retarget()
@@ -590,7 +593,10 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		m.ctxBytes += eventBytes(msg.ev)
 		m.apply(msg.ev)
 		return m.retarget()
+	case stallMsg:
+		return m.onStall(msg)
 	case turnDone:
+		m.stall = ""
 		m.busy = false
 		m.turnModel = ""
 		m.turnAt = time.Time{}
@@ -1602,12 +1608,15 @@ func (m *Model) start(prompt string) tea.Cmd {
 			out = done
 		}()
 		err = m.deps.Run(ctx, sess, prompt, m.ask, func(ev harness.Event) {
+			trace.Progress()
 			if m.send != nil {
 				m.send(turnEvent{ev: ev, ctx: sessionBytes(sess)})
 			}
 		})
 		return nil
 	}
+	trace.Mark("tui turn start")
+	go m.watchTurn(ctx, at, stallAfter, stallTick)
 	return tea.Batch(run, m.spin.Tick)
 }
 
