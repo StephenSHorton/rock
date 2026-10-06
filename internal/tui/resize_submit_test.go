@@ -190,8 +190,11 @@ func pumpTurn(t *testing.T, m *Model, prompt string) {
 	msgs := make(chan tea.Msg, 256)
 	m.Send(func(msg tea.Msg) { msgs <- msg })
 	go runCmd(submit(m, prompt))
-	if !m.busy || m.status != "working" {
-		t.Fatalf("no immediate feedback on submit: busy=%v status=%q", m.busy, m.status)
+	if !m.busy {
+		t.Fatal("not busy after submit")
+	}
+	if rows := screen(m); !strings.Contains(rows[m.geo.activityY()], "Thinking…") {
+		t.Fatalf("no working indicator above the composer:\n%s", strings.Join(rows, "\n"))
 	}
 	if !strings.Contains(transcriptText(m), prompt) {
 		t.Fatalf("prompt not echoed:\n%s", strings.Join(screen(m), "\n"))
@@ -229,7 +232,8 @@ func grokModel(t *testing.T, fake *grokcli.FakeScript, log *logRec) (*Model, *gr
 			h := harness.New(harness.Options{
 				Provider: p, FastModel: "gpt-4o-mini", StrongModel: "gpt-4o",
 				Policy: policy, Gates: jev.Gates{}, MaxSteps: 4, Ask: ask,
-				Tools: tools.New(tools.Env{Root: dir, PlanPath: s.PlanPath()}),
+				Tools:  tools.New(tools.Env{Root: dir, PlanPath: s.PlanPath()}),
+				Stream: true, // like cli.RunTurn
 			})
 			return h.Run(ctx, s, prompt, sink)
 		},

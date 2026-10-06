@@ -125,7 +125,7 @@ func root(args []string) error {
 	resume := fs.String("resume", "", "resume a session id")
 	sessionID := fs.String("session-id", "", "create or resume this session id")
 	yolo := fs.Bool("yolo", false, "skip asks; the destructive gate still blocks")
-	verbose := fs.Bool("verbose", false, "show Jev turn and risk diagnostics in the TUI")
+	verbose := fs.Bool("verbose", false, "TUI: show Jev turn/risk diagnostics; -p: also print streamed thinking to stderr")
 	mode := fs.String("mode", "", "default, plan, or yolo")
 	cwd := fs.String("cwd", "", "workspace")
 	showVersion := fs.Bool("version", false, "print version and exit")
@@ -195,6 +195,7 @@ func root(args []string) error {
 			return err
 		}
 		noticeIfQuiet(app.Loaded.File)
+		app.Verbose = *verbose || envOn("ROCK_VERBOSE")
 		return app.Headless(context.Background(), sess, prompt, format, os.Stdout, os.Stderr, askHeadless)
 	}
 	rules := append([]string{}, app.Policy().Allow...)
@@ -566,6 +567,7 @@ const usage = `rock is a coding agent.
   rock --yolo -p "prompt"      skip asks; destructive commands still block
   rock --mode plan -p "prompt"
   rock --verbose               TUI shows Jev turn/risk diagnostic lines
+  rock --verbose -p "prompt"   also streams the model's thinking to stderr
 
   rock inspect                 config, skills, MCP, Jev mode, model auth class
   rock login chatgpt           Sign in with ChatGPT (OSS SIWC). Not Jev.

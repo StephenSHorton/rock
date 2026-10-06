@@ -130,6 +130,7 @@ type line struct {
 	folded      bool
 	foldTouched bool
 	raw         bool
+	live        bool // assistant text still streaming
 
 	out     string
 	outW    int
@@ -271,6 +272,7 @@ type geometry struct {
 	composerRows int
 	frameRows    int
 	noticeRows   int
+	activityRows int // working indicator above the composer while busy
 	infoRows     int
 	helpRows     int
 	transcriptW  int
@@ -282,9 +284,10 @@ type geometry struct {
 	compact      bool
 }
 
-func (g geometry) noticeY() int { return g.bodyY + g.bodyH }
+func (g geometry) noticeY() int   { return g.bodyY + g.bodyH }
+func (g geometry) activityY() int { return g.noticeY() + g.noticeRows }
 func (g geometry) composerY() int {
-	return g.noticeY() + g.noticeRows
+	return g.activityY() + g.activityRows
 }
 func (g geometry) statusY() int {
 	return g.composerY() + g.composerRows + g.frameRows + g.infoRows
@@ -354,12 +357,18 @@ type Model struct {
 	turnAt   time.Time
 	// turnFrom is len(lines) when the turn started; turnDone uses it to
 	// make sure every turn leaves something visible.
-	turnFrom   int
-	stall      string // set by the stall watchdog; cleared on progress
-	userCancel bool
-	seen       *sizeSeen
-	sizeLogAt  time.Time
-	resizes    int
+	turnFrom int
+	stall    string // set by the stall watchdog; cleared on progress
+	// liveThought / liveText index the streaming thinking and reply lines
+	// of the current model call (-1 when none); liveRaw is the raw reply
+	// text so far (tool fences included).
+	liveThought int
+	liveText    int
+	liveRaw     string
+	userCancel  bool
+	seen        *sizeSeen
+	sizeLogAt   time.Time
+	resizes     int
 
 	send     func(tea.Msg)
 	cancel   context.CancelFunc
@@ -373,16 +382,18 @@ func New(deps Deps) *Model {
 		deps.Output = os.Stdout
 	}
 	m := &Model{
-		deps:     deps,
-		seen:     &sizeSeen{},
-		keys:     newKeys(),
-		follow:   true,
-		status:   "ready",
-		selected: -1,
-		verbose:  deps.Verbose,
-		showPlan: deps.Mode == perms.ModePlan,
-		spring:   harmonica.NewSpring(harmonica.FPS(fps), 7, 1),
-		md:       map[int]*glamour.TermRenderer{},
+		deps:        deps,
+		seen:        &sizeSeen{},
+		liveThought: -1,
+		liveText:    -1,
+		keys:        newKeys(),
+		follow:      true,
+		status:      "ready",
+		selected:    -1,
+		verbose:     deps.Verbose,
+		showPlan:    deps.Mode == perms.ModePlan,
+		spring:      harmonica.NewSpring(harmonica.FPS(fps), 7, 1),
+		md:          map[int]*glamour.TermRenderer{},
 	}
 
 	ta := textarea.New()
@@ -597,6 +608,7 @@ func (m *Model) update(msg tea.Msg) tea.Cmd {
 		return m.onStall(msg)
 	case turnDone:
 		m.stall = ""
+		m.endStep(msg.err != nil)
 		m.busy = false
 		m.turnModel = ""
 		m.turnAt = time.Time{}
@@ -1585,7 +1597,10 @@ func (m *Model) start(prompt string) tea.Cmd {
 	m.turnAt = time.Now()
 	m.turnFrom = len(m.lines)
 	m.userCancel = false
-	m.status, m.alert = "working", false
+	m.resetLive()
+	// The working indicator lives above the composer (activityView), not
+	// in the status line.
+	m.status, m.alert = "", false
 	m.log("info", "tui turn start", "chars", len(prompt), "auth", m.deps.Auth, "model", m.deps.FastModel, "w", m.width, "h", m.height)
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
@@ -1669,9 +1684,14 @@ func (m *Model) answer(d perms.Decision) tea.Cmd {
 
 func (m *Model) apply(ev harness.Event) {
 	switch ev.Kind {
+	case harness.EvThought:
+		m.onThought(ev.Text)
+	case harness.EvDelta:
+		m.onDelta(ev.Text)
 	case harness.EvAssistant:
-		m.lines = append(m.lines, line{kind: "assistant", text: ev.Text})
+		m.finalAssistant(ev.Text)
 	case harness.EvToolCall:
+		m.endStep(false)
 		m.lines = append(m.lines, line{kind: "tool", name: ev.Name, text: ev.Text, at: time.Now()})
 		m.lastCall = ev
 		if ev.Name == "spawn_subagent" {
@@ -1698,6 +1718,7 @@ func (m *Model) apply(ev harness.Event) {
 	case harness.EvStatus:
 		m.status, m.alert = ev.Text, false
 	case harness.EvDone:
+		m.endStep(false)
 		m.status, m.alert = doneText(ev.Text), ev.Text != "end_turn"
 		m.refreshPlan()
 	}
@@ -2265,7 +2286,7 @@ func (m *Model) foldableAt(from int) bool {
 	if _, _, n := verbRun(m.lines, from); n > 1 {
 		return true
 	}
-	if m.lines[from].kind == "tool" {
+	if m.lines[from].kind == "tool" || (m.lines[from].kind == "thinking" && m.lines[from].done) {
 		return true
 	}
 	return lineFoldable(m.lines[from], m.contentW)
@@ -2281,6 +2302,9 @@ func (m *Model) isFolded(from int) bool {
 	}
 	if _, _, n := verbRun(m.lines, from); n > 1 {
 		return true
+	}
+	if ln.kind == "thinking" {
+		return ln.done // collapsed to "Thought for Ns" once finished
 	}
 	return ln.kind == "tool" && toolFoldsByDefault(ln.name)
 }

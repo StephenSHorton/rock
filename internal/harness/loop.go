@@ -33,6 +33,11 @@ const (
 	EvJev        EventKind = "jev"
 	EvPermission EventKind = "permission"
 	EvDone       EventKind = "done"
+	// EvThought / EvDelta are live deltas (reasoning / reply text) while a
+	// model call streams. Only sent when Options.Stream is set. The final
+	// reply still arrives as EvAssistant and is authoritative.
+	EvThought EventKind = "thought"
+	EvDelta   EventKind = "delta"
 )
 
 type Event struct {
@@ -68,6 +73,8 @@ type Options struct {
 	// FilterOff skips KeepSnippet / grep filtering.
 	FilterOff bool
 	ClipBytes int
+	// Stream forwards provider deltas as EvThought / EvDelta events.
+	Stream bool
 }
 
 type Harness struct {
@@ -103,6 +110,21 @@ func New(opt Options) *Harness {
 }
 
 func ctxBackground() context.Context { return context.Background() }
+
+// streamCtx attaches a provider stream callback that turns deltas into
+// EvThought / EvDelta events when Options.Stream is on.
+func (h *Harness) streamCtx(ctx context.Context, sink func(Event)) context.Context {
+	if !h.Stream || sink == nil {
+		return ctx
+	}
+	return provider.WithStream(ctx, func(kind provider.StreamKind, delta string) {
+		ev := Event{Kind: EvDelta, Text: delta}
+		if kind == provider.StreamThought {
+			ev.Kind = EvThought
+		}
+		sink(ev)
+	})
+}
 
 func (h *Harness) Run(ctx context.Context, sess *session.Session, prompt string, sink func(Event)) error {
 	if sink == nil {
@@ -146,7 +168,7 @@ func (h *Harness) Run(ctx context.Context, sess *session.Session, prompt string,
 		}
 		callAt := time.Now()
 		trace.Info("turn model call start", "step", step, "model", model, "provider", h.Provider.Name())
-		msg, err := h.Provider.Complete(ctx, model, sess.Messages, h.Tools.Specs())
+		msg, err := h.Provider.Complete(h.streamCtx(ctx, sink), model, sess.Messages, h.Tools.Specs())
 		if err != nil {
 			trace.Error("turn model call error", "step", step, "ms", trace.Since(callAt), "err", err.Error())
 			sink(Event{Kind: EvStatus, Text: err.Error()})

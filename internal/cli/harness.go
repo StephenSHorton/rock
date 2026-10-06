@@ -39,7 +39,9 @@ func (a *App) RunTurn(ctx context.Context, sess *session.Session, prompt string,
 		return err
 	}
 	set.Env.PlanPath = sess.PlanPath()
-	return a.harness(set, ask).Run(ctx, sess, prompt, sink)
+	h := a.harness(set, ask)
+	h.Stream = true // the TUI renders thoughts and reply text live
+	return h.Run(ctx, sess, prompt, sink)
 }
 
 // Factory is the ACP and HTTP entry. Each call gets its own tool set.
