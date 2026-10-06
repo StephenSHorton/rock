@@ -44,7 +44,10 @@ type App struct {
 	MCPNotes   []string
 	Log        *log.Logger
 	Checkpoint bool
-	mcpDone    bool
+	// Verbose makes headless text output show streamed thoughts on stderr
+	// (and streaming-json include thought/delta events).
+	Verbose bool
+	mcpDone bool
 	// GrokAuto is true when applyProvider picked grok-cli because a
 	// signed-in official binary was auto-detected (no explicit auth).
 	GrokAuto bool
@@ -517,13 +520,27 @@ func (a *App) Headless(ctx context.Context, sess *session.Session, prompt, forma
 		}
 		return ask(tool, detail)
 	})
+	h.Stream = a.Verbose
+	thinking := false
 	return h.Run(ctx, sess, prompt, func(ev harnessEvent) {
 		if format == "streaming-json" {
 			raw, _ := json.Marshal(ev)
 			fmt.Fprintf(stdout, "%s\n", raw)
 			return
 		}
+		if thinking && ev.Kind != "thought" {
+			fmt.Fprintln(stderr)
+			thinking = false
+		}
 		switch ev.Kind {
+		case "thought":
+			if !thinking {
+				fmt.Fprint(stderr, "thinking: ")
+				thinking = true
+			}
+			fmt.Fprint(stderr, ev.Text)
+		case "delta":
+			// The final text prints once as "assistant".
 		case "assistant":
 			fmt.Fprintln(stdout, ev.Text)
 		case "tool_call":

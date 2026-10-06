@@ -17,6 +17,7 @@ import (
 
 	"github.com/StephenSHorton/rock/internal/childproc"
 	"github.com/StephenSHorton/rock/internal/config"
+	"github.com/StephenSHorton/rock/internal/provider"
 	"github.com/StephenSHorton/rock/internal/trace"
 	"github.com/StephenSHorton/rock/internal/version"
 )
@@ -245,6 +246,9 @@ type client struct {
 	// lines (first update, done).
 	promptAt time.Time
 	updates  int
+	// stream gets agent_message_chunk / agent_thought_chunk deltas for the
+	// in-flight prompt (nil when the caller does not stream).
+	stream provider.StreamFunc
 
 	modelConfigID string
 	modelCurrent  string
@@ -406,7 +410,7 @@ func (c *client) handleNote(msg rpc) {
 	}
 	c.mu.Lock()
 	c.updates++
-	first, at := c.updates == 1, c.promptAt
+	first, at, stream := c.updates == 1, c.promptAt, c.stream
 	c.mu.Unlock()
 	if first && !at.IsZero() {
 		trace.Info("grok first update", "kind", p.Update.SessionUpdate, "ms", trace.Since(at))
@@ -419,6 +423,13 @@ func (c *client) handleNote(msg rpc) {
 			c.mu.Lock()
 			c.text.WriteString(p.Update.Content.Text)
 			c.mu.Unlock()
+			if stream != nil {
+				stream(provider.StreamText, p.Update.Content.Text)
+			}
+		}
+	case "agent_thought_chunk":
+		if p.Update.Content.Text != "" && stream != nil {
+			stream(provider.StreamThought, p.Update.Content.Text)
 		}
 	case "tool_call", "tool_call_update":
 		args := rawToJSON(p.Update.RawInput)
@@ -846,6 +857,7 @@ func (c *client) promptWithIdle(ctx context.Context, sessionID, text string, idl
 	c.sessionID = sessionID
 	c.promptAt = time.Now()
 	c.updates = 0
+	c.stream = provider.StreamFrom(ctx)
 	at := c.promptAt
 	c.mu.Unlock()
 	trace.Info("grok prompt sent", "chars", len(text))
@@ -874,6 +886,7 @@ func (c *client) promptWithIdle(ctx context.Context, sessionID, text string, idl
 	c.mu.Lock()
 	n, chars := c.updates, c.text.Len()
 	c.promptAt = time.Time{}
+	c.stream = nil
 	c.mu.Unlock()
 	if err != nil {
 		trace.Error("grok prompt error", "ms", trace.Since(at), "updates", n, "err", err.Error())

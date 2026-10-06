@@ -41,6 +41,12 @@ type FakeScript struct {
 	// PromptDelay sleeps before answering session/prompt (lifetime tests).
 	PromptDelay time.Duration
 	CancelSeen  int
+	// Thoughts are sent as agent_thought_chunk updates before the reply.
+	// ReplyChunks, when > 1, splits Reply into that many
+	// agent_message_chunk updates. ChunkDelay sleeps between updates.
+	Thoughts    []string
+	ReplyChunks int
+	ChunkDelay  time.Duration
 
 	mu         sync.Mutex
 	args       []string
@@ -297,6 +303,9 @@ func FakeACP(in io.Reader, out io.Writer, script *FakeScript) {
 			askPerm := script.AskPerm
 			toolName := script.ToolName
 			toolArgs := script.ToolArgs
+			thoughts := append([]string(nil), script.Thoughts...)
+			replyChunks := script.ReplyChunks
+			chunkDelay := script.ChunkDelay
 			script.mu.Unlock()
 			if script.StrictACP {
 				if detail := validateSessionPrompt(msg.Params); detail != "" {
@@ -343,14 +352,25 @@ func FakeACP(in io.Reader, out io.Writer, script *FakeScript) {
 						},
 					})})
 				}
-				if reply != "" {
+				chunk := func(kind, text string) {
+					if chunkDelay > 0 {
+						time.Sleep(chunkDelay)
+					}
 					write(rpc{JSONRPC: "2.0", Method: "session/update", Params: mustRaw(map[string]any{
 						"sessionId": sessionID,
 						"update": map[string]any{
-							"sessionUpdate": "agent_message_chunk",
-							"content":       map[string]any{"type": "text", "text": reply},
+							"sessionUpdate": kind,
+							"content":       map[string]any{"type": "text", "text": text},
 						},
 					})})
+				}
+				for _, th := range thoughts {
+					chunk("agent_thought_chunk", th)
+				}
+				if reply != "" {
+					for _, part := range splitChunks(reply, replyChunks) {
+						chunk("agent_message_chunk", part)
+					}
 				}
 				write(rpc{JSONRPC: "2.0", ID: reqID, Result: mustRaw(map[string]any{"stopReason": "end_turn"})})
 			}()
@@ -470,4 +490,25 @@ func orJSON(s string) string {
 		return "{}"
 	}
 	return s
+}
+
+// splitChunks cuts s into n roughly equal rune slices (n <= 1: one piece).
+func splitChunks(s string, n int) []string {
+	r := []rune(s)
+	if n <= 1 || len(r) <= 1 {
+		return []string{s}
+	}
+	if n > len(r) {
+		n = len(r)
+	}
+	out := make([]string, 0, n)
+	size := (len(r) + n - 1) / n
+	for i := 0; i < len(r); i += size {
+		end := i + size
+		if end > len(r) {
+			end = len(r)
+		}
+		out = append(out, string(r[i:end]))
+	}
+	return out
 }

@@ -45,6 +45,9 @@ func (m *Model) layout() {
 	if m.showUpdateNotice() {
 		g.noticeRows = 1
 	}
+	if m.busy {
+		g.activityRows = 1
+	}
 
 	// Frame sides leave innerW-2 for the textarea. DynamicHeight grows
 	// with paste / shift+enter; resting empty height is one row.
@@ -59,7 +62,7 @@ func (m *Model) layout() {
 	}
 
 	chrome := func() int {
-		return g.padT + 1 + g.composerRows + g.frameRows + g.noticeRows + g.infoRows + g.helpRows + g.padB
+		return g.padT + 1 + g.composerRows + g.frameRows + g.noticeRows + g.activityRows + g.infoRows + g.helpRows + g.padB
 	}
 	for g.composerRows > 1 && h-chrome() < 4 {
 		g.composerRows--
@@ -180,6 +183,9 @@ func (m *Model) View() tea.View {
 	parts = append(parts, m.inset(m.bodyView(), g.bodyH))
 	if g.noticeRows > 0 {
 		parts = append(parts, m.inset(m.updateNoticeView(), g.noticeRows))
+	}
+	if g.activityRows > 0 {
+		parts = append(parts, m.inset(m.activityView(), g.activityRows))
 	}
 	parts = append(parts,
 		m.inset(m.composerView(), g.composerRows+g.frameRows+g.infoRows),
@@ -557,10 +563,8 @@ func (m *Model) statusView() string {
 		pctStyle = t.alarm
 	}
 	cwd := shortPath(m.deps.CWD)
+	// The turn timer lives in the working indicator above the composer.
 	timer := ""
-	if m.busy && !m.turnAt.IsZero() {
-		timer = fmtDuration(time.Since(m.turnAt))
-	}
 
 	sep := t.faint.Render(" │ ")
 	join := func(parts []string) string {
@@ -603,9 +607,6 @@ func (m *Model) statusView() string {
 	}
 
 	status := sanitize(m.status)
-	if m.busy && m.stall != "" {
-		status = sanitize(m.stall)
-	}
 	reserve := 0
 	if status != "" && status != "ready" {
 		reserve = min(ansi.StringWidth(status)+3, max(20, w/2))
@@ -639,9 +640,6 @@ func (m *Model) statusView() string {
 		statusStyle = t.alarm
 	}
 	right := ""
-	if m.busy {
-		right = m.spin.View() + " "
-	}
 	room := w - ansi.StringWidth(left) - 3 - ansi.StringWidth(right)
 	if room >= 6 && status != "" && status != "ready" {
 		right += statusStyle.Render(clip(status, room))
@@ -871,7 +869,7 @@ func (m *Model) renderTranscript(width int) string {
 			continue
 		}
 		ln := &m.lines[i]
-		if i > 0 && (ln.kind == "user" || ln.kind == "assistant" || ln.kind == "error") {
+		if i > 0 && (ln.kind == "user" || ln.kind == "assistant" || ln.kind == "error" || ln.kind == "thinking") {
 			gap()
 		}
 		sel := m.selected == i
@@ -881,7 +879,7 @@ func (m *Model) renderTranscript(width int) string {
 			ln.out, ln.outW, ln.outDark = m.renderLine(*ln, width, false, false, false), width, m.th.dark
 		}
 		painted := ln.out
-		if sel || folded || running || ln.kind == "tool" || lineFoldable(*ln, width) {
+		if sel || folded || running || ln.kind == "tool" || ln.kind == "thinking" || lineFoldable(*ln, width) {
 			painted = m.renderLine(*ln, width, sel, folded, running)
 		}
 		y0, y1 := write(painted)
@@ -898,7 +896,9 @@ func (m *Model) renderLine(ln line, width int, selected, folded, running bool) s
 	case "user":
 		return m.renderUser(text, width, selected, folded)
 	case "assistant":
-		return m.renderAssistant(text, width, selected, folded, ln.raw)
+		return m.renderAssistant(text, width, selected, folded, ln.raw || ln.live)
+	case "thinking":
+		return m.renderThinking(ln, width, selected, folded)
 	case "error":
 		bodyW := max(8, width-blockPad)
 		body := t.danger.Render(wrapText(text, bodyW))

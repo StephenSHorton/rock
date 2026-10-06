@@ -480,7 +480,7 @@ func TestStatusLineSitsUnderTheComposer(t *testing.T) {
 	}
 }
 
-func TestStatusLineShowsTurnTimerNotSessionTitle(t *testing.T) {
+func TestTurnTimerIsInTheIndicatorNotTheStatusLine(t *testing.T) {
 	m := sized(t, 140, 24)
 	m.deps.CWD = "/tmp/rock"
 	m.layout()
@@ -489,8 +489,13 @@ func TestStatusLineShowsTurnTimerNotSessionTitle(t *testing.T) {
 	}
 	m.busy = true
 	m.turnAt = time.Now().Add(-12 * time.Second)
-	if status := screen(m)[m.geo.statusY()]; !strings.Contains(status, "12s") {
-		t.Fatalf("busy turn should show the timer: %q", status)
+	m.layout()
+	rows := screen(m)
+	if status := rows[m.geo.statusY()]; strings.Contains(status, "12s") || strings.Contains(status, "working") {
+		t.Fatalf("timer/working belong above the composer, not the status line: %q", status)
+	}
+	if ind := rows[m.geo.activityY()]; !strings.Contains(ind, "Thinking… 12s") {
+		t.Fatalf("indicator should show the timer: %q", ind)
 	}
 }
 
