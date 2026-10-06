@@ -100,7 +100,10 @@ Built-in, not remappable. `Ctrl+.` (or `Ctrl+X` without Kitty keyboard) opens th
 | `Ctrl+Q` / `Ctrl+D` | Quit (double-press; VS Code-family is `Ctrl+D` only) |
 | `Ctrl+T` / `Ctrl+G` / `Ctrl+;` | Todos / tasks / queue |
 | `Ctrl+\` | Agent Dashboard |
-| `PgUp`/`PgDn`, `Ctrl+U`/`D` | Scroll (works with the prompt focused) |
+| `PgUp`/`PgDn` | Scroll (works with the prompt focused) |
+| `Ctrl+U`/`D` | Half-page scroll with the scrollback focused |
+
+Prompt editor (`xai-ratatui-textarea/src/editor_keys.rs`): `Ctrl+Backspace` / `Alt+Backspace` / `Ctrl+W` delete the previous word, `Ctrl+Delete` / `Alt+Delete` / `Alt+D` the next word, `Ctrl+←/→` and `Alt+←/→` / `Alt+B/F` move by word, `Home`/`End` and `Ctrl+A`/`Ctrl+E` go to the line start/end, `Ctrl+U` / `Ctrl+K` delete to the line start/end, `Ctrl+D` deletes forward. Raw BS (0x08) and DEL (0x7f) are both one-character deletes there.
 
 Permission / question / cancel-turn cards steal the keyboard (`1`–`9`, `Tab` walks options, `Esc` parks in scrollback).
 
@@ -176,19 +179,31 @@ This is not Grok’s optional `[ui.status_line]`. It is closer to Grok’s top s
 
 ### Keybindings
 
-`newKeys()` in `model.go`. Help overlay (`ctrl+h` / `/help`) lists them.
+`newKeys()` and `composerKeyMap()` (`editkeys.go`). The help overlay (`ctrl+.` / `ctrl+x` / `?` / `/help`) lists them.
 
 | Keys | Action |
 |---|---|
 | `enter` | Send |
-| `ctrl+j` | New line |
-| `pgup`/`pgdn`, `ctrl+u`/`d` | Scroll transcript (half-page on ctrl) |
-| `ctrl+h` | Help overlay |
-| `esc` | Close overlay; deny a pending ask |
+| `shift+enter` / `ctrl+j` / `alt+enter` | New line |
+| `pgup`/`pgdn` | Scroll transcript |
+| `ctrl+u`/`ctrl+d` | Half-page scroll when the transcript has focus; editing keys in the composer |
+| `ctrl+.` / `ctrl+x` | Help overlay |
+| `esc` | Close overlay; deny a pending ask; cancel a running turn |
 | `y`/`a` · `n`/`d` | Allow / deny a pending ask |
 | `ctrl+c` | Quit (denies a pending ask, cancels the turn) |
 
-No Tab focus swap — the composer stays focused unless an overlay or ask is open. No command palette. No `Shift+Tab` mode cycle. No double-press quit. Wheel and scrollbar-click work; clicking a transcript line does not select it.
+Composer editing, mirroring Grok's prompt editor:
+
+| Keys | Action |
+|---|---|
+| `ctrl+backspace` / `ctrl+w` / `alt+backspace` | Delete previous word |
+| `ctrl+delete` / `alt+delete` / `alt+d` | Delete next word |
+| `ctrl+←/→` / `alt+←/→` / `alt+b`/`f` | Move by word |
+| `home`/`end` · `ctrl+a`/`ctrl+e` | Line start / end |
+| `ctrl+u` / `ctrl+k` | Delete to line start / end |
+| `backspace` · `delete` / `ctrl+d` | Delete one character back / forward |
+
+`ctrl+h` is read as `ctrl+backspace` (delete word), because many terminals (Windows Terminal and conhost among them) send Ctrl+Backspace as a bare BS byte, which Bubble Tea decodes as `ctrl+h`. Exception: when the tty erase character is `^H` (the terminal's plain Backspace sends BS), `ctrl+h` stays a one-character delete. `ROCK_CTRL_H=word|char` forces either. Unlike Grok, Rock does not treat raw BS as Backspace by default.
 
 ### Slash commands
 

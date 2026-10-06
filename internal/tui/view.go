@@ -406,11 +406,11 @@ func (m *Model) helpText(w int) string {
 	keys := [][2]string{
 		{"enter", "send"},
 		{"tab / shift+tab", "focus · cycle default/plan/yolo"},
-		{"pgup/pgdn", "scroll the transcript"},
+		{"pgup/pgdn", "scroll the transcript (ctrl+u/d when it has focus)"},
 		{"ctrl+p", "command palette"},
 		{"ctrl+s / ctrl+o", "sessions · toggle yolo"},
 		{"←/→", "fold the selected block"},
-		{"ctrl+h / ctrl+.", "this help"},
+		{"ctrl+. / ctrl+x / ?", "this help"},
 		{"esc", "close; deny; cancel a running turn"},
 		{"ctrl+c twice", "quit"},
 	}
@@ -437,11 +437,13 @@ func (m *Model) helpText(w int) string {
 		}
 		return strings.Join(out, "\n")
 	}
-	left, right := section("Keys", keys, 1<<10), section("Slash commands", cmds, 1<<10)
+	edit := editingHelp()
+	left := section("Keys", keys, 1<<10) + "\n\n" + section("Editing", edit, 1<<10)
+	right := section("Slash commands", cmds, 1<<10)
 	if lw := lipgloss.Width(left); lw+6+lipgloss.Width(right) <= w {
 		return joinColumns(padBlock(left, lw), "      ", right)
 	}
-	return section("Keys", keys, w) + "\n\n" + section("Slash commands", cmds, w)
+	return section("Keys", keys, w) + "\n\n" + section("Slash commands", cmds, w) + "\n\n" + section("Editing", edit, w)
 }
 
 func (m *Model) askHeight(w int) int {
