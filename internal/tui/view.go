@@ -613,6 +613,24 @@ func (m *Model) statusView() string {
 	if status != "" && status != "ready" {
 		reserve = min(ansi.StringWidth(status)+3, max(20, w/2))
 	}
+	// Subscription usage at >= 75%: right-aligned, warning then alarm color.
+	usageSeg := ""
+	if texts := usageTexts(m.usage, usageNow(), usageLoc()); len(texts) > 0 {
+		style := t.alarm
+		if usageLevel(m.usage.Percent) >= 2 {
+			style = t.danger
+		}
+		room := max(0, w/2-reserve-3)
+		for _, s := range texts {
+			if ansi.StringWidth(s) <= room {
+				usageSeg = style.Render(s)
+				break
+			}
+		}
+		if usageSeg != "" {
+			reserve += ansi.StringWidth(usageSeg) + 3
+		}
+	}
 
 	bar := m.meter.Width()
 	left := build(bar, true, true, 0)
@@ -641,10 +659,17 @@ func (m *Model) statusView() string {
 	} else if m.busy {
 		statusStyle = t.alarm
 	}
-	right := ""
+	right := usageSeg
 	room := w - ansi.StringWidth(left) - 3 - ansi.StringWidth(right)
+	if right != "" {
+		room -= 3
+	}
 	if room >= 6 && status != "" && status != "ready" {
-		right += statusStyle.Render(clip(status, room))
+		st := statusStyle.Render(clip(status, room))
+		if right != "" {
+			st += t.faint.Render(" │ ")
+		}
+		right = st + right
 	} else if right == "" {
 		return left
 	}

@@ -47,6 +47,11 @@ type FakeScript struct {
 	Thoughts    []string
 	ReplyChunks int
 	ChunkDelay  time.Duration
+	// Billing, when non-nil, is the result for _x.ai/billing (grok 1.0.41
+	// shape). Nil answers Method not found. BillingDelay sleeps first.
+	Billing      json.RawMessage
+	BillingDelay time.Duration
+	billingCalls int
 
 	mu         sync.Mutex
 	args       []string
@@ -72,6 +77,13 @@ func (f *FakeScript) Cancels() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.CancelSeen
+}
+
+// BillingCalls is how many _x.ai/billing requests the fake answered.
+func (f *FakeScript) BillingCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.billingCalls
 }
 
 func (f *FakeScript) setArgs(args []string) {
@@ -374,6 +386,22 @@ func FakeACP(in io.Reader, out io.Writer, script *FakeScript) {
 				}
 				write(rpc{JSONRPC: "2.0", ID: reqID, Result: mustRaw(map[string]any{"stopReason": "end_turn"})})
 			}()
+
+		case BillingMethod:
+			script.mu.Lock()
+			script.billingCalls++
+			result, delay := script.Billing, script.BillingDelay
+			script.mu.Unlock()
+			if result == nil {
+				write(rpc{JSONRPC: "2.0", ID: msg.ID, Error: &rpcError{Code: -32601, Message: "Method not found"}})
+				break
+			}
+			go func(id any) {
+				if delay > 0 {
+					time.Sleep(delay)
+				}
+				write(rpc{JSONRPC: "2.0", ID: id, Result: result})
+			}(msg.ID)
 
 		case "session/cancel":
 			script.mu.Lock()

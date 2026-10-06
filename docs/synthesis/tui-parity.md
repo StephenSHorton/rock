@@ -175,6 +175,8 @@ The only rich preview is the **ask card** (`preview` in `view.go`): shell as `$ 
 
 Always on, between body and composer. Left: mode badge (`DEFAULT` / `PLAN` / `YOLO`, plus `REVIEW` when review-only), `jev:offline|live`, `◆` model (or `no model`, plus `(offline)`), Harmonica-spring `ctx` meter + percent (alarm at 80%). Right: spinner while a turn runs, then the status verb (`ready`, `working`, alerts). Shrinks the meter, then the offline note, then the status text, as the window narrows.
 
+**Subscription usage.** With grok-cli, Rock asks the live child for `_x.ai/billing` (an ACP extension request; the leading underscore is required, and it needs no session) once at startup and after completed turns, at most once a minute, with a 5 s timeout. At ≥ 75 % the right end of the status line shows `Weekly limit 96% · resets Thu 11:47 AM` in local time: the label comes from the period type (weekly / monthly / otherwise `Usage`), it is drawn in the warning color, switches to the error color at ≥ 90 %, and reads `Weekly limit reached` at 100 %. Below 75 % it is hidden. `/usage` shows the numbers on demand at any level. Failures are logged (`tui usage error`) and hide the indicator. Grok's own pager draws the same data as its credit bar (`views/credit_bar.rs`). ChatGPT sign-in has no usage indicator yet. Codex reads `x-codex-*` rate-limit headers from the ChatGPT backend, but Rock calls the api.openai.com Responses endpoint, and we have not confirmed that endpoint sends those headers.
+
 This is not Grok’s optional `[ui.status_line]`. It is closer to Grok’s top status bar plus the mode/model chips Grok puts on the composer info line — glued into one row in the middle of the chrome.
 
 ### Keybindings
