@@ -129,6 +129,23 @@ func (p *picker) backspace() {
 	p.clamp()
 }
 
+// deleteWord drops the last word of the filter (and the spaces before it).
+func (p *picker) deleteWord() {
+	if p.filter == "" {
+		return
+	}
+	r := []rune(p.filter)
+	i := len(r)
+	for i > 0 && r[i-1] == ' ' {
+		i--
+	}
+	for i > 0 && r[i-1] != ' ' {
+		i--
+	}
+	p.filter = string(r[:i])
+	p.clamp()
+}
+
 func (p *picker) ownsTyping() bool {
 	switch p.kind {
 	case modelPicker, modePicker, sessionsPicker:

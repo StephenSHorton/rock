@@ -229,11 +229,11 @@ func newKeys() keyMap {
 	return keyMap{
 		submit:   key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "send")),
 		newline:  key.NewBinding(key.WithKeys("shift+enter", "ctrl+j", "alt+enter"), key.WithHelp("ctrl+j", "new line")),
-		help:     key.NewBinding(key.WithKeys("ctrl+h", "ctrl+.", "ctrl+x"), key.WithHelp("ctrl+.", "help")),
+		help:     key.NewBinding(key.WithKeys("ctrl+.", "ctrl+x"), key.WithHelp("ctrl+.", "help")),
 		quit:     key.NewBinding(key.WithKeys("ctrl+c", "ctrl+q"), key.WithHelp("ctrl+c", "quit")),
 		scroll:   key.NewBinding(key.WithKeys("pgup", "pgdown"), key.WithHelp("pgup/pgdn", "scroll")),
-		up:       key.NewBinding(key.WithKeys("pgup", "ctrl+u"), key.WithHelp("pgup", "scroll up")),
-		down:     key.NewBinding(key.WithKeys("pgdown", "ctrl+d"), key.WithHelp("pgdn", "scroll down")),
+		up:       key.NewBinding(key.WithKeys("pgup"), key.WithHelp("pgup", "scroll up")),
+		down:     key.NewBinding(key.WithKeys("pgdown"), key.WithHelp("pgdn", "scroll down")),
 		allow:    key.NewBinding(key.WithKeys("y", "a"), key.WithHelp("y", "allow")),
 		deny:     key.NewBinding(key.WithKeys("n", "d"), key.WithHelp("n", "deny")),
 		close:    key.NewBinding(key.WithKeys("esc", "q"), key.WithHelp("esc", "close")),
@@ -311,6 +311,7 @@ type Model struct {
 	planVP    viewport.Model
 	sheet     viewport.Model
 	input     textarea.Model
+	ctrlHWord bool // ctrl+h is Ctrl+Backspace (delete word), not Backspace
 	spin      spinner.Model
 	help      help.Model
 	sessions  list.Model
@@ -406,7 +407,8 @@ func New(deps Deps) *Model {
 		}
 		return "  "
 	})
-	ta.KeyMap.InsertNewline = m.keys.newline
+	m.ctrlHWord = ctrlHDeletesWord()
+	ta.KeyMap = composerKeyMap(m.keys.newline, m.ctrlHWord)
 	ta.DynamicHeight = true
 	ta.MinHeight = 1
 	ta.MaxHeight = maxComposerRows
@@ -733,6 +735,9 @@ func (m *Model) scrollbackKey(msg tea.KeyPressMsg) tea.Cmd {
 		if m.foldableAt(m.selected) {
 			m.toggleFold(m.selected)
 		}
+		return nil
+	case msg.String() == "ctrl+u", msg.String() == "ctrl+d":
+		m.scrollKey(msg)
 		return nil
 	case msg.String() == "up":
 		m.moveSelect(-1)
@@ -1136,9 +1141,12 @@ func (m *Model) pickerKey(msg tea.KeyPressMsg) tea.Cmd {
 		return m.pickCurrent()
 	}
 	if m.picker.ownsTyping() {
-		switch msg.String() {
-		case "backspace", "ctrl+h":
+		switch pickerEdit(msg.String(), m.ctrlHWord) {
+		case "char":
 			m.picker.backspace()
+			return nil
+		case "word":
+			m.picker.deleteWord()
 			return nil
 		}
 		if text := msg.Text; text != "" && !strings.ContainsAny(text, "\n\t") {
