@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/StephenSHorton/rock/internal/childproc"
 	"github.com/StephenSHorton/rock/internal/config"
 	"github.com/StephenSHorton/rock/internal/jev"
 	"github.com/StephenSHorton/rock/internal/provider"
@@ -422,6 +423,7 @@ func (s *Set) shell(ctx context.Context, command string) (string, error) {
 	cmd := exec.CommandContext(cctx, "bash", "-lc", command)
 	cmd.Dir = s.Env.Root
 	config.ScrubCmdEnv(cmd)
+	childproc.Isolate(cmd)
 	out, err := cmd.CombinedOutput()
 	text := string(out)
 	if len(text) > 32_000 {

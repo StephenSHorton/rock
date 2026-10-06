@@ -11,11 +11,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/StephenSHorton/rock/internal/config"
-	"github.com/StephenSHorton/rock/internal/version"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/StephenSHorton/rock/internal/childproc"
+	"github.com/StephenSHorton/rock/internal/config"
+	"github.com/StephenSHorton/rock/internal/version"
 )
 
 // StartFunc opens an ACP child. Tests inject a fake. Production starts
@@ -150,6 +152,9 @@ func startExec(ctx context.Context, bin string, args []string) (io.WriteCloser, 
 	var stderrBuf strings.Builder
 	cmd.Stderr = &stderrBuf
 	config.ScrubCmdEnv(cmd)
+	// Own hidden console on Windows so grok (and anything it spawns) cannot
+	// read the TUI's key/resize input records or reset its console mode.
+	childproc.Isolate(cmd)
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()

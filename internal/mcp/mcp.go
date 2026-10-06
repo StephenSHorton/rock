@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/StephenSHorton/rock/internal/childproc"
 	"github.com/StephenSHorton/rock/internal/config"
 )
 
@@ -54,6 +55,7 @@ type rpc struct {
 func Start(ctx context.Context, spec Server) (*Client, error) {
 	cmd := exec.Command(spec.Command, spec.Args...)
 	config.ScrubCmdEnv(cmd)
+	childproc.Isolate(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
